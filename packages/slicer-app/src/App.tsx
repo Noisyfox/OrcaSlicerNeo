@@ -1,3 +1,5 @@
+import { sendActivity } from '@orca/printer-control';
+import { useSendExitGuard } from './components/send/SendExitGuard';
 import { MeshBooleanWait } from './components/workspace/viewport/gizmo/meshBoolean/MeshBooleanControls';
 import { PrinterDownloadNotifications } from './components/device/PrinterDownloadNotifications';
 import { useProjectDialogStore } from './stores/useProjectDialogStore';
@@ -281,6 +283,7 @@ function AppContent() {
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
     void refreshRecentProjects();
   }, [chooseLoad, confirmProjectLoad, decideDirty, platform, refreshRecentProjects, reportProjectFailure]);
+  const sendExit = useSendExitGuard(platform.printers.service);
   const runCloseRequest = useCallback(async () => {
     // Startup has not admitted a user project yet. Querying the
     // Worker here can block the native close handshake while init/profile
@@ -302,8 +305,9 @@ function AppContent() {
       }
     }
     if (allow) allow = await closePaintingForCommand();
+    if (allow) allow = await sendExit.confirm();
     await platform.lifecycle?.respondClose(allow);
-  }, [boot, decideDirty, platform, reportProjectFailure]);
+  }, [boot, decideDirty, platform, reportProjectFailure, sendExit.confirm]);
   const runSaveProject = useCallback(async (asCopy = false) => {
     const result = asCopy ? await saveProjectAs(platform) : await saveProject(platform);
     reportProjectFailure(result);
@@ -588,13 +592,14 @@ function AppContent() {
       // Browser lifecycle cannot present the app's Save/Don't Save/Cancel
       // dialog. It only gets the native leave/cancel prompt, and must never
       // trigger a download while the browser is unloading.
-      if (!useProjectStore.getState().dirty && paintingCommandAllowed()) return;
+      if (!useProjectStore.getState().dirty && paintingCommandAllowed() && !sendActivity(platform.printers.service).active) return;
       event.preventDefault();
       event.returnValue = '';
     };
-    window.addEventListener('beforeunload', protect);
-    return () => window.removeEventListener('beforeunload', protect);
-  }, [platform.chrome.kind]);
+    const leaving = () => { void sendActivity(platform.printers.service).stop(); };
+    window.addEventListener('beforeunload', protect); window.addEventListener('pagehide', leaving);
+    return () => { window.removeEventListener('beforeunload', protect); window.removeEventListener('pagehide', leaving); };
+  }, [platform.chrome.kind, platform.printers.service]);
 
   // Electron's close request enters the same shared dirty dialog/save path as
   // New and Open. The Web host intentionally has no lifecycle bridge here;
@@ -765,6 +770,7 @@ function AppContent() {
       </ArrangementEditBoundary>
       {fileManagerWindow}
       <MeshBooleanWait />
+      {sendExit.dialog}
       <PrinterDownloadNotifications />
       <WorkspaceNotifications visible={isWorkspaceTab(activeTab)} />
       {setupWizard}

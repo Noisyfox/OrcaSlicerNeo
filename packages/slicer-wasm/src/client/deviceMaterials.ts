@@ -1,5 +1,8 @@
 import type { PrinterSynchronizationRequest } from './types';
 
+/** Exact system material-name identity independent of the project, then Orca vendor/type/RGB and type fallback. */
+export interface FilamentPresetMatchInput { presetName: string | null; manufacturer: string; materialType: string; colorRgba: string }
+
 /** Read-only catalogue for a physical device, independent of the active project printer. */
 export interface DeviceMaterialCatalogueRequest {
   identity: PrinterSynchronizationRequest['identity'];

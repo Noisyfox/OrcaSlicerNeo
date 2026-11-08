@@ -20,6 +20,7 @@ export class ElectronPrinterTransport implements PrinterTransport {
     const payload: PrinterTransportIpcRequest = {
       method: request.method,
       url: request.url,
+      ...(request.responseType ? { responseType: request.responseType } : {}),
       ...(request.headers ? { headers: { ...request.headers } } : {}),
       ...(request.body ? { body: request.body } : {}),
     };
@@ -51,6 +52,10 @@ export class ElectronPrinterTransport implements PrinterTransport {
             async json() {
               if (response.jsonError) throw new Error('Printer request returned invalid JSON');
               return response.json;
+            },
+            async bytes() {
+              if (!response.bytes) throw new Error('Printer request returned no binary data');
+              return response.bytes;
             },
           });
         })

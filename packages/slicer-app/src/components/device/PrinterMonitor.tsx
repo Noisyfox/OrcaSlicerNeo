@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { MaterialMetadataDialog } from './MaterialMetadataDialog';
+import { DevicePreferencesCard } from './DevicePreferencesCard';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Pause, Play, Square } from 'lucide-react';
 import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
 import { usePlatform } from '@orca/platform-contract';
 import type * as D from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePrinterCommands, useCurrentPrintPreview } from './usePrinterControl';
 import { usePrinterObservation } from './usePrinterObservation';
 import { ActuatorCard, ControlCard, display, MotionCard, ThermalCard, valueOf } from './PrinterControlCards';
@@ -22,6 +26,7 @@ export function supportsMonitor(capabilities: D.PrinterCapabilities): boolean {
 }
 
 export function PrinterMonitor({ printer, route, visible = true, observeWhileHidden = false }: { printer: D.SavedPrinter; route: D.PrinterRoute; visible?: boolean; observeWhileHidden?: boolean }) {
+  const speedFieldId = useId();
   const { printers: { service } } = usePlatform();
   const { snapshot, capabilities, error, refreshing, refresh, live, liveStatus, canRefresh } = usePrinterObservation(service, printer, route, visible, observeWhileHidden);
   const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
@@ -32,7 +37,9 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
     && editor.target.expectedConfigurationRevision === target.expectedConfigurationRevision
     && inventory?.topology.slots.some(slot => slot.id === editor.slot.id)
     && configure.kind === 'supported' ? configure.constraints.find(item => item.slotId === editor.slot.id) : undefined;
-  useEffect(() => { if (editor && (!editing || !visible)) setEditor(null); }, [editor, editing, visible]);
+  const metadata = capabilities.commands['materials.writeMetadata'];
+  const metadataEditing = editor && editor.target.printerId === target.printerId && editor.target.routeId === target.routeId && editor.target.expectedConfigurationRevision === target.expectedConfigurationRevision && metadata.kind === 'supported' ? metadata.constraints.find(item => item.slotId === editor.slot.id) : undefined;
+  useEffect(() => { if (editor && ((!editing && !metadataEditing) || !visible)) setEditor(null); }, [editor, editing, metadataEditing, visible]);
   const [cancel, setCancel] = useState<{ name: string; taskId?: D.Id<'device-task'> } | null>(null);
   const status = valueOf(snapshot?.values.status), topology = valueOf(snapshot?.values.descriptor)?.topology;
   const fresh = snapshot?.values.status?.kind === 'known' && snapshot.values.status.freshness === 'fresh' && !error;
@@ -84,16 +91,30 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
       {hasThermal && (topology?.heaters.length ? <ThermalCard {...controls} /> : <ControlCard title="Heater targets">{thermal?.map(heater => <p key={heater.heaterId}>{heater.heaterId}: {display(heater.targetC, value => `${value} °C`)}</p>) ?? 'Not reported'}</ControlCard>)}
       {hasSensors && !topology?.heaters.length && <ControlCard title="Sensors">{sensors?.definitions.map(sensor => <p key={sensor.id}>{sensor.name}: {display<unknown>(sensors.readings.find(state => state.sensorId === sensor.id)?.reading, value => typeof value === 'object' ? Object.entries(value ?? {}).map(([axis, number]) => `${axis}: ${number}`).join(', ') : String(value))}{sensor.unit ? ` ${sensor.unit}` : ''}</p>) ?? 'Not reported'}</ControlCard>}
       {hasActuators && <ActuatorCard {...controls} />}
-      {speeds.kind === 'supported' && <div className="printer-print-actions"><label className="printer-print-speed"><span>Print speed</span><select aria-label="Print speed" className="rounded border bg-background p-1 text-sm" value={valueOf(status?.printStatus.speedModeId) ?? ''} disabled={controls.disabled || !['printing', 'paused'].includes(phase ?? '')} onChange={event => void send({ type: 'jobs.setSpeed', params: { modeId: event.target.value } })}><option value="" disabled>Print speed</option>{speeds.constraints.modes.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label></div>}
+      {speeds.kind === 'supported' && <div className="printer-print-actions">
+        <Field orientation="horizontal" data-disabled={controls.disabled || !['printing', 'paused'].includes(phase ?? '')}>
+          <FieldLabel htmlFor={speedFieldId}>Print speed</FieldLabel>
+          <Select items={speeds.constraints.modes.map(mode => ({ value: mode.id, label: mode.label }))}
+            value={valueOf(status?.printStatus.speedModeId) ?? null} disabled={controls.disabled || !['printing', 'paused'].includes(phase ?? '')}
+            onValueChange={modeId => { if (modeId !== null) void send({ type: 'jobs.setSpeed', params: { modeId } }); }}>
+            <SelectTrigger id={speedFieldId} aria-label="Print speed"><SelectValue placeholder="Print speed" /></SelectTrigger>
+            <SelectContent><SelectGroup>{speeds.constraints.modes.map(mode => <SelectItem key={mode.id} value={mode.id}>{mode.label}</SelectItem>)}</SelectGroup></SelectContent>
+          </Select>
+        </Field>
+      </div>}
       {!hasThermal && !hasSensors && !hasActuators && !hasMotion && <p className="text-sm text-muted-foreground">Temperature and sensor readings are not available on this route.</p>}
     </div>{hasMotion && <MotionCard {...controls} />}</div></ControlCard>}
-    materials={capabilities.observations.materials.kind === 'supported' && <MaterialControlCard {...controls} onEdit={(slot, material) => setEditor({ target, slot, material, printer: valueOf(snapshot?.values.descriptor)?.identity ?? printer.identity,
-      slotLabel: [inventory?.topology.units.find(unit => unit.id === slot.unitId)?.name, slot.name, ...new Set(inventory?.topology.paths.filter(path => path.slotId === slot.id).map(path => topology?.tools.find(tool => tool.id === path.toolId)?.name))].filter(Boolean).join(' · ') })} />}
+    materials={<>
+      {capabilities.observations.materials.kind === 'supported' && <MaterialControlCard {...controls} onEdit={(slot, material) => setEditor({ target, slot, material, printer: valueOf(snapshot?.values.descriptor)?.identity ?? printer.identity,
+        slotLabel: [inventory?.topology.units.find(unit => unit.id === slot.unitId)?.name, slot.name, ...new Set(inventory?.topology.paths.filter(path => path.slotId === slot.id).map(path => topology?.tools.find(tool => tool.id === path.toolId)?.name))].filter(Boolean).join(' · ') })} />}
+      {!!valueOf(snapshot?.values.preferences)?.fields.length && <DevicePreferencesCard key={`${target.printerId}:${target.routeId}:${target.expectedConfigurationRevision}`} service={service} target={target} preferences={valueOf(snapshot?.values.preferences)!} onSaved={() => void refresh()} />}
+    </>}
     hardware={(!!topology?.nozzles.length || capabilities.commands['hardware.refreshNozzles'].kind === 'supported') && <details className="printer-hardware-details"><summary>Nozzle hardware</summary>
     <ControlCard title="Nozzles"><div className="flex flex-wrap gap-4">{topology?.nozzles.map(nozzle => <div key={nozzle.id} className="text-sm"><strong>{topology.tools.find(tool => tool.nozzleId === nozzle.id)?.name ?? 'Unknown tool'} · Nozzle</strong><p>{nozzle.diameterMm === null ? 'Diameter not reported' : `${nozzle.diameterMm} mm`} · {nozzle.constructionMaterial ?? 'Material not reported'}</p><p className="text-xs text-muted-foreground">{nozzle.flowType ?? 'Flow type not reported'}{nozzle.type ? ` · ${nozzle.type}` : ''}</p></div>)}</div>
       {capabilities.commands['hardware.refreshNozzles'].kind === 'supported' && <Button size="sm" variant="secondary" disabled={controls.disabled} onClick={() => void send({ type: 'hardware.refreshNozzles', params: {} })}>Refresh nozzle identification</Button>}
     </ControlCard></details>}
   />
+    {editor && !editing && metadataEditing && visible && <MaterialMetadataDialog key={`${editor.target.printerId}:${editor.target.routeId}:${editor.slot.id}`} service={service} target={editor.target} slot={editor.slot} material={editor.material} fields={metadataEditing.writableFields} onClose={() => { setEditor(null); void refresh(); }} />}
     {editor && editing && visible && <MaterialInformationDialog key={`${editor.target.printerId}:${editor.target.routeId}:${editor.target.expectedConfigurationRevision}:${editor.slot.id}`}
       service={service} target={editor.target} printer={editor.printer} slot={editor.slot} slotLabel={editor.slotLabel} material={editor.material} configuration={editing}
       capabilityRevision={capabilities.revision} disabled={controls.disabled} onClose={() => setEditor(null)} onSubmitted={acceptSubmission} />}

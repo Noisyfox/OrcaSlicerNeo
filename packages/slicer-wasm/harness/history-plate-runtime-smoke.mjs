@@ -66,11 +66,11 @@ const stamps = () => callJson('orc_get_plate_session_snapshot').input_revisions;
 requireOk('select A', callJson('orc_select_plate', ['string'], [plateA]));
 session = callJson('orc_get_plate_session_snapshot');
 const sliceA = requireOk('slice A', await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', ...sliceTarget(plateA)]));
+  ['string', 'string', 'number', 'string'], ['{}', ...sliceTarget(plateA), 'null']));
 requireOk('select B', callJson('orc_select_plate', ['string'], [plateB]));
 session = callJson('orc_get_plate_session_snapshot');
 const sliceB = requireOk('slice B', await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', ...sliceTarget(plateB)]));
+  ['string', 'string', 'number', 'string'], ['{}', ...sliceTarget(plateB), 'null']));
 requireOk('B presentation before history', getSliceResult(callJson, sliceB.receipt));
 const slicedStamps = stamps();
 

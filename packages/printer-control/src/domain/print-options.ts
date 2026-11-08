@@ -11,4 +11,6 @@ export interface PrintPreferences {
 /** Per-dialog option; deliberately excluded from persisted PrintPreferences. */
 export interface PrintOptions extends PrintPreferences {
   externalChangeAssist?: boolean;
+  /** Per-dialog head subset, never persisted as a printer preference. */
+  calibrationToolIndices?: readonly number[];
 }

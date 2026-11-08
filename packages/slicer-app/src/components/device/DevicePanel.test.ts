@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WebViewHost, WebViewPanel, WebViewPanelCapabilities } from '@orca/platform-contract';
 import type { PrinterConfiguration } from '@orca/printer-control';
-import { mountPrinterConsolePanel, panelMessage, removePrinter, savePrinterDraft, type PrinterDraft } from './DevicePanel';
+import { mountPrinterConsolePanel, panelMessage, removePrinter } from './DevicePanel';
 
 const capabilities: WebViewPanelCapabilities = {
   canInjectBuiltInScripts: true,
@@ -31,18 +31,8 @@ function fakeHost(calls: string[]): WebViewHost {
 }
 
 describe('Device printer configuration helpers', () => {
-  it('normalizes and saves multiple records without selecting one', () => {
-    const draft: PrinterDraft = { ...printer, id: undefined, displayName: ' New printer ' };
-    const document = savePrinterDraft({ version: 1, printers: [] }, draft, 'add', 'new-id');
-    expect(document.printers).toHaveLength(1);
-    expect(document.printers[0]).toMatchObject({ id: 'new-id', displayName: 'New printer', apiKey: 'secret-key' });
-    expect(document).not.toHaveProperty('selectedPrinterId');
-  });
-
-  it('edits and deletes by stable id', () => {
-    const edited = savePrinterDraft({ version: 1, printers: [printer] }, { ...printer, displayName: 'Edited' }, 'edit', printer.id);
-    expect(edited.printers[0].displayName).toBe('Edited');
-    const removed = removePrinter(edited.printers, printer.id);
+  it('deletes by stable id', () => {
+    const removed = removePrinter([printer], printer.id);
     expect(removed.printers).toEqual([]);
   });
 
@@ -55,15 +45,6 @@ describe('Device printer configuration helpers', () => {
     dispose();
     expect(calls).toEqual(['mount', 'register:moonraker-fetch-v1', 'load:http://printer.local/console', 'dispose']);
     expect(states).toEqual(['idle']);
-  });
-
-  it('saves and clears a model without erasing other devices or print preferences', () => {
-    const printerModel = { vendorId: 'Snapmaker', model: 'Snapmaker U1' };
-    const original = { version: 1 as const, printers: [printer], printPreferences: { bambu: { timelapse: false } }, allowAbnormalStorage: true };
-    const added = savePrinterDraft(original, { ...printer, printerModel }, 'add', 'p2');
-    expect(added).toEqual({ ...original, printers: [printer, { ...printer, id: 'p2', printerModel }] });
-    const cleared = savePrinterDraft(added, { ...added.printers[1], printerModel: undefined }, 'edit', 'p2');
-    expect(cleared).toEqual({ ...original, printers: [printer, { ...printer, id: 'p2' }] });
   });
 
   it('uses the API base URL for the console when no console URL is configured', () => {

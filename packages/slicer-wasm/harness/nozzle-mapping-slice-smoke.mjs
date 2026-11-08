@@ -22,8 +22,8 @@ const inputs = () => ({ inputs: observe().mappingInputs, plates: [ok(projection(
 const settings = { enable_prime_tower: false, layer_height: 0.3, initial_layer_print_height: 0.3, sparse_infill_density: '5%' };
 async function slice(id, label) {
   const before = inputs();
-  const result = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
-    [JSON.stringify(settings), id, ok(projection(id)).revision]);
+  const result = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+    [JSON.stringify(settings), id, ok(projection(id)).revision, 'null']);
   ok(result);
   const exported = ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));
   const gcode = Module.FS.readFile(exported.path, { encoding: 'utf8' });
@@ -61,8 +61,8 @@ await slice(second, 'automatic');
 mutate(second, { kind: 'mode', mode: 2 });
 assert.deepEqual(ok(projection(second)).effective.filamentMap, [2, 1], 'automatic result never overwrites manual intent');
 configure({ plate_settings: { [second]: { filament_map_mode: 'Auto For Match' } } });
-const rejected = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
-  [JSON.stringify(settings), second, ok(projection(second)).revision]);
+const rejected = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  [JSON.stringify(settings), second, ok(projection(second)).revision, 'null']);
 assert.match(rejected.error, /Connect to and select a printer matching/);
 assert.equal(ok(projection(second)).saved.mode, 1);
 mutate(second, { kind: 'mode', mode: 2 });
@@ -76,8 +76,8 @@ ok(command('orc_mutate_preset_draft', { kind: 'printer', canonical_name: 'MyKlip
   expected_revision: call('orc_history_status').revision, history_context: context, action: 'set', key: 'extruders_count', value: '3' }));
 await slice(first, 'fixed-three');
 configure({ printer_settings: { nozzle_count: 3, semm: true } });
-const unsupported = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
-  [JSON.stringify(settings), first, ok(projection(first)).revision]);
+const unsupported = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  [JSON.stringify(settings), first, ok(projection(first)).revision, 'null']);
 assert.match(unsupported.error, /Automatic filament saving is unavailable/);
 mutate(first, { kind: 'mode', mode: 2 });
 // A generic machine must define its firmware's physical-tool convention.

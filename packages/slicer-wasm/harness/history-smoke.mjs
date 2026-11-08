@@ -263,9 +263,9 @@ if (threading.threaded) {
   const beforeActiveRestore = callJson('orc_get_plate_session_snapshot', [], []);
   const activePlateId = beforeActiveRestore.current_plate_id;
   const activeRevision = beforeActiveRestore.input_revisions?.[activePlateId];
-  const activeSlice = callJson('orc_slice_plate', ['string', 'string', 'number'], [
+  const activeSlice = callJson('orc_slice_plate', ['string', 'string', 'number', 'string'], [
     JSON.stringify({ layer_height: '0.17' }), activePlateId, activeRevision,
-  ]);
+  , 'null']);
   historyCheck('threaded history fixture admits a detached Slice task', activeSlice.accepted === true,
     JSON.stringify(activeSlice));
   const restoreStartedAt = Date.now();

@@ -97,8 +97,8 @@ for (let i = 0; i < 2; i++) ok(call('orc_set_model_transform', ['number', 'numbe
   [0, 0, i, JSON.stringify({ offset: [origin[0] + 70 + i * 50, origin[1] + 70 + i * 30, restZ], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] }), JSON.stringify(volumeTransform)]));
 const session = ok(call('orc_get_plate_session_snapshot'));
 const plateId = session.current_plate_id;
-const slice = () => callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', plateId, call('orc_get_plate_session_snapshot').input_revisions[plateId]]);
+const slice = () => callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  ['{}', plateId, call('orc_get_plate_session_snapshot').input_revisions[plateId], 'null']);
 const first = ok(await slice());
 const request = receipt => JSON.stringify({ receipt: { ...receipt, result_generation: Number(receipt.result_generation) }, filename_base: 'Print test' });
 const describe = receipt => call('orc_describe_print_plate', ['string'], [request(receipt)]);
@@ -164,8 +164,8 @@ for (const count of [63, 64, 65]) {
 // Fixed H2D tools must keep native material indices and nozzle assignments.
 const dual = await createNozzleMappingFixture(modulePath);
 dual.configure({ plate_settings: { [dual.plateId]: { filament_map_mode: 'Manual', filament_map: '2,1' } } });
-const dualSlice = dual.ok(await callAsyncTask(dual.call, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', dual.plateId, dual.call('orc_get_plate_session_snapshot').input_revisions[dual.plateId]]));
+const dualSlice = dual.ok(await callAsyncTask(dual.call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  ['{}', dual.plateId, dual.call('orc_get_plate_session_snapshot').input_revisions[dual.plateId], 'null']));
 const dualOutput = dual.ok(dual.command('orc_export_print_plate', JSON.parse(request(dualSlice.receipt))));
 assert.equal(dualOutput.manifest.printerModelId, 'O1D');
 assert.equal(dualOutput.manifest.requiresDynamicMapping, false);
@@ -192,7 +192,7 @@ const convertedXml = new TextDecoder().decode(new Map(readZipEntries(dual.Module
 assert.match(convertedXml, /GFA00/);
 assert.deepEqual(converted.manifest, dualOutput.manifest);
 dual.configure({ plate_settings: { [dual.plateId]: { filament_map_mode: 'Auto For Flush' } } });
-const automaticSlice = dual.ok(await callAsyncTask(dual.call, 'orc_slice_plate', ['string', 'string', 'number'], ['{}', dual.plateId, dual.call('orc_get_plate_session_snapshot').input_revisions[dual.plateId]]));
+const automaticSlice = dual.ok(await callAsyncTask(dual.call, 'orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', dual.plateId, dual.call('orc_get_plate_session_snapshot').input_revisions[dual.plateId], 'null']));
 const automatic = dual.ok(dual.command('orc_describe_print_plate', JSON.parse(request(automaticSlice.receipt)))).manifest;
 assert.equal(automatic.requiresDynamicMapping, false);
 for (const material of automatic.materials) assert.equal(material.toolIndex, automatic.filamentMap[material.index] - 1);

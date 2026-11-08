@@ -78,9 +78,13 @@ export async function openStorageChannel(addonPath: string, sourcePath: string, 
         const deadline = performance.now() + options.inactivityTimeoutMs;
         while (true) {
           check();
-          if (performance.now() >= deadline) throw new BambuStorageError('transport', 'Storage reading made no progress.');
           if (pending.length === 0) pending = stream.poll().messages;
-          if (pending.length === 0) { await wait(); continue; }
+          // Inspect already-arrived bytes before declaring inactivity: a delayed
+          // host timer or a paused consumer does not imply a silent printer.
+          if (pending.length === 0) {
+            if (performance.now() >= deadline) throw new BambuStorageError('transport', 'Storage reading made no progress.');
+            await wait(); continue;
+          }
           const packet = Buffer.from(pending.shift()!), separator = packet.indexOf('\n\n');
           const header = separator < 0 ? packet : packet.subarray(0, separator);
           const body = separator < 0 ? new Uint8Array(0) : packet.subarray(separator + 2);
@@ -89,7 +93,10 @@ export async function openStorageChannel(addonPath: string, sourcePath: string, 
           let root: unknown;
           try { root = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(header)); } catch { throw invalidStorageReply(); }
           if (!storageObject(root)) throw invalidStorageReply();
-          if (root.sequence !== sequence || root.result === undefined) continue;
+          if (root.sequence !== sequence || root.result === undefined) {
+            if (performance.now() >= deadline) throw new BambuStorageError('transport', 'Storage reading made no progress.');
+            continue;
+          }
           if (!storageInteger(root.result) || root.cmdtype !== undefined && root.cmdtype !== command) throw invalidStorageReply();
           const fileError = command === 2 && [10, 12, 13, 14, 16].includes(root.result);
           if (root.result !== 0 && root.result !== 1 && !fileError)

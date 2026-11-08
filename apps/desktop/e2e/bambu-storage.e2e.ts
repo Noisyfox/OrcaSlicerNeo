@@ -13,7 +13,7 @@ test('Storage repairs same-printer LAN access through explicit discovery and ret
       const devices = ['a', 'b'].map(deviceId => ({ deviceId, name: `Workshop ${deviceId.toUpperCase()}`, model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud', revision: 'r1' }] as Record<string, string>[] }));
       ipcMain.removeHandler(channels.bambuRead);
       ipcMain.handle(channels.bambuRead, (_event, kind) => kind === 'printers.saved' ? { ok: true, value: devices }
-        : kind === 'printers.candidates' ? { ok: true, value: devices.map(device => ({ candidateId: device.deviceId, deviceId: device.deviceId, name: `LAN ${device.name}`, model: 'H2D', address: '192.0.2.1', expiresAtMs: Date.now() + 60_000 })) }
+        : kind === 'printers.candidates' ? { ok: true, value: [...devices, { deviceId: 'c', name: 'Unadded H2D' }].map(device => ({ candidateId: device.deviceId, deviceId: device.deviceId, name: `LAN ${device.name}`, model: 'H2D', address: '192.0.2.1', expiresAtMs: Date.now() + 60_000 })) }
           : kind === 'account.state' ? { status: 'signed-out', error: null } : []);
       ipcMain.removeHandler(channels.bambuPrinterCommand);
       ipcMain.handle(channels.bambuPrinterCommand, (event, request) => {
@@ -30,10 +30,17 @@ test('Storage repairs same-printer LAN access through explicit discovery and ret
         return { ok: true, value: null };
       });
     }, Ipc);
-    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
+    await page.getByTestId('tab-device').click();
+    await page.getByRole('button', { name: 'Discover printers', exact: true }).click();
+    const dialog = page.getByTestId('printer-discovery-dialog');
+    await expect(dialog.getByText('LAN Unadded H2D', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('LAN Workshop A', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText('LAN Workshop B', { exact: true })).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.getByTestId('device-printer-select').click();
     await page.getByRole('option', { name: 'Workshop A', exact: true }).click(); await page.getByRole('tab', { name: 'Storage', exact: true }).click();
     await page.getByRole('button', { name: 'Authorize storage access', exact: true }).click();
-    const dialog = page.getByTestId('printer-discovery-dialog'); await expect(dialog.getByText('LAN Workshop A', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('LAN Workshop A', { exact: true })).toBeVisible();
     await expect(dialog.getByText('LAN Workshop B', { exact: true })).toHaveCount(0);
     await dialog.getByText('LAN Workshop A', { exact: true }).click(); await dialog.getByLabel('Access code', { exact: true }).fill('ABCDEFGH');
     await expect(dialog.getByLabel('Access code', { exact: true })).toHaveAttribute('type', 'password'); await dialog.getByRole('button', { name: 'Authorize access', exact: true }).click();
@@ -157,7 +164,15 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
       (request as { method: string }).method.startsWith('storage.')) as { method: string }[]);
     const openPreferences = async () => {
       if (process.platform === 'darwin') await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-preferences')!.click());
-      else { await page.getByTestId('titlebar-menu-trigger').click(); await page.getByTestId('menu-file-trigger').hover(); await page.getByTestId('file-preferences').click(); }
+      else {
+        if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+          await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+          await page.getByTestId('titlebar-menu-trigger').click();
+        }
+        await page.getByTestId('menu-file-trigger').hover();
+        await page.locator('[data-slot="menubar-sub-content"]').hover({ position: { x: 8, y: 8 } });
+        await page.getByTestId('file-preferences').click();
+      }
       return page.getByTestId('project-preferences-dialog');
     };
     const preferences = await openPreferences();
@@ -165,6 +180,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await preferences.getByRole('button', { name: 'Change…', exact: true }).click();
     await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Shared downloads');
     await preferences.getByTestId('project-preferences-cancel').click();
+    await expect(preferences).not.toBeVisible();
     await openPreferences();
     await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Fixture downloads');
     await preferences.getByRole('button', { name: 'Change…', exact: true }).click();
@@ -174,6 +190,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Shared downloads');
     await preferences.screenshot({ path: test.info().outputPath('download-preferences.png') });
     await preferences.getByTestId('project-preferences-cancel').click();
+    await expect(preferences).not.toBeVisible();
 
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
     await page.getByRole('option', { name: 'Workshop A', exact: true }).click();

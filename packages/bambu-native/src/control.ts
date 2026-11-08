@@ -2,7 +2,7 @@
 import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setTimeout as delay, setImmediate as yieldToIo } from 'node:timers/promises';
 
 export interface NativeControlStream {
   poll(): { ready: boolean; messages: Uint8Array[] };
@@ -87,7 +87,11 @@ async function readOne(addonPath: string, sourcePath: string, url: string, resou
           return new Uint8Array(Buffer.concat(chunks, received));
         }
       }
-      await delay(5, undefined, { signal: options.signal });
+      // A drained batch wakes the bounded native producer. Yield to I/O instead
+      // of throttling every batch with a timer (coarse Windows ticks can exhaust
+      // the resource deadline while the printer is continuously making progress).
+      if (polled.messages.length) await yieldToIo(undefined, { signal: options.signal });
+      else await delay(5, undefined, { signal: options.signal });
     }
     throw cancelled();
   } catch (error) {

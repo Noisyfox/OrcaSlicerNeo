@@ -98,16 +98,16 @@ assert.equal(moved.ok, true, JSON.stringify(moved));
 plateRevision = revisions();
 
 assert.equal(callJson('orc_select_plate', ['string'], [firstPlate]).ok, true);
-const firstSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', firstPlate, plateRevision[firstPlate]]);
+const firstSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  ['{}', firstPlate, plateRevision[firstPlate], 'null']);
 assert.equal(firstSlice.ok, true);
 const firstGcode = exportGcode(firstSlice.receipt);
 assert.match(firstGcode, /X30\.500\s+Y40\.500/, 'plate 1 tower position missing from G-code');
 assert.doesNotMatch(firstGcode, /X130\.500\s+Y140\.500/, 'plate 1 used plate 2 tower position');
 
 assert.equal(callJson('orc_select_plate', ['string'], [secondPlate]).ok, true);
-const secondSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', secondPlate, plateRevision[secondPlate]]);
+const secondSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  ['{}', secondPlate, plateRevision[secondPlate], 'null']);
 assert.equal(secondSlice.ok, true);
 const secondGcode = exportGcode(secondSlice.receipt);
 assert.match(secondGcode, /X130\.500\s+Y140\.500/, 'plate 2 tower position missing from G-code');
@@ -115,8 +115,8 @@ assert.doesNotMatch(secondGcode, /X30\.500\s+Y40\.500/, 'plate 2 used plate 1 to
 
 assert.equal(callJson('orc_select_plate', ['string'], [firstPlate]).ok, true);
 const finalRevision = revisions()[firstPlate];
-const finalSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', firstPlate, finalRevision]);
+const finalSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  ['{}', firstPlate, finalRevision, 'null']);
 assert.equal(finalSlice.ok, true);
 const firstAgain = exportGcode(finalSlice.receipt);
 assert.match(firstAgain, /X30\.500\s+Y40\.500/, '切回 plate 1 后 tower position leaked');

@@ -1,7 +1,7 @@
 import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { PrinterDiscovery } from './PrinterDiscovery';
-import { PrinterModelSelector } from './PrinterModelSelector';
+import { PrinterConfigurationDialog } from './PrinterConfigurationDialog';
 import {
   useEffect,
   useMemo,
@@ -14,14 +14,11 @@ import {
 import { Pencil, Plus, Trash2, Monitor } from 'lucide-react';
 import type { SavedPrinter, PrinterRoute, TargetRequest } from '@orca/printer-control/domain';
 import { usePrinterCatalogue } from './usePrinterCatalogue';
-import type { PrinterConfiguration, PrinterConfigurationDocument } from '@orca/printer-control';
-import { normalizePrinterConfiguration, normalizePrinterConfigurationDocument } from '@orca/printer-control';
+import type { PrinterConfiguration } from '@orca/printer-control';
+import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 import { updateUserPreferences, usePlatform, type WebViewHost, type WebViewPanelState } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
-import { Input } from '@/components/ui/input';
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
 import { PrinterMonitor, supportsMonitor } from './PrinterMonitor';
@@ -29,19 +26,9 @@ import { PrinterStorage } from './PrinterStorage';
 
 type DialogState =
   | { kind: 'add' }
-  | { kind: 'edit'; printerId: string }
+  | { kind: 'edit'; printerId: string; target: TargetRequest }
   | { kind: 'delete'; printerId: string; target: TargetRequest }
   | null;
-
-export type PrinterDraft = Omit<PrinterConfiguration, 'id'> & { id?: string };
-
-const EMPTY_DRAFT: PrinterDraft = {
-  displayName: '',
-  driverId: 'moonraker',
-  consoleUrl: '',
-  apiBaseUrl: '',
-  apiKey: '',
-};
 
 const DEFAULT_DEVICE_SIDEBAR_WIDTH = 288;
 const MIN_DEVICE_SIDEBAR_WIDTH = 220;
@@ -50,15 +37,6 @@ const MAX_DEVICE_SIDEBAR_WIDTH = 560;
 function clampDeviceSidebarWidth(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_DEVICE_SIDEBAR_WIDTH;
   return Math.min(MAX_DEVICE_SIDEBAR_WIDTH, Math.max(MIN_DEVICE_SIDEBAR_WIDTH, value!));
-}
-
-let printerIdSequence = 0;
-function newPrinterId(): string {
-  // Stable IDs are generated locally and never exposed to the console page.
-  const randomUuid = globalThis.crypto?.randomUUID;
-  if (typeof randomUuid === 'function') return randomUuid.call(globalThis.crypto);
-  printerIdSequence += 1;
-  return `printer-${Date.now().toString(36)}-${printerIdSequence.toString(36)}`;
 }
 
 export function panelMessage(state: WebViewPanelState): string | null {
@@ -100,19 +78,6 @@ export function mountPrinterConsolePanel(
   };
 }
 
-export function savePrinterDraft(
-  document: PrinterConfigurationDocument,
-  draft: PrinterDraft,
-  mode: 'add' | 'edit',
-  printerId = newPrinterId(),
-) {
-  const normalized = normalizePrinterConfiguration({ ...draft, id: printerId });
-  const next = mode === 'edit'
-    ? document.printers.map((printer) => printer.id === printerId ? normalized : printer)
-    : [...document.printers, normalized];
-  return normalizePrinterConfigurationDocument({ ...document, printers: next });
-}
-
 export function removePrinter(printers: readonly PrinterConfiguration[], printerId: string) {
   return normalizePrinterConfigurationDocument({
     version: 1,
@@ -128,10 +93,9 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
   const [remembered, setRemembered] = useState<string | null | undefined>(undefined);
   const selectionTouched = useRef(initialSelection !== null);
-  const [selectedPage, setSelectedPage] = useState<'web' | 'monitor' | 'storage'>('web');
+  const [selectedPage, setSelectedPage] = useState<'web' | 'monitor' | 'storage' | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
   const dialogOpener = useRef<HTMLButtonElement>(null);
-  const [draft, setDraft] = useState<PrinterDraft>(EMPTY_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
   const [panelState, setPanelState] = useState<WebViewPanelState>({ status: 'idle', url: null, error: null });
   const webviewContainerRef = useRef<HTMLDivElement>(null);
@@ -249,7 +213,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
     if (remembered && printers.some(printer => printer.identity.id === remembered)) setSelectedPrinterId(remembered);
   }, [remembered, configurationLoaded, loadFailed, printers]);
   function selectPrinter(value: string | null) {
-    selectionTouched.current = true; setSelectedPrinterId(value); setSelectedPage('web');
+    selectionTouched.current = true; setSelectedPrinterId(value); setSelectedPage(null);
     void updateUserPreferences(platform.preferences, prefs => ({ ...prefs, ui: { ...prefs.ui, lastDevicePrinterId: value ?? undefined } })).catch(() => undefined);
   }
   // Successful absence clears only the live selection; never choose a replacement.
@@ -271,7 +235,10 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   const monitorRoute = selectedPrinter?.routes.find(route => supportsMonitor(route.capabilities));
   const storageRoute = selectedPrinter?.routes.find(route => route.capabilities.files.list.kind !== 'unsupported');
   useEffect(() => { useDeviceSelectionStore.getState().selectGroupingSource(selectedPrinter, monitorRoute ?? selectedPrinter?.routes[0] ?? null); }, [selectedPrinter, monitorRoute]);
-  const activePage = selectedPage === 'storage' && storageRoute ? 'storage' : selectedPage === 'web' && consoleRoute ? 'web' : selectedPage === 'monitor' && monitorRoute ? 'monitor' : consoleRoute ? 'web' : monitorRoute ? 'monitor' : null;
+  const pages = [{ id: 'web', label: 'Web Interface', available: !!consoleRoute }, { id: 'monitor', label: 'Monitor', available: !!monitorRoute }, { id: 'storage', label: 'Storage', available: !!storageRoute }] as const;
+  const orderedPages = selectedPrinter?.routes.some(route => route.providerId === 'snapmaker') ? [pages[1], pages[0], pages[2]] : pages;
+  const activePage = orderedPages.find(page => page.id === selectedPage && page.available)?.id
+    ?? orderedPages.find(page => page.id !== 'storage' && page.available)?.id ?? null;
 
   // Mount without a URL first, register the fixed built-in script, then load
   // the configured URL. This ordering is required for Electron document_start.
@@ -310,20 +277,17 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   function beginAdd(event: ReactMouseEvent<HTMLButtonElement>) {
     dialogOpener.current = event.currentTarget;
     setFormError(null);
-    setDraft({ ...EMPTY_DRAFT });
     setDialog({ kind: 'add' });
   }
 
-  async function beginEdit(printer: SavedPrinter, opener: HTMLButtonElement) {
+  function beginEdit(printer: SavedPrinter, opener: HTMLButtonElement) {
+    const route = printer.routes.find(value => value.management.configure);
+    if (!route) return;
     dialogOpener.current = opener;
-    try {
-      const document = await platform.printers.configuration.load();
-      const configuration = document.printers.find(value => value.id === printer.identity.id);
-      if (!configuration) return;
-      setFormError(null);
-      setDraft({ ...configuration });
-      setDialog({ kind: 'edit', printerId: printer.identity.id });
-    } catch { setFormError('Unable to load this printer configuration.'); }
+    setFormError(null);
+    setDialog({ kind: 'edit', printerId: printer.identity.id, target: {
+      printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision,
+    } });
   }
 
   function beginDelete(printer: SavedPrinter, route: PrinterRoute) {
@@ -336,21 +300,6 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   function closeDialog() {
     setDialog(null);
     setFormError(null);
-  }
-
-  async function saveDraft() {
-    const id = dialog?.kind === 'edit' ? dialog.printerId : newPrinterId();
-    try {
-      const current = await platform.printers.configuration.load();
-      const document = savePrinterDraft(current, draft, dialog?.kind === 'edit' ? 'edit' : 'add', id);
-      await platform.printers.configuration.save(document);
-      await refresh();
-      closeDialog();
-    } catch {
-      // Normalizer messages contain field names only; keep the visible copy
-      // generic so malformed input or host errors can never echo a secret.
-      setFormError('Unable to save this printer configuration. Check each field and try again.');
-    }
   }
 
   async function confirmDelete() {
@@ -401,7 +350,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
                 </SelectContent>
               </Select>
               {selectedPrinter && <div className="flex shrink-0 items-center gap-1">
-                {selectedPrinter.routes.some(route => route.providerId === 'moonraker' && route.management.configure) && <TooltipFor content={`Edit ${selectedPrinter.identity.displayName}`}>
+                {selectedPrinter.routes.some(route => route.management.configure) && <TooltipFor content={`Edit ${selectedPrinter.identity.displayName}`}>
                   <Button size="icon-xs" variant="ghost" onClick={event => void beginEdit(selectedPrinter, event.currentTarget)} aria-label={`Edit ${selectedPrinter.identity.displayName}`} data-testid={`device-edit-${selectedPrinter.identity.id}`}><Pencil /></Button>
                 </TooltipFor>}
                 {selectedPrinter.routes.filter(route => route.management.forget).map(route => <TooltipFor key={route.id} content={`Delete ${selectedPrinter.identity.displayName} (${route.label})`}>
@@ -421,7 +370,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
                   const next = event.key === 'ArrowDown' ? (index + 1) % tabs.length : event.key === 'ArrowUp' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
                   if (next >= 0 && tabs[next]) { event.preventDefault(); tabs[next].focus(); tabs[next].click(); }
                 }}>
-                  {([{ id: 'web', label: 'Web Interface', available: !!consoleRoute }, { id: 'monitor', label: 'Monitor', available: !!monitorRoute }, { id: 'storage', label: 'Storage', available: !!storageRoute }] as const).filter(page => page.available).map(page => <button
+                  {orderedPages.filter(page => page.available).map(page => <button
                     key={page.id} id={`device-tab-${page.id}`} role="tab" aria-selected={activePage === page.id} aria-controls="device-content" tabIndex={activePage === page.id ? 0 : -1}
                     className={cn('rounded-md border px-3 py-2 text-left text-sm', activePage === page.id ? 'border-primary bg-accent/20' : 'border-transparent hover:bg-muted/60')}
                     onClick={() => setSelectedPage(page.id)}>{page.label}</button>)}
@@ -491,61 +440,8 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
       )}
 
       {(dialog?.kind === 'add' || dialog?.kind === 'edit') && (
-        <Dialog open onOpenChange={open => { if (!open) closeDialog(); }} disablePointerDismissal>
-          <DialogContent finalFocus={dialogOpener} className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-lg overflow-y-auto" data-testid="device-config-dialog">
-            <form className="flex flex-col gap-4" onSubmit={(event) => { event.preventDefault(); void saveDraft(); }}>
-              <DialogHeader>
-                <DialogTitle>{dialog.kind === 'add' ? 'Add printer' : 'Edit printer'}</DialogTitle>
-                <DialogDescription>Configure the printer console and Moonraker API separately.</DialogDescription>
-              </DialogHeader>
-              <FieldGroup>
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-display-name">Display name</FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Input id="device-display-name" data-testid="device-display-name" value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} autoFocus required />
-                  </FieldContent>
-                </Field>
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-adapter">Adapter</FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Select value={draft.driverId} items={[{ value: 'moonraker', label: 'Moonraker' }]} onValueChange={(value) => setDraft({ ...draft, driverId: value as PrinterConfiguration['driverId'] })}>
-                      <SelectTrigger id="device-adapter" className="w-full" data-testid="device-adapter">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup><SelectItem value="moonraker">Moonraker</SelectItem></SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FieldContent>
-                </Field>
-                <PrinterModelSelector value={draft.printerModel} onChange={printerModel => setDraft({ ...draft, printerModel })} />
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-api-base-url">API base URL</FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Input id="device-api-base-url" data-testid="device-api-base-url" type="url" placeholder="http://printer.local:7125/" value={draft.apiBaseUrl} onChange={(event) => setDraft({ ...draft, apiBaseUrl: event.target.value })} required />
-                  </FieldContent>
-                </Field>
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-console-url">Console URL <span className="text-muted-foreground">(optional)</span></FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Input id="device-console-url" data-testid="device-console-url" type="url" placeholder="Uses API base URL when blank" value={draft.consoleUrl} onChange={(event) => setDraft({ ...draft, consoleUrl: event.target.value })} />
-                  </FieldContent>
-                </Field>
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-api-key">API key</FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Input id="device-api-key" data-testid="device-api-key" type="password" autoComplete="off" value={draft.apiKey} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} />
-                  </FieldContent>
-                </Field>
-              </FieldGroup>
-              {formError && <FieldError>{formError}</FieldError>}
-              <DialogFooter>
-                <Button type="button" variant="ghost" onClick={closeDialog}>Cancel</Button>
-                <Button type="submit" data-testid="device-save-printer">Save</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <PrinterConfigurationDialog target={dialog.kind === 'edit' ? dialog.target : null} opener={dialogOpener}
+          onClose={closeDialog} onSaved={async () => { await refresh(); closeDialog(); }} />
       )}
     </section>
   );

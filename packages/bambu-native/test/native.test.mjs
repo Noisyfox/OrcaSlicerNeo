@@ -37,7 +37,7 @@ test('copies strings and HTTP output parameters, and serializes submitted calls'
     await agent.setExtraHttpHeaders({ source: 'fixture', version: '1' });
     await agent.trackEnable(false); await agent.trackRemoveFiles();
     await agent.close(); await agent.close();
-    const lines = (await readFile(trace, 'utf8')).trim().split('\n');
+    const lines = (await readFile(trace, 'utf8')).trim().split(/\r?\n/);
     assert.deepEqual(lines.slice(0, 4), ['create', 'config:/configuration/路径', 'init-log', 'cert:/cert/root.cer']);
     assert(lines.includes('discovery:true:false'));
     assert(lines.includes('connect:id:192.0.2.1:bblp:fixture-code:true'));
@@ -57,7 +57,7 @@ test('delivers plugin-thread callbacks and drains native main-queue work before 
     assert.deepEqual(events.map(event => event.type), ['ssdp', 'server-connected', 'local-connect', 'http-error']);
     assert.deepEqual(events[2], { type: 'local-connect', args: [0, 'fixture-device', 'connected'] });
     assert.deepEqual(events[3], { type: 'http-error', args: [401, 'fixture-body'] });
-    const lines = (await readFile(trace, 'utf8')).trim().split('\n');
+    const lines = (await readFile(trace, 'utf8')).trim().split(/\r?\n/);
     assert(lines.includes('country:CN'));
     assert(lines.indexOf('queued-on-main') < lines.indexOf('destroy'));
     assert.equal(lines.filter(line => line.startsWith('clear:')).length, 12);
@@ -69,7 +69,7 @@ test('keeps explicit logout separate from disposal and preserves its request fla
     await agent.createAgent(trace); await agent.changeUser('user'); await agent.logout(true);
     assert.equal(await agent.isUserLoggedIn(), false);
     await agent.close();
-    assert((await readFile(trace, 'utf8')).includes('logout:true\n'));
+    assert((await readFile(trace, 'utf8')).split(/\r?\n/).includes('logout:true'));
   });
 });
 
@@ -107,7 +107,7 @@ test('copies Cloud control and subscription arguments without sharing the LAN se
     await agent.stopSubscribe('app');
     await assert.rejects(agent.sendMessage('cloud-device', 'private', 0.5, 0), /integer argument/);
     await agent.close();
-    const lines = (await readFile(trace, 'utf8')).split('\n');
+    const lines = (await readFile(trace, 'utf8')).split(/\r?\n/);
     assert(lines.includes('subscribe:app'));
     assert(lines.includes('cloud-send:cloud-device:{"pushing":{"command":"pushall"}}:1:0'));
     assert(lines.includes('unsubscribe:app'));

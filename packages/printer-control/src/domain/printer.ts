@@ -207,8 +207,10 @@ export interface PrinterState {
   }[]>;
 }
 export interface PrinterCapabilities {
+  /** Ordinary observation belongs to visible consumers; operations retain their own acquisition. */
+  observationLifetime?: 'visible-consumers';
   /** Capability to prepare and submit local artifacts through the agent. */
-  submission: Capability<{ formats: NonEmptyReadonlyArray<'print-3mf'> }>;
+  submission: Capability<{ formats: NonEmptyReadonlyArray<'print-3mf' | 'gcode'>; failurePolicy?: 'retry' }>;
   revision: Revision;
   commands: CommandCapabilities;
   cameras: readonly CameraMediaCapability[];
@@ -223,6 +225,7 @@ export interface PrinterCapabilities {
 }
 /** Topic-scoped data avoids requiring a complete printer snapshot for a single read. */
 export interface PrinterObservationMap {
+  preferences: import('./preferences').DevicePreferences;
   /** Device reads obtain the current catalogue independently; cache/watch never initiate file reads. */
   printObjects: PrintObjectSnapshot;
   descriptor: PrinterDescriptor;

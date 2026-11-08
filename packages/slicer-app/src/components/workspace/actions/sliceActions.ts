@@ -15,6 +15,7 @@ import { syncModelTransforms } from './syncModelTransforms';
 import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 import { useNotificationStore, type NotificationAttempt } from '@/stores/useNotificationStore';
+import { captureSliceThumbnail } from '../projectThumbnails';
 
 // Scene commands own these coordinates; cached Settings values must never
 // override the current native position when composing a slice request.
@@ -161,6 +162,9 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
   // Confirmation may be open across UI activity. Read only the committed
   // settings projection immediately before native revision-bound admission.
   try { values = sliceSettings(); } catch (error) { setFailure(errorText(error)); return; }
+  let thumbnail;
+  try { thumbnail = await captureSliceThumbnail(platform.runtime, target); }
+  catch (error) { setFailure(errorText(error)); return; }
   const slicer = useSlicerStore.getState();
   // An explicit Slice withdraws only the renderer-facing receipt/projection.
   // The Worker registry keeps its native Print/result cache for incremental
@@ -195,6 +199,7 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
         live.setProgress(pct); live.setProgressText(text);
       },
       event => useNotificationStore.getState().receive(notificationAttempt!, event),
+      thumbnail,
     );
     const live = useSlicerStore.getState();
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||

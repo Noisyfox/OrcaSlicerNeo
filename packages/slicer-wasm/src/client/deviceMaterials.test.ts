@@ -19,3 +19,10 @@ it('rejects incomplete, duplicate or invalid temperature results instead of cons
     expect(normalizeDeviceMaterialCatalogue({ ok: true, presets })).toMatchObject({ ok: false });
   expect(normalizeDeviceMaterialCatalogue({ ok: false, error: 'No matching printer' })).toEqual({ ok: false, error: 'No matching printer' });
 });
+it('routes pure vendor/type/RGB matching through the native client', async () => {
+  const client = createClient(async () => createMockModule());
+  const before = await client.getHistoryStatus();
+  expect(await client.matchFilamentPresets([{ presetName: null, manufacturer: 'Snapmaker', materialType: 'PLA HIGH SPEED', colorRgba: '#FF000080' }]))
+    .toEqual(['OFZGmLwF']);
+  expect(await client.getHistoryStatus()).toEqual(before);
+});

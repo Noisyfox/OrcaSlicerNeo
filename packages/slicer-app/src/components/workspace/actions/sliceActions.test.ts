@@ -4,8 +4,20 @@ import { glVolumeCollection } from '../viewport/GLVolume';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
+import { captureSliceThumbnail } from '../projectThumbnails';
+vi.mock('../projectThumbnails', () => ({ captureSliceThumbnail: vi.fn(async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) })) }));
 
 describe('slice result publication', () => {
+  it('reports thumbnail capture failure before admitting a native slice', async () => {
+    const session = { ok: true, currentPlateId: 'a', inputRevisions: { a: 1 }, instances: [],
+      plates: [{ plateId: 'a', origin: [0, 0, 0], instanceIds: [1] }] };
+    const runtime = { getPlateSessionSnapshot: vi.fn(async () => session),
+      getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 1 })), slicePlate: vi.fn() };
+    vi.mocked(captureSliceThumbnail).mockRejectedValueOnce(new Error('Thumbnail graphics context lost'));
+    await sliceModel({ runtime } as never);
+    expect(runtime.slicePlate).not.toHaveBeenCalled();
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'error', error: 'Thumbnail graphics context lost' });
+  });
   it('slices an explicit non-current plate and preserves the selected plate result', async () => {
     const session = { ok: true as const, version: 1 as const, currentPlateId: 'a', instances: [], inputRevisions: { a: 1, b: 2 },
       plates: [{ plateId: 'a', name: 'Plate 1', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], instanceIds: [1] },
@@ -17,7 +29,7 @@ describe('slice result publication', () => {
     const runtime = { getNozzleMapping: vi.fn(async (plateId: string) => ({ ok: true, eligible: false, revision: session.inputRevisions[plateId as 'a' | 'b'] })), getPlateSessionSnapshot: vi.fn(async () => session),
       slicePlate: vi.fn(async () => ({ ok: true, unrecognized_keys: [], receipt, summary: { estimatedTimeSeconds: 12 } })) };
     await Promise.all([sliceModel({ runtime } as never, 'b'), sliceModel({ runtime } as never, 'b')]);
-    expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'b', inputRevision: 2 }, {}, expect.any(Function), expect.any(Function));
+    expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'b', inputRevision: 2 }, {}, expect.any(Function), expect.any(Function), expect.objectContaining({ width: 1, height: 1 }));
     expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('a');
     expect(useSlicerStore.getState()).toMatchObject({ status: 'done', sliceTarget: { plateId: 'a' },
       plateResults: { b: { receipt, summary: { estimatedTimeSeconds: 12 } } } });
@@ -48,7 +60,7 @@ describe('slice result publication', () => {
     try {
       await sliceModel({ runtime } as never);
       expect(runtime.slicePlate).toHaveBeenCalledWith(
-        { plateId: 'plate-1', inputRevision: 7 }, { prime_tower_width: '25' }, expect.any(Function), expect.any(Function),
+        { plateId: 'plate-1', inputRevision: 7 }, { prime_tower_width: '25' }, expect.any(Function), expect.any(Function), expect.objectContaining({ width: 1, height: 1 }),
       );
     } finally { errorLog.mockRestore(); }
   });

@@ -59,7 +59,7 @@ it('sanitizes a suggested name and explicitly confirms replacement before admitt
   electron.dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: path });
   electron.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 }).mockResolvedValueOnce({ response: 1 });
   expect(await host.destination(files, true)).toBe(null);
-  expect(electron.dialog.showSaveDialog.mock.calls[0][1].defaultPath).toBe('/default/downloads/.._.._video.mp4');
+  expect(electron.dialog.showSaveDialog.mock.calls[0][1].defaultPath).toBe(join('/default/downloads', '.._.._video.mp4'));
   expect(await host.destination(files, true)).toEqual({ kind: 'file', path, overwriteConfirmed: true });
   expect(await readFile(path, 'utf8')).toBe('original');
 });

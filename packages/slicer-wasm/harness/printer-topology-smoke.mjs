@@ -141,5 +141,5 @@ assert.equal(count(), 3, 'saved user preset retains physical cardinality');
 console.log('topology user preset save passed');
 const plateSession = must(call('orc_get_plate_session_snapshot'));
 const plateId = plateSession.current_plate_id;
-must(await callAsyncTask(call, 'orc_slice_plate', ['string','string','number'], ['{}',plateId,plateSession.input_revisions[plateId]]));
+must(await callAsyncTask(call, 'orc_slice_plate', ['string','string','number', 'string'], ['{}',plateId,plateSession.input_revisions[plateId], 'null']));
 console.log('printer topology smoke passed: resize, variants, rack, invalid/stale, history, inactive drafts, Bambu SEMM, 3MF');

@@ -129,8 +129,8 @@ assert.deepEqual(tower(id).used_slots, [1, 2]);
 move(id, 110, 90);
 const staleSettings = must(callJson('orc_get_preset_snapshot')).project_config;
 move(id, -60, -50); assertInside(tower(id));
-const staleSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  [JSON.stringify(staleSettings), id, session().input_revisions[id]]);
+const staleSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  [JSON.stringify(staleSettings), id, session().input_revisions[id], 'null']);
 assert.match(staleSlice.error ?? '', /Prime Tower is partially outside the printable area/,
   'pre-drag Settings coordinates reproduce the reported failure');
 assert.deepEqual(tower(id).position, { x: -60, y: -50 }, 'the native position is already legal');
@@ -141,8 +141,8 @@ assert.deepEqual(tower(id).position, { x: -60, y: -50 }, 'Redo restores the nati
 // Match the shared application's slice request: scene-owned X/Y are excluded.
 const { wipe_tower_x, wipe_tower_y, ...sliceSettings } = staleSettings;
 const firstPreview = tower(id);
-const sliced = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  [JSON.stringify(sliceSettings), id, session().input_revisions[id]]));
+const sliced = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  [JSON.stringify(sliceSettings), id, session().input_revisions[id], 'null']));
 assert.ok(!(sliced.warnings ?? []).some(warning => /outside the printable area/.test(warning.message)), JSON.stringify(sliced));
 const exported = must(exportGcode(callJson, { receipt: sliced.receipt, filenameBase: '' }));
 const gcode = Module.FS.readFile(exported.path, { encoding: 'utf8' });
@@ -157,8 +157,8 @@ assertMotionMatchesPreview(firstMotion, firstPreview);
 move(id, -40, -40);
 const secondPreview = tower(id);
 assertInside(secondPreview);
-const secondSlice = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  [JSON.stringify(sliceSettings), id, session().input_revisions[id]]));
+const secondSlice = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  [JSON.stringify(sliceSettings), id, session().input_revisions[id], 'null']));
 const secondExport = must(exportGcode(callJson, { receipt: secondSlice.receipt, filenameBase: '' }));
 const secondMotion = towerMotion(Module.FS.readFile(secondExport.path, { encoding: 'utf8' }));
 assertMotionMatchesPreview(secondMotion, secondPreview);

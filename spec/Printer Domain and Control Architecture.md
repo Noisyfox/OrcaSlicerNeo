@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-11-04
+**Updated:** 2026-11-07
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -16,6 +16,10 @@ Interface availability alone does not establish device support or runtime delive
 Section 2.4 records the selected local-artifact print-submission direction;
 its product decisions are accepted, with explicit implementation gates and
 deferred scope. That design record does not authorize implementation.
+Section 2.5 records the delivered Snapmaker agent and its separate software
+acceptance and physical qualification boundaries, including non-printing U1 LAN
+acceptance and one completed single-head PLA print. Multi-head printing and
+shared-heater qualification remain pending.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
@@ -156,9 +160,16 @@ no network I/O. Startup and selection never establish a printer connection.
 Configuration remains the existing version-1 host repository, including its API
 key storage and console URL fallback. The domain projects opaque credential
 references; it never includes keys in descriptions, snapshots, operations or
-errors. Existing settings still edit the host configuration repository and
-Electron retains its existing built-in console authentication script. This is
-not a credential-storage migration. Route changes invalidate cached readings
+errors. Explicit configuration-form reads can return credentials for editing.
+Agents advertise manual configuration support and its host, input fields,
+labels, required flags, defaults and optional model selection through the local
+type catalogue. The shared form reads and saves through the agent configuration
+API. Agents validate and persist locally, serialize repository mutations, check
+route revisions on edits and recognize repeated save requests. The HTTP agents
+continue using the version-1 host repository, including stable printer IDs,
+model associations and independent print preferences. Switching between the two
+HTTP adapters preserves the printer ID. Electron retains its existing built-in
+console authentication script. Route changes invalidate cached readings
 and change an opaque configuration revision. In-flight operations retain their
 submission configuration; later actions on old file references reject as stale.
 
@@ -395,6 +406,15 @@ receipt of an announcement alone does not grant access. Host-owned credential
 handling and native connection operations remain behind the public domain
 boundary. This access-code workflow does not remove generic local-only manual
 configuration or make device discovery a prerequisite for manual configuration.
+
+The ordinary Discover LAN printers dialog lists only devices absent from the
+saved printer catalogue, including printers already present through Cloud.
+Match the provider and physical external identity, not display name, model or
+current IP address. Catalogue changes update the open list without restarting
+discovery and clear a selection that has already been added. Forgetting a
+device makes its announcements eligible again when no saved routes remain.
+The explicitly targeted Storage authorization-recovery dialog still shows its
+existing printer so the user can repair its LAN access.
 
 Automatically remember user-entered LAN access codes in host-owned local device
 configuration and restore them after application restart. This is independent
@@ -891,7 +911,8 @@ revision and removes only its LAN record, preserving independent Cloud routes.
 
 The shared [Device discovery UI](../packages/slicer-app/src/components/device/PrinterDiscovery.tsx)
 uses public provider discovery/authorization operations, shows masked transient
-access input and provides verification of saved access. It does not select a
+access input and hides already saved devices in ordinary discovery. Targeted
+Storage recovery retains authorization for the existing device. It does not select a
 print target. Deterministic native/host/provider/UI fixtures cover this boundary,
 including code rejection, callback order, expiry, restart reuse, address rules
 and Cloud/LAN cleanup. The real plugin's ordinary startup remains qualified;
@@ -1951,10 +1972,19 @@ send failures expose a direct retry through the normal sending flow, with no
 additional recovery wizard. Unknown outcomes retain their reconciliation
 boundary. Reconciliation timing and operation retention are implementation
 validation items: timeout or expiry is not evidence that no print started.
-Application-exit behavior during submission is explicitly deferred from this
-clarification round;
-no quit-confirmation or restart/resume policy is accepted here. Progress must
-represent the evidence available: native stage/percentage reports do not justify
+The accepted
+[shared application-exit contract](Printer%20Console%20and%20Control%20Integration.md#application-exit-with-unfinished-sends)
+covers every sending flow, including existing Moonraker and Bambu execution and
+the planned Snapmaker agent. Keep unfinished-send activity visible to the host
+close coordinator independently of renderer page/dialog ownership. After the
+user confirms exit, request supported cancellation, prevent unsent stages and
+complete required provider/worker teardown without treating shutdown as a
+physical print-stop request. Web leave confirmation and teardown remain
+best-effort under browser constraints. Restart must not automatically resume or
+replay interrupted sends. The shared service tracks admitted sends independently of UI observers, and
+application leases cover artifact preparation before admission. This does not
+replace provider-specific outcome or cleanup contracts.
+Progress must represent the evidence available: native stage/percentage reports do not justify
 inventing byte counts or transfer speeds.
 
 The existing native wrapper serializes calls and its addon rejects concurrent
@@ -2024,7 +2054,7 @@ workflows.
 | Agent execution | Exercise validation, automatic path selection, duplicate requests, concurrent admission, cancellation races and late/unknown results. No new queue or blind retry may be inferred from a busy call or timeout. |
 | Shared UI and persistence | Verify capability gating, modal result binding, mapping preservation, direct retry, success navigation, preference normalization and independent-instance writes; preserve the existing Moonraker path. |
 | Physical acceptance | First phase: H2D with AMS over LAN, including actual mapped material feed and print-start observation. Cloud physical acceptance is deferred; other device and release claims require separate qualification. |
-| Application exit | Explicitly deferred from this clarification round. No quit-confirmation, automatic resume or cross-restart recovery behavior is accepted by this document. Native callback/lifetime safety still applies. |
+| Application exit | Qualify the shared unfinished-send exit guard across all existing sending paths: wait versus stop-and-exit, hidden-dialog ownership, cancellation/start races, native callback/worker teardown, Web leave limitations and no automatic resume after restart. Existing provider outcome and cleanup boundaries still apply. |
 
 Acceptance covers artifact/result coherence, used-material extraction,
 tool-number conversion, invalid/unknown paths, combination rules, stale context,
@@ -2033,6 +2063,481 @@ post-dispatch outcomes. Real WASM artifact inspection and physical material feed
 and print-start verification are required in addition to mocks. Follow the
 [testing guidelines](../doc/testing_guidelines.md) for check scope; a fixture
 does not establish a device, Cloud or cross-platform delivery claim.
+
+### 2.5 Snapmaker agent design
+
+**Status:** Implemented and software-qualified in independently tested commits.
+Manual connection, U1 project/mapping integration, prepared submission, Device
+controls and preferences, scoped monitoring and shared unfinished-send exit
+handling are delivered. Software checks, bounded non-printing real-U1 LAN
+acceptance and completed single-head and four-head PLA prints are recorded in
+the interaction specification. Many-to-one logical materials and shared-heater
+qualification remain pending.
+Scope, behavior and
+acceptance policy are settled. The
+[interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)
+owns the user-facing decisions. Software acceptance can complete implementation
+independently of real-U1 qualification, which remains separately reported.
+Existing Bambu and Moonraker behavior remains authoritative for those agents,
+with the shared unfinished-send exit extension explicitly accepted above.
+
+#### Entry point and reuse boundaries
+
+Add a distinct `snapmaker` choice to the manual printer agent dropdown. Its
+selection chooses the Snapmaker protocol implementation. A configured printer
+model does not silently change the selected agent. Manual configuration reuses
+the existing API base URL, optional API key and optional console URL. Automatic
+LAN discovery is outside this delivery. Initial protocol implementation and
+acceptance cover U1; the agent name leaves room for later models without
+claiming their support now.
+
+Model association remains optional, following the current Device configuration
+contract. A user can save a connection and access supported device information
+before associating a U1 profile. Do not require activating that profile merely
+to save the connection. An absent association is not proof of compatibility:
+submission must still validate protocol support and the retained slice's
+requirements. Model filtering follows the existing priority: an explicit
+configured association takes precedence, otherwise use the provider-reported
+model. Do not add a separate configured/observed identity-conflict submission
+block. Preserve the configured association; device reports do not silently
+replace it.
+
+The delivered model association and native device-model filter supply device
+selection, not observed hardware. A configured U1 does not establish its
+installed nozzle diameters, flow variants, filament presence or readiness.
+See the [configuration model](../packages/printer-control/src/configuration.ts),
+[device model filter](../packages/slicer-app/src/components/device/usePrinterCatalogue.ts)
+and [native matcher](../packages/slicer-wasm/src/bridge_profiles.cpp).
+
+Do not gate the whole connection or its operations behind a minimum firmware
+version. Resolve support and availability per function through the shared
+capability contract. Confirmed lack of an optional function disables that
+function's entry; missing required capabilities block the operation that needs
+them, including Send & Print material mapping. Upload-only keeps its separate
+requirements. Unknown support remains unknown, and a version number alone does
+not establish support. Parameter choices and limits belong to each normalized
+function description rather than a vendor-wide assumed range. These capability
+rules do not change command-failure semantics or authorize skipping a failed
+preparation command and starting anyway.
+
+The selected implementation is a TypeScript agent using host-injected transport
+and the existing shared printer domain, with reusable Moonraker protocol code.
+It does not require a Python slicing-pipeline runtime or a second vendor-specific
+application UI. Both Electron and static Web are selected, sharing agent logic
+through host-injected transport. Web uses direct printer access subject to CORS,
+mixed-content and local-network permission restrictions; this delivery adds no
+gateway. Host-specific execution and networking require separate validation.
+Snapmaker-specific object names, firmware commands, numbering, normalization
+and compatibility decisions belong to the agent; renderer code consumes
+normalized capabilities, resources, options and diagnostics. Ordinary Moonraker
+keeps its current on-demand policy.
+
+#### Slice requirements and physical tool bindings
+
+Keep these three identities distinct:
+
+| Identity | Meaning in the U1 design |
+| --- | --- |
+| Project filament | Logical material slot; zero-based filament ID in the inspected non-Bambu `Tn` and U1 temperature commands. |
+| Slicing tool | Parameter selection resolved through plate `filament_map`; its serialized values are one-based and the receipt's `toolIndex` is zero-based. |
+| Device toolhead | Physical U1 head selected by the firmware mapping; protocol indices are normalized by the agent. |
+
+Project filament count can be independent of physical head count while U1 keeps
+`single_extruder_multi_material=false`. Setting it to true merely to expose UI
+would also change extrusion-state semantics. Count handling and mapping
+eligibility in the UI/native bridge need deliberate changes; this investigation
+does not establish a need to redesign geometric slicing or G-code generation.
+The accepted extension applies only to U1 profiles in this delivery and remains
+available offline. Project slots retain the 1–64 range. The firmware's inspected
+32-slot logical address space is enforced at submission through ID/metadata
+validation, not by shrinking the project rack; unrepresentable submissions
+block rather than becoming overridable hardware warnings. The
+[project specification](Multi-Filament%20Support.md#148-u1-independent-project-filaments)
+owns rack and manual-mapping eligibility. Other fixed multi-extruder models and
+automatic grouping retain their existing eligibility rules.
+
+Plate mapping participates in slicing configuration: it can change nozzle,
+offset, flow-variant and extrusion parameters and invalidates affected results.
+It is not a send-only preference. Reuse the plate editor and derive default
+send bindings from the retained result's material requirements and `toolIndex`,
+rather than from a subsequently edited live plate. Opening preparation preserves
+that default instead of automatically rematching by loaded material or color.
+Automatic matching is an explicit user action. Device refresh preserves manual
+choices and updates diagnostics without silently assigning another head.
+For example, logical F5 can use slicing tool 2 (the third tool), still emit
+`T5`, and be sent with a firmware binding F5 to physical H2.
+See [plate mapping](../packages/slicer-wasm/src/bridge_nozzle_mapping.cpp),
+[material requirements](../packages/slicer-wasm/src/bridge_print_submission.cpp)
+and [tool command generation](../packages/slicer-wasm/cpp/src/libslic3r/GCodeWriter.cpp).
+
+The firmware send map is separate from the slicer's `physical_extruder_map`.
+That internal field participates in temperature preheat addressing; populating
+it with a U1 send-time permutation can change heater addresses while `Tn`
+continues to use logical filament IDs. Do not treat the two fields as aliases.
+See [G-code postprocessing](../packages/slicer-wasm/cpp/src/libslic3r/GCode/GCodeProcessor.cpp).
+
+Send-time reassignment does not regenerate toolpaths or extrusion parameters.
+The accepted Snapmaker policy validates and reports differences but allows
+explicitly acknowledged manual material substitutions across material families,
+known nozzle-diameter/flow-type/hardness conflicts, and missing values for those
+hardware attributes. Automatic material matching stays within supported material
+families; the agent owns normalization and family classification. Unknown
+hardware values remain unknown rather than being filled from slicing presets
+and presented as device observations. User acknowledgement accepts execution of
+the original artifact; it does not establish compatibility or adapt the toolpaths.
+Actually changing the generated parameters requires editing the project/plate
+and re-slicing. The
+[interaction rules](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-mapping-and-compatibility)
+own the confirmation behavior.
+
+These overrides concern material/hardware advisories, not invalid protocol
+addresses, stale slice receipts or a successful command's unknown outcome.
+Each newly opened preparation dialog starts from the retained slice's plate
+mapping; temporary send bindings are not persisted as the next dialog's defaults.
+The Bambu fixed-tool and compatibility rules in section 2.4 remain
+unchanged; the shared contract must distinguish each agent's mapping capability
+and diagnostic severity rather than imposing one provider's policy on all others.
+
+U1 firmware accepts multiple logical IDs mapped to one physical head. It skips
+mechanical switching if that head is already active, but the original logical
+temperature, retraction, macro and tower instructions remain. All aliased
+materials use the physically loaded filament. Preheating one logical material
+can affect the shared heater while another logical material is printing.
+This is a source-derived consequence, not physical qualification. Neo allows
+many-to-one bindings, explains the shared physical filament and requires
+confirmation of differing-temperature/shared-heater conflicts. It preserves
+the original logical instructions; no automatic merging of materials,
+elimination of redundant tool-change sequences or heater scheduling rewrite
+is part of this policy.
+
+#### Submission and device capabilities
+
+The selected submission path validates one retained slice result and exports
+its G-code. Upload-only transfers the file without applying submission mapping
+or print options and without starting a print. Send & Print uploads without
+auto-start, awaits successful transfer, applies mapping/options and dispatches
+start only after successful preparation responses. An upload failure does not
+apply those job settings. The agent transmits the exported G-code unchanged and does not
+inspect its contents for preparation inputs or conflicting startup commands.
+The current [submission capability](../packages/printer-control/src/domain/printer.ts)
+only names `print-3mf`, and the
+[preparation controller](../packages/slicer-app/src/components/send/usePrintPreparation.ts)
+exports a print/configuration package. Extend this single contract to select
+artifacts by capability, using the existing receipt-checked G-code export for
+U1; do not fabricate a Bambu package or introduce a parallel submission API.
+Only a current valid Neo slice result is accepted for submission in this
+delivery. Do not expose remote-file start or history-based reprint for the
+Snapmaker agent. Repeating a print may re-submit that valid slice through the
+normal preparation flow; upload-only does not persist a prepared remote-file
+binding or create a later-start workflow. Live camera preview and remote printer
+file browsing/management are also deferred: no Snapmaker Storage browser,
+file-list/thumbnail browsing, download or user-triggered file deletion is part
+of this delivery. Do not expose these unimplemented operations merely because
+the device protocol supports them. Timelapse recording options and submission
+remain included; camera/Storage integration is not a completion requirement.
+
+The accepted delivery covers the SnapSend scope and explicit deferrals in the
+[interaction specification](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-delivery-and-connection).
+Implementation may proceed in increments; a basic upload/print increment alone
+does not complete that scope. Required capability families include:
+
+- Fresh status, firmware, tools/nozzles and filament observations; distinct
+  empty, inserted and loaded material states.
+- Material mapping, bed leveling, timelapse and flow calibration per selected
+  used head. Current scalar print options need a coherent extension for head
+  selections.
+- Device filament metadata editing and individual toolhead loading/unloading
+  with progress. Each load/unload targets one physical head, with at most one
+  such operation active per printer. Do not add a multi-head batch or a queue
+  that starts later heads automatically; another operation requires a new user
+  action after the current one finishes. Load/unload cancellation is outside
+  this delivery; closing an observer does not cancel the device action.
+- Device-page top-cover status, current-mode display and live fan speed control,
+  plus firmware-supported detection, auto-refill and lighting preferences.
+  Automatic mode derivation and job-specific top-cover preparation are deferred.
+
+For the retained Device load/unload, filament metadata, preference-save and
+top-cover fan commands, execution admission belongs to the printer. Do not
+derive a local rejection or disabled state solely from observed idle, printing,
+paused or busy state, or from a predicted conflict with another device activity.
+Do not require a preflight readiness query for that purpose. Dispatch a valid
+supported request and preserve the device's response. Target/parameter validity,
+capability support, the individual load/unload contract and preference-save
+readback remain in force. This policy does not replace submission validation or
+broaden another provider's device-control behavior.
+
+Device command errors and preference verification failures are reported without
+automatic retry or compensating rollback. Keep editable user intent available
+for another explicit operation, retain device changes already applied and
+preserve actual response/execution evidence. A lost response is not proof of
+non-execution. Preference-save readback remains required, and a mismatch or failed
+verification cannot produce a verified-save result. Do not introduce a separate
+automatic recovery sequence for these operations.
+
+Per-submission intent, locally remembered user choices and persistent device
+preferences have different owners. Device preferences must not be represented
+as if a local preference write changed the printer. Neo remembers the three
+print-option switches per physical printer. The flow-calibration head subset
+belongs to one preparation session, uses deduplicated physical heads from the
+current mapping and follows the defaults and mapping-edit rules in the
+[accepted interaction contract](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-print-options-and-material-readiness).
+The typed `preferences` observation and `preferences.set` command own persistent
+Device edits. The U1 agent maps visual detection to `DEFECT_DETECTION_CONFIG`,
+and refill, lighting and filament-motion detection to `SET_PRINT_PREFERENCES`.
+The latter detection uses the firmware's `filament_entangle_*` fields (feed-wheel
+motion versus requested extrusion), not camera-based visual detection. Visual
+sensitivity offers low/high; filament-motion sensitivity offers low/medium/high.
+Only reported fields with the corresponding command are editable.
+An independent device-preference Save reads current values, writes changed
+fields only and verifies them by readback; canceling preparation does not roll
+back that save. Upload-only does not apply the current job's mapping/options.
+For Send & Print preparation, await successful command responses for the
+mapping and selected print options without an additional field-by-field device
+readback comparison. An explicit preparation-command failure prevents automatic
+print start. This acknowledgement policy does not weaken independent preference
+Save readback, receipt validation or structured request validation.
+
+If a later preparation command fails after earlier settings succeeded, stop
+without print start and retain the already applied device settings. Do not
+implement automatic rollback, a pre-write rollback snapshot or compensating
+settings writes. Report partial application without claiming transactional
+restoration.
+
+For submission errors, including interruption after possible start dispatch,
+use the generic failure/manual-retry interaction in the
+[submission contract](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-submission-order-and-failure-behavior).
+Retain uncertain execution evidence in the operation record even though the
+UI uses the generic failure presentation. Reconnection must not replay an
+operation. A user-requested Retry creates a new submission through the complete
+validated upload/preparation/start flow with a current valid slice; it is not
+an automatic retry, a replay of the old request identity or a start-only remote
+file operation. No separate user proof-of-non-start or additional confirmation
+workflow is required. Existing Bambu and Moonraker policies remain unchanged.
+
+Submission cancellation is an explicit operation, distinct from closing its UI
+observer. Before start dispatch, attempt to abort active upload transport and
+gate each subsequent preparation/start stage on cancellation. If a preparation
+request is already in flight, its effects may remain; check cancellation before
+dispatching another command. Do not roll back applied settings or automatically
+delete complete or partial remote files on failure/cancellation.
+
+After start dispatch, submission cancellation does not imply non-execution and
+must not issue a print-stop command. Device print-stop is a separate user request.
+A cancellation/dispatch race preserves the actual execution evidence and follows
+the accepted submission result/failure presentation, without falsely reporting
+that printing was prevented. Device-managed temporary-file cleanup is outside
+the agent's guarantee.
+
+The agent must preserve the distinction between explicitly observed inserted
+and loaded filament. Inserted-but-unloaded material is eligible for Send &
+Print with a visible automatic-loading indication. The supported U1 startup
+workflow owns loading; validate that firmware/profile contract rather than
+manufacturing a loaded observation or unconditionally issuing a separate load
+operation before submission.
+
+Preparation currently assumes observation watching; the extension must honor
+each agent's advertised delivery modes. Snapmaker uses the shared default
+Monitor lifetime, retaining observation for the selected printer after the
+Monitor starts, including while its page is hidden. Selection replacement,
+connection removal or host teardown releases that subscription. Send consumers
+and unfinished upload/device operations retain independent acquisition leases.
+The implemented U1 acquisition hub shares concurrent reads and uses a two-second
+normal poll interval. Failed reads mark retained snapshots stale; recovery stops
+after three consecutive failures with exponential delay. Explicit Refresh or a
+new consumer restarts acquisition without replaying commands.
+Share acquisition when consumers need the same printer, and release
+ordinary acquisition when none remain; a running physical print alone does not
+require an application-lifetime monitor. Retain the last snapshot with its
+actual observation time and non-live state. These internal lifetimes do not
+introduce a public connect/disconnect prerequisite for stateless agent calls.
+
+While observation is required, use bounded automatic reconnection with backoff
+and expose manual retry after exhaustion as well as during recovery. Reacquire
+state before enabling actions that require current observations. Preserve
+manual mappings and unsaved edits across reconnect, and revalidate their
+compatibility and availability. Reconnection restores observations only; it
+must not replay mutations or automatically start a job. Observation ownership
+does not cancel an independently submitted operation when a view closes.
+The
+[interaction contract](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-control-placement-and-status-observation)
+owns control placement and visible freshness/recovery behavior. Snapmaker sends
+also participate in the shared application-exit contract above.
+
+The accepted Snapmaker submission boundary prohibits G-code scanning, parsing,
+rewriting and command insertion, including SnapSend's legacy cancellation
+insertion. Preparation consumes structured retained-slice
+metadata and device observations. Do not detect conflicts with startup G-code
+or impose a re-slice requirement for them. Assume the file needs no conflict
+handling, issue selected device settings normally and execute the original
+file as written. This policy governs the Snapmaker send workflow; it does not
+replace the slicer's existing G-code generation or preview facilities.
+
+The retained top-cover capability uses agent-normalized device state and direct
+fan-control commands. It displays the existing circulation mode rather than
+computing or manually selecting one for a job. No new `chamber_cooling_mode`
+calculation or supporting high-temperature filament field is required by this
+delivery. The
+[interaction contract](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-g-code-and-top-cover-boundaries)
+owns these accepted scope limits.
+
+#### Independently accepted implementation units
+
+The dependency order and acceptance boundaries below own this feature's
+implementation plan. Each unit is validated and committed before starting the
+next; final host acceptance checks their composition.
+
+| Unit | Delivered responsibility | Independent acceptance |
+| --- | --- | --- |
+| 1. Protocol encoder | Structured logical IDs, physical bindings, used heads and job options. | Sparse IDs, range rejection, many-to-one maps, deduplicated subsets and exact command payloads. |
+| 2. Provider entry | Manual Snapmaker registration, both host transports, optional model and normalized inventory. | Configuration persistence, provider isolation, absent readings and host setup. |
+| 3. U1 project contract | Offline 1–64 rack, manual plate mapping, unchanged SEMM and logical numbering. | Dual-WASM real slicing, invalidation, history and roundtrip. |
+| 4. Preparation | Retained-slice mapping, explicit matching, diagnostics, confirmation and calibration choices. | Structured requirements, matching/override rules and shared UI tests. |
+| 5. Submission | Unchanged upload, preparation, start, cancellation and explicit fresh retry. | Injected failures at each stage, admission/cancel races, opaque bytes and host-owned state. |
+| 6a. Device controls | Physical addressing, individual load/unload, hardware readings and metadata editing. | All four feed channels, one local material operation, parameter validation and retained operation ownership. |
+| 6b. Persistent preferences | Independent changed-field Save and readback. | Supported choices, stale/current comparison, partial application, mismatch and draft retention. |
+| 7. Observation lifetime | Shared consumers, independent operation leases, stale cache and bounded reconnect. | Concurrent consumers, hidden/reopened Device, last-consumer release and manual recovery. |
+| 8. Exit protection | All-provider send registry, pre-admission artifact leases and host shutdown. | Return/stop decisions, late admission, lost observers, native callback joining and no physical stop. |
+| 9. Integration | Shared capability-driven metadata editor, package exports and final documentation. | Workspace typechecks, affected packages, Electron/Web HTTP fixtures and existing Bambu/Moonraker regressions. |
+
+#### Reference evidence and qualification limits
+
+Real U1 firmware `2.0.0.205_20260914173503` exposed a command-discovery
+correction: the `gcode` object's `commands` map lists registered commands even
+without a help description; `/printer/gcode/help` does not. Acquisition queries
+that map alongside device status, without probing commands by execution. The
+[non-printing LAN acceptance](Printer%20Console%20and%20Control%20Integration.md#real-u1-non-printing-acceptance-2026-11-06)
+records observations, preparation-only mappings, restored settings/fans and
+unchanged upload verification; no physical print behavior is inferred.
+
+
+The provider-private [U1 preparation encoder](../packages/printer-control/src/snapmaker/protocol.ts)
+implements structured logical-material bindings, physical-head deduplication,
+protocol index validation and print-option command construction. Its protocol
+fixtures cover sparse IDs and many-to-one bindings; no file inspection is used.
+The [Moonraker entry](../packages/printer-control/src/service.ts) and
+[Snapmaker entry](../packages/printer-control/src/snapmaker/service.ts) register
+distinct routes in both hosts. They reuse [HTTP service assembly](../packages/printer-control/src/http-service.ts)
+for configuration management, uploads and operation records, with one
+[configuration coordinator](../packages/printer-control/src/http-configuration.ts)
+per host repository serializing reads and writes across both providers.
+Operations and request identities remain provider-owned. Snapmaker owns U1
+capabilities, state projection, command dispatch, observation leases and prepared
+submission assembly. Device state follows configuration-generation identity,
+while prepared submissions follow the host repository across fresh service
+facades. The manual Device form can save
+and reopen Snapmaker connections without a model or network probe. On-demand
+[U1 inventory normalization](../packages/printer-control/src/snapmaker/observation.ts)
+keeps inserted, empty and unknown material observations distinct from the
+motion sensor's loaded state. Unreported hardware is not filled from presets.
+Prepared submission uploads unchanged G-code before applying the structured
+map/options and requesting start. Remote-file start remains intentionally
+unavailable for Snapmaker. These implementations do not qualify physical
+firmware execution. With a manually associated model, the Snapmaker agent
+publishes Confirm-only `materials.configure` targets with each physical head's
+nozzle context, reusing the existing Material information dialog and native
+device catalogue. Native catalogue lookup matches the exact printer variant,
+so a mixed-diameter U1 variant does not make a uniform variant ambiguous.
+Confirm translates the selected canonical preset name's vendor/type/series to
+the existing metadata command, with no calibration or Reset command. Local
+rejection retains the dialog; later operation feedback belongs to Monitor as
+in the shared editor. Without a model association, `materials.writeMetadata`
+retains direct brand/type/color editing without a fabricated preset; device
+rejection retains that draft. Official-filament restrictions are not bypassed
+with `FORCE` in either path.
+U1 print status normalizes the current and total layer counts from
+`print_stats.info`. Its stage comes from the advertised
+`machine_state_manager` main-state/action codes, using the firmware's action
+labels and main-state fallback. Idle action/state reports a known null stage.
+Missing or invalid layer/state data stays unknown. These observations also
+describe completed jobs while the firmware retains their layer information.
+
+The Snapmaker agent reads the current task's embedded thumbnail from file
+metadata and the printer's authenticated HTTP file endpoint. It selects the
+largest reported image and delivers its PNG/JPEG bytes through the shared
+current-task media boundary. Task identity includes the filename, history job
+ID, print start time and file UUID. A fresh identity read after image transfer
+and a configuration-generation check reject results from a changed task or
+connection. The same identity guards current-task cancellation. Missing images
+or unavailable task identity leave the shared Monitor placeholder visible and
+do not block observations or controls. This capability is independent of
+Storage browsing and live-camera playback.
+
+The Snapmaker agent estimates remaining print seconds with Snapmaker Orca's
+executable-byte progress formula. It reads `estimated_time`, `gcode_start_byte`
+and `gcode_end_byte` from Moonraker file metadata, then multiplies the estimate
+by the remaining fraction of that byte range and truncates to whole seconds.
+Valid metadata is reused during printing, pauses and retained terminal jobs.
+A changed filename, a new active job after an observed terminal/idle state,
+lower total duration or connection configuration change invalidates it.
+Missing/invalid metadata, unavailable byte positions and
+preparation before the executable range report unknown. Later observations retry
+metadata failures while other status readings remain available. Completion
+reports zero seconds. The calculation consumes server metadata, with the slicer
+time estimate as its timing basis throughout the job.
+
+Monitor material cards display normalized `materialType` consistently across
+agents. The material editor displays the matched preset's name. Snapmaker uses
+the reported vendor/type/series as input to exact system-name matching, which
+returns a library filament identity
+independently of the project's selected Printer; the device editor resolves
+that identity within its own compatible catalogue. Project-side import still
+validates the target model and material compatibility before applying changes.
+In particular, the inspected firmware's calibration-subset
+handler references both `flow_calibrate_extruders` and `flow_calib_extruders`;
+successful subset execution needs firmware qualification rather than assuming
+that a well-formed request proves the device applied it.
+
+The comparison distinguishes three separate implementations:
+
+- Upstream Orca's [Snapmaker agent](../packages/slicer-wasm/cpp/src/slic3r/Utils/SnapmakerPrinterAgent.cpp)
+  extends [Moonraker](../packages/slicer-wasm/cpp/src/slic3r/Utils/MoonrakerPrinterAgent.cpp)
+  with Snapmaker filament reads; this is not the full SnapSend preparation UI.
+- [SnapSend 0.9.58](https://cloud.orcaslicer.com/p/51b695a195de) is a slicing-pipeline
+  plugin. Its public description documents preparation, mapping, material
+  operations and preferences, while Orca performs upload/start. Plugin source
+  was not obtained; claims about it are documented behavior, not code verification.
+- Snapmaker Orca was inspected at
+  [v2.4.1](https://github.com/Snapmaker/OrcaSlicer/tree/bac6fd5c1e1c23ddf057cf6471ba4ed7ed621c4c),
+  with [U1 profiles](https://github.com/Snapmaker/snapmaker-profiles/tree/1e201f6aa8920b4878daa02a21d43073ba92c06c)
+  and [U1 firmware](https://github.com/Snapmaker/u1-klipper/tree/7ac453b50fe6779b2ec0b759038a17da5e6d671d).
+  Firmware [mapping/preferences](https://github.com/Snapmaker/u1-klipper/blob/7ac453b50fe6779b2ec0b759038a17da5e6d671d/klippy/extras/print_task_config.py)
+  and [tool/temperature addressing](https://github.com/Snapmaker/u1-klipper/blob/7ac453b50fe6779b2ec0b759038a17da5e6d671d/klippy/kinematics/extruder.py)
+  establish the logical-to-physical protocol. They do not prove that every
+  compiled sender accepts every possible mapping without further checks.
+
+The official [V2.4.1 Windows portable release](https://github.com/Snapmaker/OrcaSlicer/releases/tag/v2.4.1)
+contains a different Flutter web bundle from the repository tag. Static
+inspection of its `resources/web/flutter_web/main.dart.js` (web build
+`20261023182959`) establishes that send-only returns after file transfer,
+skipping mapping/print-option application and print start. Its preprint UI has
+a flow-calibration switch without an explicit head-subset payload. SnapSend's
+documented upload-only action does apply settings, and its calibration UI
+allows a subset of used heads. These are distinct reference behaviors; the
+accepted Neo interaction contract above owns the choices. Inspection of
+compiled JavaScript is not original Dart source or runtime/hardware validation.
+
+The Neo baseline is main `b981adbf`, with Orca submodule `9ac76bf`.
+Offline real-WASM exports established logical `T0`/`T5` and logical temperature
+addresses with six project filaments, four nozzle parameter entries, SEMM false,
+and both no tower and the default U1 Type2 tower. The slots were constructed
+through a test entry point; this does not establish current UI support.
+A separate nonidentity `physical_extruder_map` probe established the preheat
+addressing distinction. These checks do not qualify mixed nozzles, all custom
+macros/tower modes, the Snapmaker compiled sender or physical printing.
+
+Implementation can be delivered and marked complete after automated acceptance
+of the full selected scope, including protocol fixtures, the affected Electron
+and Web boundaries and real-WASM checks for changed native contracts. Follow
+the [testing guidelines](../doc/testing_guidelines.md) for scope and execution
+levels. The
+[acceptance contract](Printer%20Console%20and%20Control%20Integration.md#snapmaker-acceptance-and-physical-qualification)
+owns the required software cases and independent real-U1 checklist.
+Real printing, firmware behavior and shared-heater effects remain unverified
+until corresponding physical cases pass. Missing hardware evidence does not
+block software delivery, and mock/host/slicing evidence must not be promoted to
+a physical or broader firmware/platform claim. Record firmware, profile and
+host conditions when physical evidence becomes available. The roadmap records software delivery separately from this physical
+qualification boundary.
 
 ## 3. Identity, configuration and stateless access
 
@@ -2307,6 +2812,12 @@ layout and initial selection are not fixed here; existing explicit printer
 selection behavior is preserved. The initial Monitor exposes status, sensors,
 heater targets and basic print controls; camera viewing and other monitor cards
 remain future work.
+
+For Snapmaker-agent printers, the Device UI orders Monitor before Web Interface
+and opens Monitor by default when eligible, including remembered device
+restoration. Users can still select Web Interface explicitly; choosing another
+printer applies that printer's default again. Other agents retain their current
+tab order and default selection.
 
 ### 4.3 Firmware observations
 

@@ -2634,6 +2634,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         saved: { mode: null, filamentMap: null, volumeMap: null, nozzleMap: null },
         effective: { mode: 0, filamentMap: [1], volumeMap: [0], nozzleMap: [0] }, diagnostics: [] };
     },
+    orc_match_filament_presets(requestJson: string) {
+      const materials = JSON.parse(requestJson);
+      return { ok: true, filamentIds: materials.map(() => 'OFZGmLwF') };
+    },
     orc_get_device_material_catalogue(requestJson: string) {
       const request = JSON.parse(requestJson);
       if (!request.identity || !Number.isInteger(request.toolIndex) || request.toolIndex < 0) return { ok: false, error: 'Invalid device material catalogue context' };
@@ -3907,7 +3911,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { accepted: true, kind: 'arrange', task_id: taskId };
     },
     orc_cancel_arrangement(_taskId: string) { return { ok: false, error: 'No cancellable mock arrangement' }; },
-    orc_slice_plate(_config: string, plateId: string, revision: number) {
+    orc_slice_plate(_config: string, plateId: string, revision: number, _thumbnailJson: string) {
       return runMockSlice(plateId, revision);
     },
     orc_get_slice_result(plateId: string, inputStamp: number, resultGeneration: number) {
@@ -4038,7 +4042,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId },
         manifest: { plateId, printerModel: 'Mock printer', printerModelId: '',
           materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FFFFFF', presetId: '', presetName: 'PLA', brand: '',
-            toolIndex: 0, nozzleDiameter: 0.4, nozzleFlowType: 'Standard', chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 0, usedGrams: 1, usedMeters: 0.3 }],
+            toolIndex: 0, nozzleDiameter: 0.4, nozzleFlowType: 'Standard', nozzleTemperature: null, initialLayerNozzleTemperature: null, chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 0, usedGrams: 1, usedMeters: 0.3 }],
           nozzleDiameters: [0.4], nozzleFlowTypes: ['Standard'], filamentMap: [1], durationSeconds: 60, layerCount: 10, weightGrams: 1,
           timelapseWarningCode: 0, toolpathOutside: false, requiresDynamicMapping: false, bedType: '', warnings: [] } };
     },
@@ -4233,6 +4237,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_filament_routing: { ret: 'number', args: ['string'] },
     orc_prepare_material_import: { ret: 'number', args: ['string'] },
     orc_get_device_material_catalogue: { ret: 'number', args: ['string'] },
+    orc_match_filament_presets: { ret: 'number', args: ['string'] },
     orc_get_device_filament_options: { ret: 'number', args: ['string'] },
     orc_apply_material_import: { ret: 'number', args: ['string'] },
     orc_get_flushing_volumes: { ret: 'number', args: ['string'] },
@@ -4281,7 +4286,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice: { ret: 'number', args: ['string'] },
     orc_arrange: { ret: 'number', args: ['string'] },
     orc_cancel_arrangement: { ret: 'number', args: ['string'] },
-    orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
+    orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number', 'string'] },
     orc_get_slice_result: { ret: 'number', args: ['string', 'number', 'number'] },
     orc_export_gcode_plate: { ret: 'number', args: ['string'] },
     orc_describe_print_plate: { ret: 'number', args: ['string'] },

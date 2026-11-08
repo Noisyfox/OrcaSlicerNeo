@@ -127,7 +127,7 @@ export type BambuMachineState = ReturnType<typeof decodeMachineState>;
 export interface TelemetryProjection {
   machine: BambuMachineState;
   /** File-backed catalogues belong to the object-resource owner, not raw telemetry. */
-  values: Omit<D.PrinterObservationMap, 'printObjects'> & { printObjects?: never };
+  values: Omit<D.PrinterObservationMap, 'printObjects' | 'preferences'> & { printObjects?: never; preferences?: never };
   /** Private normalized source needed by the command adapter; never sent over IPC. */
   report: Report;
   fresh: boolean;

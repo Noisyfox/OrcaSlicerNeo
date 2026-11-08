@@ -39,7 +39,7 @@ class FixtureTransport implements PrinterTransport {
     }
     const uploading = request.url.endsWith('/server/files/upload');
     const response = this.responses.shift() ?? (uploading ? { item: { root: 'gcodes', path: 'output.gcode' }, action: 'create_file', print_started: false, print_queued: false } : { result: 'ok' });
-    return { status: this.statuses.shift() ?? (uploading ? 201 : 200), json: async () => response };
+    return { status: this.statuses.shift() ?? (uploading ? 201 : 200), bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => response };
   }
 }
 

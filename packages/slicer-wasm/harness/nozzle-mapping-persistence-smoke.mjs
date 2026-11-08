@@ -73,7 +73,7 @@ assert.deepEqual(ok(projection(first)).nozzles.map(n => n.capacity), [9, 4], 'pr
 assert.deepEqual(ok(call('orc_test_nozzle_mapping_published')).capacity, [9, 4], 'native published policy excludes incoming capacities');
 const sliceSettings = JSON.stringify({ enable_prime_tower: false, layer_height: 0.3, initial_layer_print_height: 0.3, sparse_infill_density: '5%' });
 for (const [id, target] of [[first, 1], [second, 2]]) {
-  ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'], [sliceSettings, id, ok(projection(id)).revision]));
+  ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'], [sliceSettings, id, ok(projection(id)).revision, 'null']));
   assert.equal(ok(call('orc_test_nozzle_mapping_slice', ['string'], [id])).filamentMap[0], target);
 }
 const switchTo = name => ok(command('orc_select_printer_with_remembered_rack', {
@@ -114,7 +114,7 @@ load(archive);
 [first, second] = plates();
 configure({ plate_settings: { [second]: { filament_map_mode: 'Auto For Flush' } } });
 const retained = ok(projection(second)).saved;
-ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'], [sliceSettings, second, ok(projection(second)).revision]));
+ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'], [sliceSettings, second, ok(projection(second)).revision, 'null']));
 load(save());
 assert.deepEqual(ok(projection(plates()[1])).saved, retained, 'automatic result does not replace manual intent in archive');
 console.log('PASS native mapping persistence: standard fields, local maps, modes, capacity precedence, preset memory, Undo, published/geometry exclusions and reslicing');

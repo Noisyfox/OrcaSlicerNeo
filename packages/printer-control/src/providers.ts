@@ -1,3 +1,4 @@
+import { trackPrinterSends } from './send-activity';
 /** Dispatch by provider-owned route identity; account/session state never participates. */
 import type * as D from './domain';
 
@@ -65,7 +66,21 @@ export function createPrinterService(providers: readonly D.PrinterProvider[]): D
     if (failed && !failed.ok) return failed;
     return { ok: true, value: results.flatMap(result => result.ok ? [...result.value] : []) };
   }
-  return {
+  return trackPrinterSends({
+    configurations: {
+      read: target => call(target, service => service.configurations.read(target)),
+      save: async request => {
+        const types = await list(service => service.listTypes());
+        if (!types.ok) return types;
+        const matches = types.value.filter(type => type.id === request.typeId);
+        if (matches.length !== 1) return { ok: false, error: invalid('Unknown or ambiguous printer type') };
+        const capability = matches[0].manualConfiguration;
+        if (capability.kind !== 'supported' || capability.constraints.hostId !== request.hostId)
+          return { ok: false, error: { code: 'unsupported', message: 'Manual configuration is unavailable for this printer type and host.' } };
+        if (request.target) return call(request.target, service => service.configurations.save(request));
+        return providerCall(matches[0].providerId, service => service.configurations.save(request));
+      },
+    },
     listProviders: options => list(s => s.listProviders(options)),
     listTypes: options => list(s => s.listTypes(options)),
     listSaved: async options => { try { return { ok: true, value: await collect(options) }; } catch (error) { return { ok: false, error: errorOf(error) }; } },
@@ -117,5 +132,5 @@ export function createPrinterService(providers: readonly D.PrinterProvider[]): D
       sendSignal: (r, signal) => call(r, s => s.media.sendSignal(r, signal)), readContent: (r, o) => call(r.media, s => s.media.readContent(r, o)),
       close: r => call(r, s => s.media.close(r)), captureSnapshot: (t, camera, o) => call(t, s => s.media.captureSnapshot(t, camera, o)),
     },
-  };
+  });
 }

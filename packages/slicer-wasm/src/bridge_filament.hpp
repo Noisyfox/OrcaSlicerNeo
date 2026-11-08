@@ -29,6 +29,8 @@ using json = nlohmann::json;
 
 namespace State {
 
+bool is_snapmaker_u1(const DynamicPrintConfig& printer);
+bool supports_independent_materials(const DynamicPrintConfig& printer);
 json config_metadata_json(const DynamicPrintConfig& config);
 std::size_t material_slot_count(const DynamicPrintConfig& project);
 std::vector<std::string> project_slot_identities(std::size_t count);
