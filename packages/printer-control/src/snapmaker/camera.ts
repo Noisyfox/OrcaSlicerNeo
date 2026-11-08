@@ -89,9 +89,12 @@ export class U1CameraMedia {
   private readonly requests = new Map<string, Resource>();
   private active?: Resource;
   private disposed = false;
-  private readonly timer: ReturnType<typeof setInterval>;
+  private timer?: ReturnType<typeof setInterval>;
 
-  constructor(private readonly options: U1CameraMediaOptions) {
+  constructor(private readonly options: U1CameraMediaOptions) {}
+
+  private monitorLeases(): void {
+    if (this.timer) return;
     this.timer = setInterval(() => {
       const now = Date.now();
       for (const resource of this.resources.values()) {
@@ -104,7 +107,8 @@ export class U1CameraMedia {
     }, 1000);
   }
 
-  readonly api: Pick<D.PrinterMedia, 'open' | 'watch' | 'readStream' | 'renew' | 'close'> = {
+  readonly api: Pick<D.PrinterMedia, 'open' | 'watch' | 'readStream' | 'renew' | 'interact' | 'close'> = {
+    interact: async (ref, options) => options?.signal?.aborted ? { ok: false, error: { code: 'cancelled', message: 'Camera request cancelled.' } } : this.interact(ref),
     open: (request, options) => this.open(request, options?.signal),
     watch: (ref, options) => this.watch(ref, options?.signal),
     readStream: (request, options) => this.readStream(request, options?.signal),
@@ -173,12 +177,13 @@ export class U1CameraMedia {
       const opened = new Promise<D.Result<D.MediaDescriptor>>(resolve => { accept = resolve; });
       const descriptor: D.MediaDescriptor = { ref: { printerId: request.target.printerId, routeId: request.target.routeId, id: newId<'media'>() },
         configurationRevision: request.target.expectedConfigurationRevision ?? '', revision: 1, source: copy(request.source), expiresAtMs: Date.now() + LEASE_MS,
-        presentation: { kind: 'video', delivery: { transport: 'jpeg-frames', streamId: newId<'media-stream'>(), mimeType: 'image/jpeg' },
+        presentation: { kind: 'video', delivery: { transport: 'jpeg-frames', streamId: newId<'media-stream'>(), mimeType: 'image/jpeg', recoveryWindowMs: RECOVERY_MS, interactionRenewal: true },
           profile: null, durationSeconds: null, seekable: false, codecId: 'jpeg', live: true } };
       const resource: Resource = { descriptor, signature, requestKey, clientId: `neo-camera-${newId<'request'>()}`, controller: new AbortController(),
         needStart: true, renewalAt: 0, interactionAt: -Infinity, generation: 0, attached: false, attachDeadline: Infinity,
         state: 'connecting', revision: 0, listeners: new Set(), task: Promise.resolve(), opened, retainedUntil: Infinity };
       this.active = resource; this.resources.set(descriptor.ref.id, resource); this.requests.set(requestKey, resource);
+      this.monitorLeases();
       const cancel = () => { void this.release(resource, { code: 'cancelled', message: 'Camera opening cancelled.' }); };
       caller?.addEventListener('abort', cancel, { once: true });
       resource.task = this.run(resource, request.target, accept);
@@ -307,7 +312,11 @@ export class U1CameraMedia {
 
   async dispose(): Promise<void> {
     this.disposed = true; clearInterval(this.timer);
-    await Promise.all([...this.resources.values()].map(resource => this.release(resource)));
+    await this.closeViews();
     this.resources.clear(); this.requests.clear();
+  }
+
+  async closeViews(): Promise<void> {
+    await Promise.all([...this.resources.values()].map(resource => this.release(resource)));
   }
 }

@@ -1,7 +1,7 @@
 /** Browser-only delivery consumer. The resource owner opens/renews/closes media separately. */
 import type { MediaClientCapabilities, MediaDescriptor, MediaStreamPacket, PrinterMedia, VideoDelivery } from '@orca/printer-control/domain';
 
-export type PlaybackState = 'connecting' | 'playing' | 'paused';
+export type PlaybackState = 'connecting' | 'playing' | 'paused' | 'recovering';
 export interface PlaybackOptions {
   descriptor: MediaDescriptor;
   media: Pick<PrinterMedia, 'readStream'>;
@@ -9,6 +9,7 @@ export interface PlaybackOptions {
   image: HTMLImageElement;
   signal?: AbortSignal;
   onState?: (state: PlaybackState) => void;
+  connectionState?: 'connecting' | 'ready';
 }
 const MAX_PACKET_BYTES = 16 * 1024 * 1024;
 
@@ -65,6 +66,10 @@ export function startMediaPlayback(options: PlaybackOptions) {
   const controller = new AbortController();
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
   const presentation = descriptor.presentation;
+  const recoveryWindow = presentation.kind === 'video' && presentation.delivery.transport === 'jpeg-frames' ? presentation.delivery.recoveryWindowMs : undefined;
+  if (recoveryWindow !== undefined && (!Number.isFinite(recoveryWindow) || recoveryWindow <= 0 || recoveryWindow > 30_000)) throw new PlaybackError('Invalid camera recovery window');
+  let connectionReady = options.connectionState !== 'connecting', decodedReady = false, displayed = false;
+  let recoveryAt: number | undefined;
   let blobUrl: string | undefined, hls: { destroy(): void } | undefined;
   let source: MediaSource | undefined, buffer: SourceBuffer | undefined;
   let expiry: ReturnType<typeof setTimeout> | undefined;
@@ -74,14 +79,35 @@ export function startMediaPlayback(options: PlaybackOptions) {
   const failure = new Promise<never>((_, reject) => { rejectFailure = reject; });
   // Capture immediate media errors even while waiting for an IPC packet.
   const failed = () => rejectFailure(new PlaybackError('Media playback failed'));
-  const playing = () => { lastFrameAt = Date.now(); onState?.('playing'); };
+  const recover = () => {
+    recoveryAt ??= Date.now();
+    onState?.(displayed ? 'recovering' : 'connecting');
+  };
+  const playing = () => {
+    if (recoveryWindow !== undefined) {
+      decodedReady = true; displayed = true;
+      if (!connectionReady) { recover(); return; }
+      recoveryAt = undefined;
+    }
+    lastFrameAt = Date.now(); onState?.('playing');
+  };
+  const setConnectionState = (state: 'connecting' | 'ready') => {
+    if (recoveryWindow === undefined) return;
+    connectionReady = state === 'ready';
+    if (!connectionReady) { decodedReady = false; recover(); }
+    else if (decodedReady) playing();
+  };
   const watchdog = setInterval(() => {
-    if (presentation.kind === 'video' && presentation.live && 'streamId' in presentation.delivery && !autoplayBlocked && Date.now() - lastFrameAt > 15000) {
+    if (recoveryAt !== undefined && recoveryWindow !== undefined && Date.now() - recoveryAt >= recoveryWindow) {
+      rejectFailure(new PlaybackError('Camera recovery timed out'));
+    }
+    if (presentation.kind === 'video' && presentation.live && 'streamId' in presentation.delivery && !autoplayBlocked && Date.now() - lastFrameAt > (recoveryWindow ?? 15000)) {
       rejectFailure(new PlaybackError('Camera stopped displaying frames'));
     }
   }, 1000);
   const waiting = () => onState?.('connecting');
-  video.addEventListener('error', failed); image.addEventListener('error', failed);
+  const imageFailed = () => { if (recoveryWindow !== undefined) recover(); else failed(); };
+  video.addEventListener('error', failed); image.addEventListener('error', imageFailed);
   video.addEventListener('waiting', waiting);
   video.muted = true; video.playsInline = true;
   onState?.('connecting');
@@ -138,12 +164,16 @@ export function startMediaPlayback(options: PlaybackOptions) {
           await cancellable(decoded.decode(), signal, 5000);
           if (signal.aborted || packet.generation !== generation) { URL.revokeObjectURL(next); continue; }
           image.src = next; revoke(); blobUrl = next; playing();
-        } catch (error) { URL.revokeObjectURL(next); throw error; }
+        } catch (error) {
+          URL.revokeObjectURL(next);
+          if (signal.aborted || recoveryWindow === undefined) throw error;
+          decodedReady = false; recover();
+        }
       }
     };
     try {
       while (!signal.aborted) {
-        const next = await cancellable(iterator.next(), signal, 15000);
+        const next = await cancellable(iterator.next(), signal, recoveryWindow ?? 15000);
         if (next.done) break;
         const packet = next.value;
         if (!Number.isSafeInteger(packet.generation) || packet.generation < 0 || !Number.isSafeInteger(packet.sequence)
@@ -215,8 +245,8 @@ export function startMediaPlayback(options: PlaybackOptions) {
   const done = Promise.race([run(), failure]).finally(() => {
     controller.abort(aborted()); clearTimeout(expiry); clearInterval(watchdog); hls?.destroy();
     if (frameCallback !== undefined) video.cancelVideoFrameCallback(frameCallback);
-    video.removeEventListener('error', failed); image.removeEventListener('error', failed); video.removeEventListener('waiting', waiting);
+    video.removeEventListener('error', failed); image.removeEventListener('error', imageFailed); video.removeEventListener('waiting', waiting);
     resetVideo(); image.removeAttribute('src'); image.removeAttribute('crossorigin'); video.removeAttribute('crossorigin');
   }).catch(error => { if (!options.signal?.aborted && !(error instanceof DOMException && error.name === 'AbortError')) throw new PlaybackError(error instanceof PlaybackError ? error.message : 'Camera playback failed'); });
-  return { done, play, setExpiresAt, stop: () => controller.abort(aborted()) };
+  return { done, play, setExpiresAt, setConnectionState, stop: () => controller.abort(aborted()) };
 }

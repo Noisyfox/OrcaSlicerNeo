@@ -11,7 +11,7 @@ beforeEach(() => {
     let finish!: () => void;
     const done = new Promise<void>(resolve => { finish = resolve; });
     signal?.addEventListener('abort', finish, { once: true });
-    return { done, stop: vi.fn(finish), setExpiresAt: vi.fn(), play: vi.fn(async () => {}) };
+    return { done, stop: vi.fn(finish), setExpiresAt: vi.fn(), setConnectionState: vi.fn(), play: vi.fn(async () => {}) };
   });
 });
 it('renews expiry without reattaching the binary stream; new delivery and unmount release playback', async () => {

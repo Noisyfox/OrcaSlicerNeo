@@ -3496,9 +3496,10 @@ decisions below. Production implementation and qualification are pending.
 The provider-private [camera RPC client](../packages/printer-control/src/snapmaker/camera-protocol.ts)
 and host-created socket contract are implemented with protocol-fixture coverage.
 The [managed camera owner](../packages/printer-control/src/snapmaker/camera.ts)
-is implemented with lifecycle, pacing and recovery fixtures. Host networking,
-receive-budget enforcement, binary delivery and shared UI integration remain
-pending.
+and Web/shared Camera integration are implemented within fixture acceptance.
+Browser transport enforces receive budgets; shared playback handles bounded
+JPEG recovery and activity renewal. Electron utility/binary delivery and the
+required sustained hardware qualification remain pending.
 The [Snapmaker camera interaction](Printer%20Console%20and%20Control%20Integration.md#snapmaker-camera-live-view)
 owns presentation and viewing intent. The delivered Snapmaker submission and
 current-task thumbnail boundaries in section 2.5 remain independent.
@@ -3645,6 +3646,12 @@ states. Camera networking and delivery remain independent of slicing and
 printer-control operation queues. Frame bytes use `readStream`; media `watch`
 carries descriptors, states and errors. Source URLs, authentication material
 and password-derivation data remain provider-private.
+
+JPEG delivery advertises its optional recovery window and activity-renewal
+behavior in the media descriptor. Shared presentation uses those delivery
+properties and provider connection state to coordinate recovery. Direct user
+activity routes through `media.interact`, independently of lease renewal.
+Providers without activity renewal report that action unsupported.
 
 Reuse the resource identities and configuration guards in section 8. Opening
 and closing retain their request-idempotency and late-result cleanup

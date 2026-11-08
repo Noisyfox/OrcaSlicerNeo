@@ -34,6 +34,24 @@ it('opens only on Play, releases hidden views, resumes intent and keeps explicit
     await view.render(false); await view.render(true); expect(view.open).toHaveBeenCalledTimes(2);
   } finally { await view.dispose(); }
 });
+
+it('throttles direct interaction renewal for an opted-in JPEG view', async () => {
+  vi.useFakeTimers();
+  const current = descriptor();
+  if (current.presentation.kind !== 'video' || current.presentation.delivery.transport !== 'jpeg-frames') throw new Error('Fixture');
+  current.presentation.delivery.interactionRenewal = true;
+  const interact = vi.fn(async () => ({ ok: true as const, value: null }));
+  const view = await mount({ open: async () => ({ ok: true, value: current }), interact });
+  const activity = async () => act(async () => { view.element.querySelector('[data-testid="camera-card"]')!.dispatchEvent(new Event('pointermove', { bubbles: true })); });
+  try {
+    await view.click('Play camera'); await activity(); await activity();
+    expect(interact).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); }); await activity();
+    expect(interact).toHaveBeenCalledTimes(2);
+    await view.click('Stop camera'); await activity();
+    expect(interact).toHaveBeenCalledTimes(2);
+  } finally { await view.dispose(); }
+});
 it('closes a late open after Stop before another viewer can open', async () => {
   let resolve!: (value: D.Result<D.MediaDescriptor>) => void;
   const open = vi.fn(() => new Promise<D.Result<D.MediaDescriptor>>(done => { resolve = done; }));

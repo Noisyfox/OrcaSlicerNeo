@@ -2897,8 +2897,9 @@ changed compatibility or availability.
 ### Snapmaker camera live view
 
 **Decision status** — The accepted follow-up uses WebSocket camera control,
-HTTP JPEG acquisition and the shared Camera card/player. Production
-integration and qualification are pending. The
+HTTP JPEG acquisition and the shared Camera card/player. Web/shared UI
+integration has fixture acceptance. Electron utility delivery
+and sustained real-U1 qualification remain pending. The
 [camera architecture](Printer%20Domain%20and%20Control%20Architecture.md#82-snapmaker-u1-lan-live-view)
 owns protocol evidence, transport, media resources and qualification boundaries.
 

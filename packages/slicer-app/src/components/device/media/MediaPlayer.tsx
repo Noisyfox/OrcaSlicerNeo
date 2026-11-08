@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { MediaDescriptor, PrinterMedia } from '@orca/printer-control/domain';
 import { startMediaPlayback, type PlaybackState } from './playback';
+import { Badge } from '@/components/ui/badge';
 
 /** Resource lifetime belongs to the viewing owner; this component owns only presentation. */
-export function MediaPlayer({ descriptor, media, onError }: {
+export function MediaPlayer({ descriptor, media, onError, connectionState = 'ready' }: {
   descriptor: MediaDescriptor;
   media: Pick<PrinterMedia, 'readStream'>;
   onError: (message: string) => void;
+  connectionState?: 'connecting' | 'ready';
 }) {
   const video = useRef<HTMLVideoElement>(null), image = useRef<HTMLImageElement>(null);
   const player = useRef<ReturnType<typeof startMediaPlayback> | null>(null);
@@ -17,6 +19,7 @@ export function MediaPlayer({ descriptor, media, onError }: {
   // Lease revisions do not replace a live stream; changed URL/delivery does.
   const identity = JSON.stringify([descriptor.ref, descriptor.presentation]);
   const latest = useRef(descriptor); latest.current = descriptor;
+  const connection = useRef(connectionState); connection.current = connectionState;
   useEffect(() => {
     setAspectRatio('16 / 9');
     const controller = new AbortController();
@@ -27,20 +30,22 @@ export function MediaPlayer({ descriptor, media, onError }: {
     previous.current = before.then(async () => {
       if (controller.signal.aborted) return;
       active = startMediaPlayback({ descriptor: latest.current, media, video: video.current!, image: image.current!,
-        signal: controller.signal, onState: setState });
+        signal: controller.signal, onState: setState, connectionState: connection.current });
       player.current = active;
       await active.done;
     }).catch(error => { if (!controller.signal.aborted) onErrorRef.current(error.message); });
     return () => { controller.abort(); active?.stop(); if (player.current === active) player.current = null; };
   }, [identity, media]);
   useEffect(() => { player.current?.setExpiresAt(descriptor.expiresAtMs); }, [descriptor.expiresAtMs]);
+  useEffect(() => { player.current?.setConnectionState(connectionState); }, [connectionState]);
   const videoSize = () => { if (video.current?.videoWidth && video.current.videoHeight) setAspectRatio(`${video.current.videoWidth} / ${video.current.videoHeight}`); };
   return <div className="printer-camera-viewport" style={{ '--camera-aspect-ratio': aspectRatio } as CSSProperties} data-testid="camera-player">
     <video ref={video} className="absolute inset-0 h-full w-full object-contain" muted playsInline aria-label="Live camera" onLoadedMetadata={videoSize} onResize={videoSize} />
     <img ref={image} className="absolute inset-0 h-full w-full object-contain" alt="Live camera" hidden onLoad={() => {
       if (image.current?.naturalWidth && image.current.naturalHeight) setAspectRatio(`${image.current.naturalWidth} / ${image.current.naturalHeight}`);
     }} />
-    {state === 'connecting' && <span role="status" className="absolute left-2 top-2 rounded bg-black/70 px-2 text-sm text-white">Connecting…</span>}
+    {state === 'connecting' && <Badge role="status" variant="secondary" className="absolute left-2 top-2">Connecting…</Badge>}
+    {state === 'recovering' && <Badge role="status" variant="secondary" className="absolute left-2 top-2">Recovering camera…</Badge>}
     {state === 'paused' && <button className="absolute inset-0 text-white" onClick={() => void player.current?.play()}>Play video</button>}
   </div>;
 }

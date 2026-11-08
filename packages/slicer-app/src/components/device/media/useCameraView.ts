@@ -7,6 +7,8 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
   const [wanted, setWanted] = useState(false), [attempt, setAttempt] = useState(0);
   const [descriptor, setDescriptor] = useState<D.MediaDescriptor | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<'connecting' | 'ready'>('connecting');
+  const activity = useRef<{ id: string; at: number } | null>(null);
   const [documentVisible, setDocumentVisible] = useState(document.visibilityState !== 'hidden');
   const previous = useRef(Promise.resolve()), active = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -17,6 +19,7 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
   useEffect(() => { if (!available) setWanted(false); }, [available]);
   useEffect(() => {
     setDescriptor(null);
+    setConnectionState('connecting');
     if (!wanted || !visible || !documentVisible || !available) return;
     const abort = new AbortController(); active.current = abort;
     const { signal } = abort;
@@ -62,6 +65,7 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
             if (event.payload.type === 'error') { fail(event.payload.error.message); return; }
             if (event.payload.type === 'closed') { fail('Camera viewing ended.'); return; }
             if (event.payload.type === 'state' && event.payload.state === 'interrupted') { fail('Camera connection was interrupted.'); return; }
+            if (event.payload.type === 'state' && event.payload.state !== 'interrupted') setConnectionState(event.payload.state);
           }
           fail('Camera connection ended.');
         })().catch(() => fail('Camera connection was interrupted.'));
@@ -74,7 +78,14 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
     })();
     return () => { abort.abort(); clearTimeout(renewTimer); if (active.current === abort) active.current = null; };
   }, [media, target.printerId, target.routeId, target.expectedConfigurationRevision, cameraId, wanted, attempt, visible, documentVisible, available]);
-  return { descriptor, error, wanted,
+  return { descriptor, error, wanted, connectionState,
+    interact: () => {
+      const presentation = descriptor?.presentation;
+      if (!descriptor || !wanted || presentation?.kind !== 'video' || presentation.delivery.transport !== 'jpeg-frames' || !presentation.delivery.interactionRenewal) return;
+      if (activity.current?.id === descriptor.ref.id && Date.now() - activity.current.at < 60_000) return;
+      activity.current = { id: descriptor.ref.id, at: Date.now() };
+      void media.interact(descriptor.ref).catch(() => {});
+    },
     play: () => { setError(null); setWanted(true); setAttempt(value => value + 1); },
     stop: () => { active.current?.abort(); setDescriptor(null); setError(null); setWanted(false); },
     playbackFailed: (message: string) => { active.current?.abort(); setDescriptor(null); setWanted(false); setError(message); },

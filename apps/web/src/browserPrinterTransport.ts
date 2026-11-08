@@ -50,6 +50,13 @@ export class BrowserPrinterTransport implements PrinterTransport {
       try {
         xhr.open(request.method, request.url, true);
         xhr.responseType = request.responseType === 'bytes' ? 'arraybuffer' : 'text';
+        const maximum = request.maxResponseBytes;
+        if (maximum !== undefined && (!Number.isSafeInteger(maximum) || maximum < 1)) throw safeError();
+        if (maximum !== undefined) xhr.addEventListener('progress', event => {
+          if (event.loaded > maximum || event.lengthComputable && event.total > maximum) {
+            fail(); xhr.abort();
+          }
+        });
         for (const [name, value] of Object.entries(request.headers ?? {})) xhr.setRequestHeader(name, value);
         if (request.body?.kind === 'json' && !Object.keys(request.headers ?? {}).some((name) => name.toLowerCase() === 'content-type')) {
           xhr.setRequestHeader('Content-Type', 'application/json');
@@ -63,12 +70,15 @@ export class BrowserPrinterTransport implements PrinterTransport {
         }
         xhr.addEventListener('load', () => {
           if (settled) return;
-          settled = true;
-          cleanup();
           const status = xhr.status;
           const binary = request.responseType === 'bytes';
           const bytes = binary ? new Uint8Array(xhr.response as ArrayBuffer) : undefined;
           const text = binary ? '' : xhr.responseText;
+          if (maximum !== undefined && (bytes?.byteLength ?? new TextEncoder().encode(text).byteLength) > maximum) {
+            fail(); return;
+          }
+          settled = true;
+          cleanup();
           resolve({
             status,
             async json() {

@@ -73,6 +73,9 @@ export type VideoDelivery = {
   transport: 'jpeg-frames';
   streamId: Id<'media-stream'>;
   mimeType: 'image/jpeg';
+  /** Opt-in bounded recovery for independently decodable live frames. */
+  recoveryWindowMs?: number;
+  interactionRenewal?: boolean;
 } | {
   transport: 'webrtc';
   negotiationId: Id<'negotiation'>;
@@ -187,6 +190,8 @@ export interface PrinterMedia {
   readStream(request: { media: MediaRef; streamId: Id<'media-stream'>; startSeconds?: number }, options?: ReadOptions): AsyncIterable<MediaStreamPacket>;
   /** Delivery may change URLs/negotiation; inspect the returned revision. */
   renew(ref: MediaRef, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
+  /** Direct viewing interaction, independent of the media-resource lease. */
+  interact(ref: MediaRef, options?: ReadOptions): Promise<Result<null>>;
   /** Reject stale negotiation IDs and non-WebRTC resources. */
   sendSignal(ref: MediaRef, signal: WebRtcSignal): Promise<Result<null>>;
   readContent(request: {

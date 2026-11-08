@@ -31,7 +31,7 @@ export function bambuMedia(bridge: BambuBridge): D.PrinterMedia {
       } finally { options?.signal?.removeEventListener('abort', abort); }
     },
     renew: ref => bridge.media('renew', ref), close: ref => bridge.media('close', ref),
-    sendSignal: unsupported, readContent: unsupported, captureSnapshot: unsupported,
+    sendSignal: unsupported, readContent: unsupported, captureSnapshot: unsupported, interact: unsupported,
     watch: async function* (ref, options) {
       let version = 0, wake: (() => void) | undefined, sequence = 0, revision = -1;
       const changed = () => { version++; wake?.(); };

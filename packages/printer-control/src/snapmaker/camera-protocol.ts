@@ -103,7 +103,7 @@ export class U1CameraControl {
         let response;
         try {
           response = await bounded(options.http.request({ method: 'GET', url: endpoint(base.href, '/access/oneshot_token'),
-            headers: { 'X-Api-Key': printer.apiKey }, signal }), signal, options.signal);
+          headers: { 'X-Api-Key': printer.apiKey }, maxResponseBytes: MAX_MESSAGE_CHARS, signal }), signal, options.signal);
         } catch (error) {
           if (error instanceof MoonrakerFailure) throw error;
           throw interrupted(options.signal);
