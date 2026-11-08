@@ -677,17 +677,17 @@ The superproject deliberately pins that commit. Publish the native commit on
 its fork branch before publishing the superproject branch so CI and reviewers
 can fetch the pin.
 
-| Area | Verified local evidence | Remaining qualification |
+| Area | Verified evidence | Remaining qualification |
 | --- | --- | --- |
 | Settings and preview inputs | 117 focused settings/editor tests; 13 renderer tests; complete workspace typecheck and tests | Default-concurrency test limitation below |
-| Dependencies and builds | SDK 6.0.13; all four production artifacts build and validate; all 16 numerical/OCCT/Qhull/Expat stage verifiers and four-mode arithmetic/hull/XML probes pass; 12 recipe/scaffold tests pass | Windows execution |
+| Dependencies and builds | SDK 6.0.13. All four production artifacts build and validate, including Windows x64 cmd rebuilds with fresh upgraded dependency stages. All 16 numerical/OCCT/Qhull/Expat stage verifiers, four-mode arithmetic/hull/XML probes and 12 recipe/scaffold tests pass | Windows ARM64 cmd build execution |
 | Native state adapters | Eight standalone C++ suites pass: timestamped history, instance identity, mesh capture, painting, preset erase, plate registry and both arrangement suites | Native GUI build is not covered |
 | Real bridge contracts | Nine final threaded harnesses pass: Project preset/history, user presets, user-preset 3MF, scene geometry, Convenience, native tower inputs, slice notifications, tower settings and multi-filament step 13 | Physical devices are excluded |
 | Numerical and Boolean | All four backend variants pass in Node and Chrome; serial creates no internal Workers and uses no shared memory. Typed operation suites pass 25 tests per variant, with two fault-build-only cases skipped. Real Chrome slice followed by a single-context union passes | Dedicated fault-injection build not rerun |
 | Import and arcs | All four variants pass STEP and AMF/arc harnesses; 26 STEP assertions per variant include seam closure, loose faces, named solids/shells, slicing and malformed-input atomicity | Broader algorithm equivalence is not claimed |
 | Profiles | Rebuilt all 73 packages from the committed native tree; all 15,777 archive members match source bytes; complete packages match the already-tested distribution byte for byte | None for this catalogue rebuild |
-| Hosts and preview | Final Electron import/edit/Undo/Redo/slice/Preview/export/save/Clear/reopen passes with matching source/public/renderer assets. Real Web serial download and WebKit wasm32 threaded/serial selection and download pass; hashes and Worker states match each selected variant | Other OS host startup |
-| Bambu | Declaration guard, addon build, print/camera fixtures and all six archive/stage identities pass; actual macOS ARM64 plugin version and no-credentials print ABI are exercised in Node and Electron | Other five target startups; authenticated discovery/device operations |
+| Hosts and preview | Real Electron import/edit/Undo/Redo/slice/Preview/export/save/Clear/reopen passes on the initial qualification host and Windows x64 with matching source/public/renderer assets. Chrome threaded/serial downloads and WebKit wasm32 threaded/serial selection and download pass with matching hashes and Worker states | Real-account/device workflows |
+| Bambu | Declaration guard, addon build, print/camera fixtures and all six archive/stage identities pass. macOS ARM64 and Windows x64 exercise the actual plugin and no-credentials print ABI. Native CI passes packaged provider startup, configuration restart, login-window and screen-color probes on all six desktop targets | Authenticated discovery/device operations |
 
 The final host journeys retain trace and screenshot evidence. The Electron
 journey deliberately makes Bambu unavailable before native loading and uses an
@@ -710,7 +710,7 @@ The secondary host ran `real Web G-code export downloads` in the Web config,
 then the wasm32 Playwright config with isolation enabled and disabled. No
 test timeout was increased.
 
-Local production WASM SHA-256 identities after the final native adaptation:
+The production WASM hashes below identify the reference qualification artifacts.
 
 | Variant | SHA-256 |
 | --- | --- |
@@ -752,7 +752,19 @@ The local tool is 22.1.4 rather than CI's 22.1.8, and unsupported Emscripten
 backend flags were removed from the analysis-only compile database. This is not
 a claim of a clean native GUI or cross-platform clang-tidy run.
 
-Windows cmd recipes receive syntax/CRLF and source checks locally; Windows
-execution and the unavailable Bambu startup platforms remain unverified.
-Physical-device operations remain outside the accepted scope. The results
-above record local qualification before the PR.
+Windows x64 cmd execution is qualified with Emscripten 6.0.13 across wasm64
+and wasm32, each threaded and serial. The upgraded CGAL/GMP, OCCT, Qhull and
+Expat stages are rebuilt and verified for every mode. Real Node/browser
+checks, the Electron project journey and the production NSIS package exercise
+those Windows-built artifacts. The packaged threaded artifact matches the
+source and renderer bytes used by the real Electron journey.
+
+Windows x64 and ARM64 packaging and startup also pass on their native CI
+runners, alongside the other four desktop targets. The evidence includes
+actual packaged-provider initialization, configuration restart, isolated login
+and screen-color loading at `f4944cfeafea12ee04f5b7498b57edcea0977195`.
+[Native packaging and startup CI](https://github.com/Noisyfox/OrcaSlicerNeo/actions/runs/42465988845).
+
+Windows ARM64 cmd dependency/core build execution remains unverified.
+Authenticated account/device qualification retains its existing limits.
+Physical-device operations remain outside the accepted scope.
