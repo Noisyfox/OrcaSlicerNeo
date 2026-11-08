@@ -1,5 +1,6 @@
 /** Loopback U1 protocol fixture shared by host transport acceptance. No hardware claims. */
 import { createServer } from 'node:http';
+import { WebSocketServer } from 'ws';
 export async function startSnapmakerFixture(filament?: { vendor: string; type: string; subtype: string }) {
   const scripts: string[] = []; let queries = 0, autoRefill = false;
   let cameraFrame: Buffer | undefined, cameraFailed = false, cameraRequests = 0;
@@ -42,12 +43,23 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
     else { response.writeHead(404); response.end(); return; }
     response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(value));
   });
+  const cameraCommands: { method: string; params: { clientid: string } }[] = [];
+  const websocket = new WebSocketServer({ server, path: '/websocket' });
+  websocket.on('connection', socket => socket.on('message', data => {
+    const request = JSON.parse(String(data)); cameraCommands.push(request);
+    socket.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: request.method === 'camera.start_monitor'
+      ? { state: 'success', url: '/files/camera/monitor.jpg', pw: 'unused-fixture', salt: 'unused-fixture', iterations: 654 }
+      : { state: 'success' } }));
+  }));
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('Fixture address');
-  return { baseUrl: `http://127.0.0.1:${address.port}`, scripts, queryCount: () => queries,
+  return { baseUrl: `http://127.0.0.1:${address.port}`, scripts, cameraCommands, queryCount: () => queries,
     setCameraFrame: (frame: Buffer) => { cameraFrame = frame; },
     setCameraFailed: (failed: boolean) => { cameraFailed = failed; },
     cameraRequests: () => cameraRequests,
     setFilamentColor: (head: number, rgba: string) => { filamentColors[head] = rgba; },
-    close: () => new Promise<void>((resolve, reject) => { server.closeAllConnections(); server.close(error => error ? reject(error) : resolve()); }) };
+    close: () => new Promise<void>((resolve, reject) => {
+      for (const client of websocket.clients) client.terminate(); websocket.close();
+      server.closeAllConnections(); server.close(error => error ? reject(error) : resolve());
+    }) };
 }

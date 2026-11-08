@@ -16,12 +16,12 @@ export class CameraChannel {
   private stopped = false;
   private generation = -1;
   private sequence = 0;
-  constructor(private readonly failed: () => void) {}
+  constructor(private readonly failed: () => void, private readonly maxBytes = 8 * 1024 * 1024) {}
   push(packet: MediaStreamPacket) {
     if (this.stopped) return;
     if (packet.kind === 'init') { this.pending = []; this.bytes = 0; }
     if (packet.kind === 'jpeg' && this.pending.at(-1)?.kind === 'jpeg') this.bytes -= this.pending.pop()!.bytes.length;
-    if (this.pending.length >= 64 || this.bytes + packet.bytes.length > 8 * 1024 * 1024) { this.failed(); return; }
+    if (this.pending.length >= 64 || this.bytes + packet.bytes.length > this.maxBytes) { this.failed(); return; }
     this.pending.push(packet); this.bytes += packet.bytes.length; this.flush();
   }
   attach(port: CameraPort) {

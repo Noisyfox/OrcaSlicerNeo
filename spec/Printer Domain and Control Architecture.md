@@ -3492,14 +3492,27 @@ six-platform plugin-startup qualification does not qualify this new video path.
 
 **Decision status** — WebSocket camera control, HTTP JPEG acquisition and shared
 `jpeg-frames` playback are accepted with the host, lifecycle and acceptance
-decisions below. Production implementation and qualification are pending.
+decisions below. Both hosts are implemented within fixture acceptance;
+sustained real-U1 qualification remains pending.
 The provider-private [camera RPC client](../packages/printer-control/src/snapmaker/camera-protocol.ts)
 and host-created socket contract are implemented with protocol-fixture coverage.
 The [managed camera owner](../packages/printer-control/src/snapmaker/camera.ts)
 and Web/shared Camera integration are implemented within fixture acceptance.
-Browser transport enforces receive budgets; shared playback handles bounded
-JPEG recovery and activity renewal. Electron utility/binary delivery and the
-required sustained hardware qualification remain pending.
+Browser transport enforces receive budgets. Shared playback handles bounded
+JPEG recovery and activity renewal. The independent
+[Electron camera utility](../apps/desktop/src/utility/snapmaker-camera-host.ts)
+owns WebSocket control, bounded HTTP reads and managed resources. Its
+[main-process binding](../apps/desktop/src/main/snapmakerCameraIpc.ts) verifies
+the renderer's configuration digest against persisted configuration before
+granting access. Main supplies document ownership, invalidates saved connection
+changes and retires viewers on navigation, renderer loss and window destruction.
+Binary frames reuse the existing bounded pull-based camera channel, with one
+consumer and a 16 MiB JPEG ceiling. Shutdown allows seven seconds for cleanup
+before terminating an unresponsive camera utility.
+Electron and browser E2E fixtures cover real JPEG decoding, recovery, interaction
+renewal and hidden/document release. Electron additionally verifies the actual
+utility process and isolated preload/binary path. These fixtures leave the
+required sustained hardware qualification pending.
 The [Snapmaker camera interaction](Printer%20Console%20and%20Control%20Integration.md#snapmaker-camera-live-view)
 owns presentation and viewing intent. The delivered Snapmaker submission and
 current-task thumbnail boundaries in section 2.5 remain independent.

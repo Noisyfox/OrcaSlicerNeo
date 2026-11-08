@@ -2898,8 +2898,8 @@ changed compatibility or availability.
 
 **Decision status** — The accepted follow-up uses WebSocket camera control,
 HTTP JPEG acquisition and the shared Camera card/player. Web/shared UI
-integration has fixture acceptance. Electron utility delivery
-and sustained real-U1 qualification remain pending. The
+and Electron utility/binary delivery have fixture acceptance.
+Sustained real-U1 qualification remains pending. The
 [camera architecture](Printer%20Domain%20and%20Control%20Architecture.md#82-snapmaker-u1-lan-live-view)
 owns protocol evidence, transport, media resources and qualification boundaries.
 
