@@ -126,6 +126,9 @@ async function main() {
   if (command === 'deps') {
     if (process.platform === 'win32') throw new Error('Dependency bootstrap runs in Linux CI. On Windows activate emsdk and run the generated cmd-native dependency helpers.');
     linuxHelper('fetch-deps.sh');
+    for (const mode of ['threaded', 'serial']) {
+      run(process.execPath, [join(pkg, 'dependencies/cgal/build.mjs'), 'build', '--target', 'wasm32', '--variant', mode]);
+    }
     linuxHelper('build-boost-wasm32.sh');
     linuxHelper('build-onetbb.sh');
     run(process.execPath, [join(pkg, 'harness/run-tbb-parallelism-probe.mjs'), join(generatedPackage, 'out/orca_tbb_probe.js')]);
@@ -136,7 +139,6 @@ async function main() {
       for (const library of ['qhull', 'expat']) {
         run(process.execPath, [join(pkg, 'dependencies/external/build.mjs'), 'build', '--library', library, '--target', 'wasm32', '--variant', mode]);
       }
-      run(process.execPath, [join(pkg, 'dependencies/cgal/build.mjs'), 'build', '--target', 'wasm32', '--variant', mode]);
     }
     await verifyDependencies();
     return;

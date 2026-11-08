@@ -23,7 +23,9 @@ const recipes = [
     url: 'https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.bz2',
     sha256: '9ad62c7dc910303cd384ff8f1f4767a655124980bb6d8650fe62c815a231bb7b' },
   { name: 'cgal', version: '6.2.1', directory: 'CGAL-6.2.1', archive: 'CGAL-6.2.1.zip',
-    url: 'https://github.com/CGAL/cgal/releases/download/v6.2.1/CGAL-6.2.1.zip',
+    // The release web URL can time out. GitHub's asset API serves the same ZIP.
+    url: 'https://api.github.com/repos/CGAL/cgal/releases/assets/544387629',
+    headers: { Accept: 'application/octet-stream' },
     sha256: 'eebd737d9b7f0199647ba5c1f9f6c7a3d0651aacef9c2fd4dedc52da6c25edbe' },
 ];
 
@@ -60,7 +62,7 @@ export async function source(recipe, work) {
   const downloads = join(work, 'deps/downloads');
   await mkdir(downloads, { recursive: true });
   const archive = join(downloads, recipe.archive);
-  await downloadDependency(recipe.url, archive, { sha256: recipe.sha256 });
+  await downloadDependency(recipe.url, archive, { sha256: recipe.sha256, headers: recipe.headers });
   const parent = join(work, 'deps', `${recipe.name}-${recipe.version}`);
   const directory = join(parent, `src-${recipe.sha256.slice(0, 12)}`);
   const marker = recipe.sha256 + (recipe.name === 'gmp' ? `:${await digest(join(pkg, 'cpp/deps/GMP/0001-GMP_GCC15.patch'))}` : '');

@@ -103,6 +103,8 @@ jobs:
       - name: Compile dependencies for both WASM variants
         if: steps.dependency-cache.outputs.cache-hit != 'true'
         run: |
+          node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant threaded
+          node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant serial
           bash packages/slicer-wasm/build-boost-wasm64.sh
           bash packages/slicer-wasm/build-onetbb.sh
           node packages/slicer-wasm/harness/run-tbb-parallelism-probe.mjs packages/slicer-wasm/out/orca_tbb_probe.js
@@ -112,8 +114,6 @@ jobs:
           WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-draco-wasm64.sh
           WASM_THREADING=1 WASM_ARTIFACT_VARIANT=threaded bash packages/slicer-wasm/build-occt-wasm64.sh
           WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-occt-wasm64.sh
-          node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant threaded
-          node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant serial
           for variant in threaded serial; do
             for library in qhull expat; do
               node packages/slicer-wasm/dependencies/external/build.mjs build --library "$library" --target wasm64 --variant "$variant"
