@@ -29,6 +29,7 @@ export interface HttpServiceBehavior {
   observations?: D.PrinterObservations;
   submissions?: D.PrinterSubmissions;
   readCurrentPrintPreview?: D.PrinterMedia['readCurrentPrintPreview'];
+  media?: Pick<D.PrinterMedia, 'open' | 'watch' | 'readStream' | 'renew' | 'interact' | 'close'>;
   validateTask?(resolved: ResolvedConfiguration, taskId: D.Id<'device-task'>): Promise<void>;
   validateCommand?(resolved: ResolvedConfiguration, command: D.PrinterCommand): Promise<void>;
   retainOperation?(resolved: ResolvedConfiguration, command?: D.PrinterCommand): () => void;
@@ -326,7 +327,7 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
     submissions: behavior.submissions ?? unsupportedSubmissions,
     remotePrints: { inspect: async () => rejected(), prepare: async () => rejected(), release: async () => rejected() },
     operations: operations.api, controls, files, observations,
-    media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: behavior.readCurrentPrintPreview ?? (async () => rejected()), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
+    media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: behavior.readCurrentPrintPreview ?? (async () => rejected()), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), interact: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected(), ...behavior.media },
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name, hosts: [{ ...options.host, discovery: unsupported }] }] }),
     configurations: {
       read: target => mutate(async snapshot => {

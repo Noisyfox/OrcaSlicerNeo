@@ -14,8 +14,9 @@ export function CameraCard({ media, target, capability, name, visible, disabled 
   const element = useRef<HTMLDivElement>(null), [fullscreenError, setFullscreenError] = useState(false);
   const [fullscreenPending, setFullscreenPending] = useState(false);
   const unavailable = disabled ? 'Live view is disabled on the printer.' : capability.liveView.kind !== 'supported' ? capability.liveView.reason : null;
-  return <ControlCard title={name}><div ref={element} className="printer-camera space-y-2 bg-card p-1" data-testid="camera-card">
-    {view.descriptor ? <MediaPlayer descriptor={view.descriptor} media={media} onError={view.playbackFailed} />
+  return <ControlCard title={name}><div ref={element} className="printer-camera flex flex-col gap-2 bg-card p-1" data-testid="camera-card"
+    onPointerMove={view.interact} onPointerDown={view.interact} onKeyDown={view.interact}>
+    {view.descriptor ? <MediaPlayer descriptor={view.descriptor} media={media} onError={view.playbackFailed} connectionState={view.connectionState} />
       : <p role="status" className="printer-camera-viewport printer-camera-placeholder">{unavailable ?? (view.error ? 'Playback unavailable' : view.wanted ? 'Connecting…' : 'Camera stopped')}</p>}
     {view.error && <p role="alert" className="text-sm text-destructive">{view.error}</p>}
     <div className="flex gap-2">

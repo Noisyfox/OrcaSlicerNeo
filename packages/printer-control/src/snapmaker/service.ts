@@ -11,10 +11,12 @@ import { U1PrintTask } from './task';
 import { U1Submissions } from './submissions';
 import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './preparation';
 import { matchU1Materials, type FilamentMatcher } from './observation';
+import { U1_CAMERA_ID, u1CameraCapability } from './camera';
 
 export interface SnapmakerServiceOptions extends HttpServiceOptions {
   /** Read-only native preset matcher; raw device controls need no catalogue. */
   matchFilaments?: FilamentMatcher;
+  camera?: (resolve: (target: D.TargetRequest) => Promise<{ printer: Readonly<PrinterConfiguration>; revision: D.Revision }>) => NonNullable<HttpServiceBehavior['media']>;
 }
 interface U1State {
   preparation?: U1PreparationSnapshot;
@@ -35,7 +37,13 @@ export function createSnapmakerService(options: SnapmakerServiceOptions): D.Prin
   return createHttpPrinterService(options, 'snapmaker', 'Snapmaker', context => createSnapmakerBehavior(options, context));
 }
 function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: HttpServiceContext): HttpServiceBehavior {
-  const { http, resolve, targetFor, descriptor, readFirmware } = context;
+  const { http, resolve, targetFor, readFirmware } = context;
+  const camera = options.camera?.(async target => { const { printer, entry } = await resolve(target); return { printer, revision: entry.revision }; });
+  const descriptor: HttpServiceContext['descriptor'] = (...args) => {
+    const result = context.descriptor(...args);
+    if (camera) result.topology.cameras = [{ id: U1_CAMERA_ID, name: 'Chamber camera', role: 'chamber', toolId: null, lightId: null }];
+    return result;
+  };
   const matchFilaments = options.matchFilaments;
   async function readStatus(printer: PrinterConfiguration, snapshot: U1DeviceSnapshot, signal?: AbortSignal) {
     const status = await context.readStatus(printer, signal, snapshot.status, snapshot.remainingSeconds, u1PrintStage(snapshot.status));
@@ -49,6 +57,7 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
     const result = context.capabilities();
     result.submission = supported({ formats: ['gcode'], failurePolicy: 'retry' });
     result.currentPrintPreview = supported({ mimeTypes: ['image/png', 'image/jpeg'] });
+    if (camera) result.cameras = [copy(u1CameraCapability)];
     result.commands = { ...result.commands, 'jobs.start': unsupported, ...u1DeviceCapabilities(entry ? deviceState(entry).device : undefined) };
     for (const topic of ['preferences', 'descriptor', 'status', 'thermal', 'actuators', 'materials', 'sensors'] as const)
       result.observations[topic] = supported({ delivery: ['poll', 'on-demand'] });
@@ -130,7 +139,7 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
     submissions.set(options.configuration, executor);
   }
   return {
-    capabilities, observations, submissions: executor,
+    capabilities, observations, submissions: executor, media: camera,
     readCurrentPrintPreview: (target, readOptions) => safe(async () => {
       const signal = AbortSignal.any([AbortSignal.timeout(15000), ...(readOptions?.signal ? [readOptions.signal] : [])]);
       const { printer, entry } = await resolve(target);

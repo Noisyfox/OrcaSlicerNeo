@@ -8,6 +8,9 @@ import { createScreenColorIpc } from './screenColorIpc';
 import { createScreenColorFixture } from './testing/screenColorFixture';
 import { externalHttpsUrl } from '../../../../packages/platform-contract/src/externalLinks';
 import { BambuMediaIpc } from './bambuMediaIpc';
+import { SnapmakerCameraIpc } from './snapmakerCameraIpc';
+import { SnapmakerCameraUtility } from './snapmakerCameraUtility';
+import { loadPrinterConfigurationFile } from './printerConfigurationPersistence';
 import { compareAndSwapPreferences, savePreferences } from './preferencePersistence';
 import { withFileLock } from './fileLock';
 import { normalizeUserPreferences } from '../../../../packages/platform-contract/src/contracts';
@@ -139,6 +142,9 @@ let mainWindow: BrowserWindow | null = null;
 let nativeMenuController: NativeMenuController | null = null;
 let allowWindowClose = false;
 let bambuUtility: BambuUtility | null = null;
+let snapmakerCameraUtility: SnapmakerCameraUtility | undefined;
+let snapmakerCameraCleanup: Promise<void> | undefined;
+let snapmakerCameraStopped = false;
 let bambuLogin: BambuLogin | null = null;
 let bambuDirectory: string | null = null;
 let bambuCleanup: Promise<void> | null = null;
@@ -455,6 +461,16 @@ function registerIpc(): void {
     close: (owner, ref) => bambuUtility!.media(owner, { method: 'close', input: ref }),
   });
   const cameraIpc = new BambuMediaIpc(() => bambuUtility, isCurrentRenderer, storedMedia);
+  const snapmakerCameraIpc = new SnapmakerCameraIpc(create => {
+    if (create && !snapmakerCameraUtility) {
+      snapmakerCameraUtility = new SnapmakerCameraUtility(join(__dirname, 'snapmaker-camera-host.js'), () => {
+        for (const window of BrowserWindow.getAllWindows()) if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.snapmakerCameraChanged);
+      });
+    }
+    return snapmakerCameraUtility;
+  }, isCurrentRenderer, () => loadPrinterConfigurationFile(printerConfigurationPath(), { readText: path => readFile(path, 'utf8') }));
+  ipcMain.handle(Ipc.snapmakerCamera, (event, request: unknown) => snapmakerCameraIpc.call(event, request));
+  ipcMain.on(Ipc.snapmakerCameraConnect, (event, request: unknown) => { try { snapmakerCameraIpc.connect(event, request); } catch { /* Ignore invalid or retired documents. */ } });
   ipcMain.handle(Ipc.bambuMedia, (event, request: unknown) => cameraIpc.call(event, request));
   ipcMain.on(Ipc.bambuMediaConnect, (event, request: unknown) => { try { cameraIpc.connect(event, request); } catch { /* Reject guest/invalid requests without exposing private state. */ } });
 
@@ -529,6 +545,7 @@ function registerIpc(): void {
   ipcMain.handle(Ipc.printerConfigurationLoad, async (event) => printerConfigurationIpc.load(event.sender));
   ipcMain.handle(Ipc.printerConfigurationSave, async (event, document: unknown): Promise<void> => {
     await printerConfigurationIpc.save(event.sender, document);
+    await snapmakerCameraIpc.configurationChanged();
     for (const window of BrowserWindow.getAllWindows()) {
       if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.printerConfigurationChanged);
     }
@@ -728,6 +745,11 @@ app.on('before-quit', () => {
 
 app.on('will-quit', (event) => {
   screenColorIpc?.close();
+  if (!snapmakerCameraStopped && snapmakerCameraUtility) {
+    event.preventDefault();
+    snapmakerCameraCleanup ??= snapmakerCameraUtility.close().catch(() => undefined).then(() => { snapmakerCameraStopped = true; app.quit(); });
+    return;
+  }
   if (!bambuStopped && bambuUtility) {
     event.preventDefault();
     bambuLogin?.dispose();

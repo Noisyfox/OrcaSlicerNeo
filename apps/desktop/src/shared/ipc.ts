@@ -13,6 +13,10 @@ import type { PrinterTransportBody } from '../../../../packages/printer-control/
 export type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 
 export const Ipc = {
+  snapmakerCamera: 'snapmaker-camera:call',
+  snapmakerCameraConnect: 'snapmaker-camera:connect',
+  snapmakerCameraPort: 'snapmaker-camera:port',
+  snapmakerCameraChanged: 'snapmaker-camera:changed',
   screenColorAvailable: 'screen-color:available',
   screenColorPick: 'screen-color:pick',
   screenColorCancel: 'screen-color:cancel',
@@ -131,6 +135,7 @@ export interface ElectronBridge {
     sample(): Promise<ElectronMemoryIpcSnapshot>;
   };
   printers: {
+    camera: import('./snapmakerCamera').SnapmakerCameraBridge;
     downloads: import('@orca/printer-control/domain').PrinterDownloads;
     configuration: {
       load(): Promise<PrinterConfigurationDocument>;

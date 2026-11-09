@@ -1,7 +1,9 @@
 /** Loopback U1 protocol fixture shared by host transport acceptance. No hardware claims. */
 import { createServer } from 'node:http';
+import { WebSocketServer } from 'ws';
 export async function startSnapmakerFixture(filament?: { vendor: string; type: string; subtype: string }) {
   const scripts: string[] = []; let queries = 0, autoRefill = false;
+  let cameraFrame: Buffer | undefined, cameraFailed = false, cameraRequests = 0;
   const filamentColors = ['FF0000FF', '00FF00FF', '0000FFFF', 'FFFFFFFF'];
   const objects = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'configfile', 'filament_feed left', 'filament_feed right'];
   const commands = ['SET_PRINT_PREFERENCES', 'SET_PRINT_EXTRUDER_MAP', 'SET_PRINT_USED_EXTRUDERS', 'SET_PRINT_FILAMENT_CONFIG', 'FEED_AUTO', 'SET_HEATER_TEMPERATURE', 'SET_PURIFIER'];
@@ -10,6 +12,11 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     let value: unknown;
+    if (path === '/server/files/camera/monitor.jpg') {
+      cameraRequests++;
+      response.writeHead(cameraFailed || !cameraFrame ? 503 : 200, { 'content-type': 'image/jpeg' });
+      response.end(cameraFrame); return;
+    }
     if (path === '/printer/objects/list') value = { result: { objects } };
     else if (path === '/printer/objects/query') {
       queries++;
@@ -36,9 +43,23 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
     else { response.writeHead(404); response.end(); return; }
     response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(value));
   });
+  const cameraCommands: { method: string; params: { clientid: string } }[] = [];
+  const websocket = new WebSocketServer({ server, path: '/websocket' });
+  websocket.on('connection', socket => socket.on('message', data => {
+    const request = JSON.parse(String(data)); cameraCommands.push(request);
+    socket.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: request.method === 'camera.start_monitor'
+      ? { state: 'success', url: '/files/camera/monitor.jpg', pw: 'unused-fixture', salt: 'unused-fixture', iterations: 654 }
+      : { state: 'success' } }));
+  }));
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('Fixture address');
-  return { baseUrl: `http://127.0.0.1:${address.port}`, scripts, queryCount: () => queries,
+  return { baseUrl: `http://127.0.0.1:${address.port}`, scripts, cameraCommands, queryCount: () => queries,
+    setCameraFrame: (frame: Buffer) => { cameraFrame = frame; },
+    setCameraFailed: (failed: boolean) => { cameraFailed = failed; },
+    cameraRequests: () => cameraRequests,
     setFilamentColor: (head: number, rgba: string) => { filamentColors[head] = rgba; },
-    close: () => new Promise<void>((resolve, reject) => { server.closeAllConnections(); server.close(error => error ? reject(error) : resolve()); }) };
+    close: () => new Promise<void>((resolve, reject) => {
+      for (const client of websocket.clients) client.terminate(); websocket.close();
+      server.closeAllConnections(); server.close(error => error ? reject(error) : resolve());
+    }) };
 }

@@ -1,6 +1,6 @@
 import type * as D from '@orca/printer-control/domain';
 import type { BambuBridge } from '../../../shared/bambu';
-import { isMediaPacket, type BambuMediaMessage } from '../../../shared/bambuMedia';
+import { desktopMediaStream } from './desktopMediaStream';
 const failure = (code: D.ErrorCode, message: string): D.PrinterStreamError => Object.assign(new Error(message), { detail: { code, message } });
 const unsupported = async (): Promise<D.Result<never>> => ({ ok: false, error: { code: 'unsupported', message: 'This camera operation is not supported.' } });
 
@@ -31,7 +31,7 @@ export function bambuMedia(bridge: BambuBridge): D.PrinterMedia {
       } finally { options?.signal?.removeEventListener('abort', abort); }
     },
     renew: ref => bridge.media('renew', ref), close: ref => bridge.media('close', ref),
-    sendSignal: unsupported, readContent: unsupported, captureSnapshot: unsupported,
+    sendSignal: unsupported, readContent: unsupported, captureSnapshot: unsupported, interact: unsupported,
     watch: async function* (ref, options) {
       let version = 0, wake: (() => void) | undefined, sequence = 0, revision = -1;
       const changed = () => { version++; wake?.(); };
@@ -52,48 +52,7 @@ export function bambuMedia(bridge: BambuBridge): D.PrinterMedia {
         }
       } finally { stop(); options?.signal?.removeEventListener('abort', changed); }
     },
-    readStream: async function* (request, options) {
-      const token = crypto.randomUUID();
-      let port: MessagePort | undefined, pending: BambuMediaMessage | undefined, closed = false, wake: (() => void) | undefined;
-      let offered: ((value: MessagePort) => void) | undefined, rejected: ((error: Error) => void) | undefined;
-      const offer = new Promise<MessagePort>((resolve, reject) => { offered = resolve; rejected = reject; });
-      const receive = (event: MessageEvent) => {
-        if (event.source !== window || event.data?.channel !== 'orca:bambu-media' || event.data.token !== token || event.ports.length !== 1) return;
-        if (options?.signal?.aborted) event.ports[0].close();
-        offered!(event.ports[0]);
-      };
-      const abort = () => { closed = true; wake?.(); rejected?.(failure('cancelled', 'Camera viewing stopped.')); };
-      const timeout = setTimeout(() => rejected?.(failure('transport', 'Camera channel unavailable.')), 5000);
-      window.addEventListener('message', receive); options?.signal?.addEventListener('abort', abort);
-      try {
-        if (options?.signal?.aborted) return;
-        bridge.connectMedia({ ...request, token });
-        port = await offer; clearTimeout(timeout); window.removeEventListener('message', receive); rejected = undefined;
-        port.onmessage = ({ data }: MessageEvent<unknown>) => {
-          const message = data as BambuMediaMessage;
-          if (!message || typeof message !== 'object' || (message.type !== 'closed' && message.type !== 'error' && !(message.type === 'packet' && isMediaPacket(message.packet))) || pending) {
-            pending = { type: 'error', error: { code: 'stream-gap', message: 'Camera delivery was interrupted.' } };
-          } else pending = message;
-          wake?.();
-        };
-        port.onmessageerror = () => { pending = { type: 'error', error: { code: 'stream-gap', message: 'Camera delivery was interrupted.' } }; wake?.(); };
-        port.start();
-        while (!closed) {
-          port.postMessage('pull');
-          if (!pending) await new Promise<void>(resolve => { wake = resolve; if (pending || closed) resolve(); });
-          wake = undefined;
-          if (closed) return;
-          const message = pending!; pending = undefined;
-          if (message.type === 'closed') return;
-          if (message.type === 'error') throw failure(message.error.code, message.error.message);
-          yield message.packet;
-        }
-      } catch (error) { if (!options?.signal?.aborted) throw error; }
-      finally {
-        clearTimeout(timeout); window.removeEventListener('message', receive); options?.signal?.removeEventListener('abort', abort); port?.close();
-        // Bambu has one consumer; detachment ends that native view. close remains idempotent.
-        if (!request.media.id.startsWith('storage-video:')) await bridge.media('close', request.media).catch(() => {});
-      }
-    },
+    readStream: desktopMediaStream('orca:bambu-media', { connect: request => bridge.connectMedia(request),
+      close: ref => ref.id.startsWith('storage-video:') ? Promise.resolve() : bridge.media('close', ref) }),
   };
 }

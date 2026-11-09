@@ -7,6 +7,8 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
   const [wanted, setWanted] = useState(false), [attempt, setAttempt] = useState(0);
   const [descriptor, setDescriptor] = useState<D.MediaDescriptor | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<'connecting' | 'ready'>('connecting');
+  const activity = useRef<Promise<D.Result<null>> | null>(null);
   const [documentVisible, setDocumentVisible] = useState(document.visibilityState !== 'hidden');
   const previous = useRef(Promise.resolve()), active = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -17,6 +19,7 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
   useEffect(() => { if (!available) setWanted(false); }, [available]);
   useEffect(() => {
     setDescriptor(null);
+    setConnectionState('connecting');
     if (!wanted || !visible || !documentVisible || !available) return;
     const abort = new AbortController(); active.current = abort;
     const { signal } = abort;
@@ -62,6 +65,7 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
             if (event.payload.type === 'error') { fail(event.payload.error.message); return; }
             if (event.payload.type === 'closed') { fail('Camera viewing ended.'); return; }
             if (event.payload.type === 'state' && event.payload.state === 'interrupted') { fail('Camera connection was interrupted.'); return; }
+            if (event.payload.type === 'state' && event.payload.state !== 'interrupted') setConnectionState(event.payload.state);
           }
           fail('Camera connection ended.');
         })().catch(() => fail('Camera connection was interrupted.'));
@@ -72,9 +76,15 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
         if (current) await media.close(current.ref).catch(() => {});
       }
     })();
-    return () => { abort.abort(); clearTimeout(renewTimer); if (active.current === abort) active.current = null; };
+    return () => { abort.abort(); clearTimeout(renewTimer); activity.current = null; if (active.current === abort) active.current = null; };
   }, [media, target.printerId, target.routeId, target.expectedConfigurationRevision, cameraId, wanted, attempt, visible, documentVisible, available]);
-  return { descriptor, error, wanted,
+  return { descriptor, error, wanted, connectionState,
+    interact: () => {
+      if (!descriptor?.acceptsUserActivity || !wanted || !visible || !documentVisible || !available || !active.current || active.current.signal.aborted || activity.current) return;
+      const request = media.interact(descriptor.ref, { signal: active.current.signal });
+      activity.current = request;
+      void request.finally(() => { if (activity.current === request) activity.current = null; }).catch(() => {});
+    },
     play: () => { setError(null); setWanted(true); setAttempt(value => value + 1); },
     stop: () => { active.current?.abort(); setDescriptor(null); setError(null); setWanted(false); },
     playbackFailed: (message: string) => { active.current?.abort(); setDescriptor(null); setWanted(false); setError(message); },

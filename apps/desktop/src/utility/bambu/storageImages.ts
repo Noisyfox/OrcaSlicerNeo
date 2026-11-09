@@ -91,7 +91,7 @@ export class BambuStorageImages {
     if (signal.aborted || this.retiredOwners.has(owner)) return failure('cancelled', 'Thumbnail reading stopped.');
     const id = `storage-image:${randomUUID()}` as D.Id<'media'>, until = Date.now() + 60_000;
     const descriptor: D.MediaDescriptor = { ref: { printerId: ref.printerId, routeId: ref.routeId, id }, source: request.source,
-      configurationRevision: ref.configurationRevision, revision: 1, expiresAtMs: until,
+      configurationRevision: ref.configurationRevision, revision: 1, expiresAtMs: until, acceptsUserActivity: false,
       presentation: { kind: 'image', mimeType, url: `data:${mimeType};base64,${Buffer.from(data).toString('base64')}` } };
     this.resources.set(id, { owner, request, descriptor, until }); return { ok: true, value: descriptor };
   }

@@ -93,6 +93,15 @@ const bridge: ElectronBridge = {
   },
 
   printers: {
+    camera: {
+      call: (method, input) => ipcRenderer.invoke(Ipc.snapmakerCamera, { method, input }),
+      connect: request => ipcRenderer.send(Ipc.snapmakerCameraConnect, request),
+      onChanged: listener => {
+        const handler = () => listener();
+        ipcRenderer.on(Ipc.snapmakerCameraChanged, handler);
+        return () => ipcRenderer.removeListener(Ipc.snapmakerCameraChanged, handler);
+      },
+    },
     downloads: {
       capability: { kind: 'supported', constraints: {} },
       start: request => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'start', args: [request] }),
@@ -186,4 +195,7 @@ ipcRenderer.on(Ipc.slicerFailed, (_event, error: string) => {
 // Only a trusted main-frame request can cause main to offer this dedicated port.
 ipcRenderer.on(Ipc.bambuMediaPort, (event, token: unknown) => {
   if (typeof token === 'string' && event.ports.length === 1) window.postMessage({ channel: 'orca:bambu-media', token }, window.location.origin, event.ports);
+});
+ipcRenderer.on(Ipc.snapmakerCameraPort, (event, token: unknown) => {
+  if (typeof token === 'string' && event.ports.length === 1) window.postMessage({ channel: 'orca:snapmaker-camera', token }, window.location.origin, event.ports);
 });

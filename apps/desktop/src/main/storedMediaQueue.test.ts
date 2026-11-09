@@ -3,7 +3,7 @@ import type * as D from '@orca/printer-control/domain';
 import { TransferQueue } from '@orca/printer-control/transfer-queue';
 import { StoredMediaQueue, type StoredMediaBinding } from './storedMediaQueue';
 const request = (id: string) => ({ requestId: id, target: { printerId: 'printer', routeId: 'route' }, source: { kind: 'file-preview', previewId: 'video', target: { printerId: 'printer', routeId: 'route', configurationRevision: 'r', storageId: 'sd', fileId: 'movie' } }, client: {} }) as D.OpenMediaRequest;
-const descriptor = { ref: { printerId: 'printer', routeId: 'route', id: 'media' } } as D.MediaDescriptor;
+const descriptor = { acceptsUserActivity: false, ref: { printerId: 'printer', routeId: 'route', id: 'media' } } as D.MediaDescriptor;
 const tick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 function binding() {
   let finish!: () => void;

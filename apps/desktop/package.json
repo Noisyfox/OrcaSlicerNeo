@@ -27,7 +27,7 @@
     "postinstall": "install-electron",
     "pretest:e2e": "pnpm --filter @orca/color-sampler-native stage:runtime && pnpm --filter @orca/bambu-native stage:runtime",
     "pretest:e2e:real": "pnpm --filter @orca/color-sampler-native stage:runtime && pnpm --filter @orca/bambu-native stage:runtime",
-    "test:e2e": "node ../../packages/slicer-wasm/harness/acquire-project-fixtures.mjs --download && node ../../scripts/stage.mjs --soft && electron-vite build --mode e2e && node scripts/check-renderer-css.mjs && playwright test e2e/stored-media.e2e.ts e2e/bambu-storage.e2e.ts e2e/bambu-objects.e2e.ts e2e/bambu-print.e2e.ts e2e/bambu-camera.e2e.ts e2e/bambu-account.e2e.ts e2e/bambu-provider.e2e.ts e2e/bambu-control.e2e.ts e2e/setup-wizard.e2e.ts e2e/utility-runtime.e2e.ts e2e/app.e2e.ts e2e/titlebar-menu.e2e.ts e2e/native-menu.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts e2e/project-lifecycle.e2e.ts e2e/multi-filament.e2e.ts e2e/preset-editor.e2e.ts e2e/color-picker.e2e.ts e2e/screen-color.e2e.ts e2e/bed-type-selector.e2e.ts e2e/project-flow.e2e.ts e2e/prime-tower.e2e.ts e2e/painted-facet.e2e.ts e2e/plate-list.e2e.ts",
+    "test:e2e": "node ../../packages/slicer-wasm/harness/acquire-project-fixtures.mjs --download && node ../../scripts/stage.mjs --soft && electron-vite build --mode e2e && node scripts/check-renderer-css.mjs && playwright test e2e/snapmaker-camera.e2e.ts e2e/stored-media.e2e.ts e2e/bambu-storage.e2e.ts e2e/bambu-objects.e2e.ts e2e/bambu-print.e2e.ts e2e/bambu-camera.e2e.ts e2e/bambu-account.e2e.ts e2e/bambu-provider.e2e.ts e2e/bambu-control.e2e.ts e2e/setup-wizard.e2e.ts e2e/utility-runtime.e2e.ts e2e/app.e2e.ts e2e/titlebar-menu.e2e.ts e2e/native-menu.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts e2e/project-lifecycle.e2e.ts e2e/multi-filament.e2e.ts e2e/preset-editor.e2e.ts e2e/color-picker.e2e.ts e2e/screen-color.e2e.ts e2e/bed-type-selector.e2e.ts e2e/project-flow.e2e.ts e2e/prime-tower.e2e.ts e2e/painted-facet.e2e.ts e2e/plate-list.e2e.ts",
     "test:e2e:real": "node ../../scripts/stage.mjs && node ../../scripts/run-desktop-e2e-real.mjs",
     "test:e2e:painted-facet:real": "node ../../scripts/run-painted-facet-preview-e2e.mjs",
     "test:e2e:real-project-profile": "node ../../scripts/run-real-project-profile.mjs",
@@ -63,6 +63,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.0",
     "@types/three": "^0.185.4",
+    "@types/ws": "^8.18.2",
     "@types/yauzl": "2.10.3",
     "@vitejs/plugin-react-swc": "^4.3.3",
     "electron": "^43.4.0",
@@ -73,6 +74,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "ws": "^8.22.1"
   }
 }

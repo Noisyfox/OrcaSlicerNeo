@@ -19,6 +19,7 @@ import type { Id } from '@orca/printer-control/domain';
 import {
   createMoonrakerService,
   createSnapmakerService,
+  U1CameraMedia,
   normalizePrinterConfigurationDocument,
   type PrinterConfigurationDocument,
 } from '@orca/printer-control';
@@ -171,6 +172,11 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       }, {
         id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
         printers: createSnapmakerService({
+          camera: resolve => {
+            const owner = new U1CameraMedia({ resolve, http: createBrowserPrinterTransport(), sockets: { create: url => new WebSocket(url) } });
+            window.addEventListener('pagehide', event => { void (event.persisted ? owner.closeViews() : owner.dispose()); });
+            return owner.api;
+          },
           matchFilaments: materials => runtime.matchFilamentPresets(materials),
           configuration: printerConfiguration,
           transport: createBrowserPrinterTransport(),

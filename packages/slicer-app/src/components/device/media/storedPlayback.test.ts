@@ -26,7 +26,7 @@ function fixture(initialization = false) {
     } finally { released(); }
   } };
   const video = Object.assign(new EventTarget(), { pause: vi.fn(), removeAttribute: vi.fn(), load: vi.fn(), duration: 0 });
-  const descriptor = { ref: { id: 'storage-video:test' }, presentation: {
+  const descriptor = { acceptsUserActivity: false, ref: { id: 'storage-video:test' }, presentation: {
     kind: 'video', delivery: { transport: 'mse-fmp4', mimeType: 'video/mp4', streamId: 'stream' },
     durationSeconds: 10, cachedRanges: [{ startSeconds: 0, endSeconds: 10 }],
   } } as unknown as MediaDescriptor;

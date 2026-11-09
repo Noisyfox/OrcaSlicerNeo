@@ -11,7 +11,7 @@ afterEach(async () => { await act(async () => root?.unmount()); root = undefined
 async function fixture(mode: 'ready' | 'unsupported' | 'late') {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const file = { name: 'movie.mp4', ref: { printerId: 'p', routeId: 'r', configurationRevision: '1', storageId: 's', fileId: 'f' } } as D.RemoteFile;
-  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, configurationRevision: '1', revision: 1, expiresAtMs: null,
+  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, configurationRevision: '1', revision: 1, expiresAtMs: null, acceptsUserActivity: false,
     presentation: { kind: 'video', live: false } } as D.MediaDescriptor;
   let resolve!: (value: D.Result<D.MediaDescriptor>) => void;
   const open = vi.fn<D.PrinterMedia['open']>(async () => mode === 'late' ? new Promise(done => { resolve = done; })

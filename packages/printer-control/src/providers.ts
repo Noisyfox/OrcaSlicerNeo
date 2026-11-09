@@ -125,6 +125,7 @@ export function createPrinterService(providers: readonly D.PrinterProvider[]): D
       watchChanges: (t, o) => stream(t, s => s.files.watchChanges(t, o)),
     },
     media: {
+      interact: (r, o) => call(r, s => s.media.interact(r, o)),
       readPrintObjectMap: (r, o) => call(r, s => s.media.readPrintObjectMap(r, o)),
       readStream: (r, o) => stream(r.media, s => s.media.readStream(r, o)),
       readCurrentPrintPreview: (t, o) => call(t, s => s.media.readCurrentPrintPreview(t, o)),

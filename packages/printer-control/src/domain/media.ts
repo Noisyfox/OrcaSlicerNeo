@@ -87,6 +87,8 @@ export type MediaPresentation = {
   seekable: boolean;
   codecId: string | null;
   live: boolean;
+  /** Maximum recoverable playback interruption in positive integer milliseconds within the host timer range. */
+  playbackRecovery?: { timeoutMs: number };
   /** Actual playable disk-cache ranges. Absent for live media and providers without indexed caching. */
   cachedRanges?: readonly { startSeconds: number; endSeconds: number }[];
 } | {
@@ -112,6 +114,8 @@ export interface MediaDescriptor {
   source: MediaSource;
   presentation: MediaPresentation;
   expiresAtMs: UnixMs | null;
+  /** Whether this resource accepts direct user-activity notifications. */
+  acceptsUserActivity: boolean;
 }
 export type WebRtcSignal = {
   kind: 'description';
@@ -187,6 +191,8 @@ export interface PrinterMedia {
   readStream(request: { media: MediaRef; streamId: Id<'media-stream'>; startSeconds?: number }, options?: ReadOptions): AsyncIterable<MediaStreamPacket>;
   /** Delivery may change URLs/negotiation; inspect the returned revision. */
   renew(ref: MediaRef, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
+  /** Notify direct user activity when acceptsUserActivity is true. The provider owns maintenance and throttling. */
+  interact(ref: MediaRef, options?: ReadOptions): Promise<Result<null>>;
   /** Reject stale negotiation IDs and non-WebRTC resources. */
   sendSignal(ref: MediaRef, signal: WebRtcSignal): Promise<Result<null>>;
   readContent(request: {

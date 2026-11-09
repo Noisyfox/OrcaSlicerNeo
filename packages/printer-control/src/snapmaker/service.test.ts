@@ -3,11 +3,29 @@ import { createMoonrakerService } from '../service';
 import { createSnapmakerService } from './service';
 import { createPrinterService } from '../providers';
 import { readSynchronizationSource } from '../synchronization';
+import { U1CameraMedia, U1_CAMERA_ID } from './camera';
 import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from '../configuration';
 import type * as D from '../domain';
 import type { PrinterTransportRequest, PrinterTransportResponse } from '../transport';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
+
+it('advertises host-bound camera support without probing or changing other agents', async () => {
+  const f = fixture(), create = vi.fn(() => { throw new Error('Unexpected socket'); });
+  let owner: U1CameraMedia | undefined;
+  const service = createSnapmakerService({ ...f.options, camera: resolve => {
+    owner = new U1CameraMedia({ resolve, http: f.options.transport, sockets: { create } }); return owner.api;
+  } });
+  try {
+    expect(await service.describe(f.target)).toMatchObject({ ok: true, value: { capabilities: { cameras: [{ cameraId: U1_CAMERA_ID, liveView: { kind: 'supported' } }] } } });
+    expect(f.request).not.toHaveBeenCalled(); expect(create).not.toHaveBeenCalled();
+    expect(await f.moonraker.describe({ ...f.target, printerId: id<'printer'>('moonraker'), routeId: id<'route'>('moonraker:moonraker') }))
+      .toMatchObject({ ok: true, value: { capabilities: { cameras: [] } } });
+    const observed = await service.observations.read({ target: f.target, source: 'device', topics: ['descriptor'] });
+    expect(observed).toMatchObject({ ok: true, value: { values: { descriptor: { value: { topology: { cameras: [{ id: U1_CAMERA_ID, role: 'chamber' }] } } } } } });
+    expect(create).not.toHaveBeenCalled();
+  } finally { await owner?.dispose(); }
+});
 function fixture(matchFilaments?: import('./observation').FilamentMatcher) {
   let doc: PrinterConfigurationDocument = normalizePrinterConfigurationDocument({ version: 1, printers: ['moonraker', 'snapmaker'].map(driverId => ({
     id: driverId, driverId, displayName: 'Same name', apiBaseUrl: 'http://printer/proxy', apiKey: 'secret', consoleUrl: '',
