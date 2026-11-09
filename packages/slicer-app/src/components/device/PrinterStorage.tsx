@@ -50,9 +50,8 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const availableStorages = storages.filter(storage => collectionsOf(storage).some(item => item.id === categoryId));
   const storage = availableStorages.find(storage => storage.id === storageId) ?? availableStorages[0] ?? storages[0];
   const category = storage && collectionsOf(storage).find(item => item.id === categoryId);
-  const actions = category?.actions ?? [];
-  const canDownload = actions.includes('download') && downloads.capability.kind === 'supported';
-  const canSelect = actions.length > 0;
+  const startDownload = category?.actions.includes('download') && downloads.capability.kind === 'supported'
+    ? (request: Parameters<typeof downloads.start>[0]) => downloads.start(request) : undefined;
   const scope = `${storage?.id ?? ''}:${category?.id ?? ''}`;
   useEffect(() => { setStorageId(storage?.id ?? ''); }, [storage?.id]);
   const filtered = useMemo(() => files.filter(file => file.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [files, search]);
@@ -109,10 +108,10 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   }, [scope, service, target]);
   useEffect(() => { void load(); return () => listing.current?.abort(); }, [scope, service, target, discoveryRevision]);
 
-  const download = async (destination: 'default' | 'choose') => {
+  const download = async (start: typeof downloads.start, destination: 'default' | 'choose') => {
     setQueuing(true); setDownloadError(null);
     try {
-      const result = await downloads.start({ destination, files: files.filter(file => selected.has(file.ref.fileId)).map(file => ({ file: file.ref, name: file.name, printerName: printer.identity.displayName })) });
+      const result = await start({ destination, files: files.filter(file => selected.has(file.ref.fileId)).map(file => ({ file: file.ref, name: file.name, printerName: printer.identity.displayName })) });
       if (!result.ok) setDownloadError(result.error.message);
     } catch { setDownloadError('The download could not be queued.'); }
     finally { setQueuing(false); }
@@ -161,15 +160,15 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
             <SelectContent><SelectItem value="none">None</SelectItem><SelectItem value="year">Year</SelectItem><SelectItem value="month">Month</SelectItem></SelectContent>
           </Select>
         </div>
-        {canSelect && <Button size="sm" variant="ghost" disabled={!filtered.length} onClick={() => setSelected(previous => {
+        <Button size="sm" variant="ghost" disabled={!filtered.length} onClick={() => setSelected(previous => {
           const next = new Set(previous); for (const file of filtered) { if (allLoadedSelected) next.delete(file.ref.fileId); else next.add(file.ref.fileId); } return next;
-        })}>{allLoadedSelected ? 'Deselect loaded results' : 'Select loaded results'}</Button>}
-        <span role="status" className="text-xs text-muted-foreground">{canSelect && `${selected.size} selected · `}{filtered.length} matching of {files.length} loaded</span>
+        })}>{allLoadedSelected ? 'Deselect loaded results' : 'Select loaded results'}</Button>
+        <span role="status" className="text-xs text-muted-foreground">{selected.size} selected · {filtered.length} matching of {files.length} loaded</span>
       </div>
-      {canSelect && <div className="flex flex-wrap items-center gap-2">
-        {canDownload && <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download('default')}>Download selected</Button>
-          <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download('choose')}>Save as…</Button>
+      <div className="flex flex-wrap items-center gap-2">
+        {startDownload && <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download(startDownload, 'default')}>Download selected</Button>
+          <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download(startDownload, 'choose')}>Save as…</Button>
         </div>}
         {category.actions.includes('delete') && <Button size="sm" variant="destructive" disabled={!selected.size || loading || queuing}
           onClick={() => setDeleting(files.filter(file => selected.has(file.ref.fileId)))}>Delete selected</Button>}
@@ -177,15 +176,14 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
           onClick={() => setPrinting(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Print selected file</Button>}
         {category.actions.includes('preview') && <Button size="sm" variant="outline" disabled={selected.size !== 1 || loading}
           onClick={() => setPlaying(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Play selected video</Button>}
-      </div>}
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loading}>
         {groups.map(([label, items]) => <div key={label} className="mb-4">
           {label && <h3 className="mb-2 text-sm font-medium">{label}</h3>}
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-            {items.map(file => <div onClick={canSelect ? () => toggle(file.ref.fileId) : undefined} key={file.ref.fileId}
-              className={`flex flex-col gap-2 rounded-lg border p-3 ${canSelect ? 'cursor-pointer' : ''} ${selected.has(file.ref.fileId) ? 'border-primary bg-accent/20' : canSelect ? 'hover:bg-muted/40' : ''}`}>
-              {canSelect && <div className="flex items-start justify-between"><Checkbox onClick={event => event.stopPropagation()} aria-label={`Select ${file.name}`} checked={selected.has(file.ref.fileId)} onCheckedChange={() => toggle(file.ref.fileId)} />
-              </div>}
+            {items.map(file => <div onClick={() => toggle(file.ref.fileId)} key={file.ref.fileId} className={`flex cursor-pointer flex-col gap-2 rounded-lg border p-3 ${selected.has(file.ref.fileId) ? 'border-primary bg-accent/20' : 'hover:bg-muted/40'}`}>
+              <div className="flex items-start justify-between"><Checkbox onClick={event => event.stopPropagation()} aria-label={`Select ${file.name}`} checked={selected.has(file.ref.fileId)} onCheckedChange={() => toggle(file.ref.fileId)} />
+              </div>
               <StorageThumbnail file={file} fallback={file.metadata.kind === 'recording' || file.metadata.kind === 'timelapse' ? <Film className="size-10 text-muted-foreground" /> : <File className="size-10 text-muted-foreground" />} />
               <span className="break-all text-sm font-medium">{file.name}</span>
               {unconfirmed.has(file.ref.fileId) && <span className="text-xs text-amber-500">Deletion unconfirmed · Refresh manually</span>}
@@ -205,7 +203,9 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
           setSelected(previous => new Set([...previous].filter(id => id !== ref.fileId)));
         } else if (result.state === 'unconfirmed') setUnconfirmed(previous => new Set([...previous, ref.fileId]));
       }} />}
-    {playing && <StoredVideoDialog file={playing} printerName={printer.identity.displayName} canDownload={canDownload} onClose={() => setPlaying(null)} />}
+    {playing && <StoredVideoDialog file={playing} downloadForSystemPlayer={startDownload && (() => startDownload({
+      files: [{ file: playing.ref, name: playing.name, printerName: printer.identity.displayName }], destination: 'default',
+    }))} onClose={() => setPlaying(null)} />}
     {printing && <RemoteFilePrintDialog file={printing} printer={printer} onClose={() => setPrinting(null)} />}
     <PrinterDownloadTasks />
   </section></ThumbnailCacheScope>;

@@ -2895,8 +2895,9 @@ changed compatibility or availability.
 The shared Device Storage page presents an internal and a USB G-code collection
 for a configured Snapmaker LAN route in Electron and browser-direct Web.
 It uses the existing loaded-file filter, date grouping, pagination and
-viewport thumbnail loading. Read-only collections omit selection and file
-action controls. Refresh and entry load a fresh list. An absent thumbnail uses
+viewport thumbnail loading. Selection is available across collections. File
+actions follow the collection's advertised operations. Refresh and entry load
+a fresh list. An absent thumbnail uses
 the file placeholder. If the printer reports no USB G-code files, the page
 reports that result while the mount state stays unknown.
 

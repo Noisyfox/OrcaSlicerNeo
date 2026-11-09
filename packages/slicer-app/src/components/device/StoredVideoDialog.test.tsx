@@ -19,15 +19,16 @@ async function fixture(mode: 'ready' | 'unsupported' | 'late' | 'progressive') {
   const open = vi.fn<D.PrinterMedia['open']>(async () => mode === 'late' ? new Promise(done => { resolve = done; })
     : mode === 'unsupported' ? { ok: false, error: { code: 'no-compatible-media', message: 'This format requires a system player.' } } : { ok: true, value: descriptor });
   const close = vi.fn<D.PrinterMedia['close']>(async () => ({ ok: true, value: null }));
-  const start = vi.fn(async () => ({ ok: true, value: { status: 'queued' } }));
+  const download = vi.fn<NonNullable<React.ComponentProps<typeof StoredVideoDialog>['downloadForSystemPlayer']>>(
+    async () => ({ ok: true, value: { status: 'queued', batchId: 'batch' as D.DownloadBatchId, taskIds: ['task' as D.DownloadTaskId] } }));
   const watch = vi.fn(async function* () {});
   const service = { files: { listPreviews: async () => ({ ok: true, value: { options: [{ kind: 'video', id: 'agent-option' }] } }) },
     media: { open, close, watch, renew: vi.fn() } };
-  const platform = { printers: { service, downloads: { capability: { kind: 'supported' }, start } } } as unknown as PlatformCapabilities;
+  const platform = { printers: { service } } as unknown as PlatformCapabilities;
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   const dismiss = vi.fn();
-  await act(async () => root!.render(<PlatformProvider value={platform}><StoredVideoDialog file={file} printerName="Printer" canDownload={mode !== 'progressive'} onClose={dismiss} /></PlatformProvider>));
-  return { file, descriptor, open, close, start, dismiss, watch, resolve: () => resolve({ ok: true, value: descriptor }) };
+  await act(async () => root!.render(<PlatformProvider value={platform}><StoredVideoDialog file={file} downloadForSystemPlayer={mode === 'progressive' ? undefined : download} onClose={dismiss} /></PlatformProvider>));
+  return { file, descriptor, open, close, download, dismiss, watch, resolve: () => resolve({ ok: true, value: descriptor }) };
 }
 it('uses the agent preview option and releases a visible video on navigation', async () => {
   const f = await fixture('ready'); expect(document.body.textContent).toContain('Player fixture');
@@ -35,9 +36,9 @@ it('uses the agent preview option and releases a visible video on navigation', a
   await act(async () => { root!.unmount(); root = undefined; }); expect(f.close).toHaveBeenCalledWith(f.descriptor.ref);
 });
 it('unsupported playback offers an explicit managed download without automatically saving or retrying', async () => {
-  const f = await fixture('unsupported'); expect(document.body.textContent).toContain('This format requires a system player.'); expect(f.start).not.toHaveBeenCalled();
+  const f = await fixture('unsupported'); expect(document.body.textContent).toContain('This format requires a system player.'); expect(f.download).not.toHaveBeenCalled();
   await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Download for system player')!.click(); });
-  expect(f.start).toHaveBeenCalledWith({ files: [{ file: f.file.ref, name: f.file.name, printerName: 'Printer' }], destination: 'default' });
+  expect(f.download).toHaveBeenCalledOnce();
   expect(f.open).toHaveBeenCalledOnce(); expect(document.body.textContent).toContain('Download queued.');
 });
 it('aborts a queued open and closes a descriptor that arrives after leaving', async () => {
