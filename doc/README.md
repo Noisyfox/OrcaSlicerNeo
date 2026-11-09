@@ -63,6 +63,8 @@ remain unqualified, and deletion/printing were excluded from that round. See the
 The [Snapmaker U1 follow-up](../spec/Printer%20Console%20and%20Control%20Integration.md#snapmaker-u1-storage-browsing)
 adds read-only internal and USB G-code listings and thumbnails to the shared page
 in Electron and Web.
+The [stored timelapse follow-up](../spec/Printer%20Console%20and%20Control%20Integration.md#snapmaker-u1-stored-timelapses)
+adds internal U1 video browsing and playback with physical LAN acceptance.
 
 ## Engineering references
 

@@ -14,6 +14,7 @@ export type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../pa
 
 export const Ipc = {
   snapmakerCamera: 'snapmaker-camera:call',
+  snapmakerTimelapse: 'snapmaker-timelapse:call',
   snapmakerCameraConnect: 'snapmaker-camera:connect',
   snapmakerCameraPort: 'snapmaker-camera:port',
   snapmakerCameraChanged: 'snapmaker-camera:changed',
@@ -136,6 +137,7 @@ export interface ElectronBridge {
   };
   printers: {
     camera: import('./snapmakerCamera').SnapmakerCameraBridge;
+    timelapses: import('./snapmakerTimelapses').SnapmakerTimelapseBridge;
     downloads: import('@orca/printer-control/domain').PrinterDownloads;
     configuration: {
       load(): Promise<PrinterConfigurationDocument>;

@@ -21,10 +21,22 @@ export function gcodeThumbnailPath(filename: string, metadata: Record<string, un
   return isRelativeFilePath(path) ? path : undefined;
 }
 
-export async function readGcodeThumbnail(http: MoonrakerHttp, printer: PrinterConfiguration, path: string, signal?: AbortSignal) {
-  const bytes = await http.getBytes(printer, `/server/files/gcodes/${path.split('/').map(encodeURIComponent).join('/')}`, signal);
+export function readGcodeThumbnail(http: MoonrakerHttp, printer: PrinterConfiguration, path: string, signal?: AbortSignal) {
+  return readThumbnail(http, printer, `/server/files/gcodes/${path.split('/').map(encodeURIComponent).join('/')}`, signal);
+}
+
+export async function readThumbnail(http: MoonrakerHttp, printer: PrinterConfiguration, endpoint: string, signal?: AbortSignal) {
+  const bytes = await http.getBytes(printer, endpoint, signal);
   if (bytes.byteLength > 4 * 1024 * 1024) fail('out-of-range', 'Printer thumbnail is too large.');
   if ([137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) return { bytes, mimeType: 'image/png' } as const;
   if (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return { bytes, mimeType: 'image/jpeg' } as const;
   fail('preview-unavailable', 'Invalid printer thumbnail.');
+}
+
+export function inlineThumbnail(bytes: Uint8Array, mimeType: string): string {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+  }
+  return `data:${mimeType};base64,${btoa(binary)}`;
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { U1CameraControl } from '../index';
 import type { PrinterTransport } from '../transport';
+import { readU1TimelapsePage, u1TimelapseVideoUrl } from './timelapse';
 
 class Socket extends EventTarget {
   readyState: 0 | 1 | 2 | 3 = 0;
@@ -33,6 +34,28 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe('U1 camera control', () => {
+  it('reads one timelapse page and closes the independent socket without starting live view', async () => {
+    const f = fixture();
+    const pending = readU1TimelapsePage(f.printer, 2, 20, f.options, new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(0);
+    f.socket.open();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.socket.sent).toMatchObject([{ method: 'camera.get_timelapse_instance', params: {
+      req_id: expect.any(Number), page_index: 2, page_rows: 20, thumbnail_direct: false,
+    } }]);
+    f.socket.result(0, { state: 'success', page_index: 2, total_count: 22, instances: [
+      { date_index: '20261109131725', gcode_name: 'Test job', video_local_url_suffix: '/files/camera/打印 #%.mp4',
+        cover_local_url_suffix: '/files/camera/cover.jpg', video_duration: '00:01', unix_timestamp_s: 1794230792, video_file_size: 777007 },
+      { date_index: 'next', gcode_name: 'Pending or invalid', video_local_url_suffix: '/files/camera/../../other.mp4' },
+    ] });
+    const result = await pending;
+    expect(result).toEqual({ total: 22, entries: [{ dateIndex: '20261109131725', name: 'Test job', video: '/files/camera/打印 #%.mp4',
+      cover: '/files/camera/cover.jpg', duration: 1, modified: 1794230792000, bytes: 777007 }] });
+    expect(f.socket.close).toHaveBeenCalledOnce();
+    expect(u1TimelapseVideoUrl(f.printer, result.entries[0].video)).toBe('http://printer/proxy/server/files/camera/%E6%89%93%E5%8D%B0%20%23%25.mp4');
+    expect(() => u1TimelapseVideoUrl(f.printer, 'https://other/files/camera/test.mp4')).toThrow('Invalid U1 timelapse asset');
+  });
+
   it('opens lazily and uses the same client identity for start, renewal and stop', async () => {
     const f = fixture(), control = await f.connect();
     expect(f.create).toHaveBeenCalledWith('ws://printer/proxy/websocket');

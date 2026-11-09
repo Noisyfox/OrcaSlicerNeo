@@ -2,6 +2,7 @@ import { createElectronScreenColorSources } from './screenColor';
 import { createBambuProvider } from './bambuProvider';
 import { snapmakerCamera } from './snapmakerCamera';
 import { createPrinterService } from '@orca/printer-control';
+import { snapmakerTimelapses } from './snapmakerTimelapses';
 import {
   DEFAULT_USER_PREFERENCES,
   MODEL_FILE_EXTENSIONS,
@@ -282,6 +283,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
       }, {
         id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
         printers: createSnapmakerService({
+          timelapses: snapmakerTimelapses(host.printers.timelapses),
           camera: resolve => snapmakerCamera(host.printers.camera, resolve),
           matchFilaments: materials => runtime.matchFilamentPresets(materials),
           configuration: printerConfiguration,

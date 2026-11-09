@@ -3,7 +3,8 @@ import type * as D from '../domain';
 import { safe, supported, type HttpServiceBehavior, type HttpServiceContext, type ResolvedConfiguration } from '../http-service';
 import { fail, record } from '../moonraker-http';
 import { copy, newId } from '../operations';
-import { gcodeMetadataEndpoint, gcodeThumbnailPath, isRelativeFilePath, readGcodeThumbnail } from './file-thumbnail';
+import { gcodeMetadataEndpoint, gcodeThumbnailPath, inlineThumbnail, isRelativeFilePath, readGcodeThumbnail } from './file-thumbnail';
+import { U1Timelapses, u1TimelapseCollectionId, type U1TimelapseTransport } from './timelapse';
 
 const internal = 'internal' as D.Id<'storage'>;
 const usb = 'usb' as D.Id<'storage'>;
@@ -12,10 +13,12 @@ const filePrefix = 'snapmaker-storage:';
 const mediaPrefix = 'snapmaker-thumbnail:';
 const snapshotLifetimeMs = 5 * 60_000;
 
-export const u1StorageCapabilities = {
-  list: supported({ storageIds: [internal, usb], kinds: ['print-file'] }),
-  preview: supported([{ storageId: internal, kinds: ['thumbnail'] }, { storageId: usb, kinds: ['thumbnail'] }]),
-} satisfies Pick<D.FileCapabilities, 'list' | 'preview'>;
+export function u1StorageCapabilities(hasTimelapses: boolean): Pick<D.FileCapabilities, 'list' | 'preview'> {
+  return {
+    list: supported({ storageIds: [internal, usb], kinds: hasTimelapses ? ['print-file', 'timelapse'] : ['print-file'] }),
+    preview: supported([{ storageId: internal, kinds: hasTimelapses ? ['thumbnail', 'video'] : ['thumbnail'] }, { storageId: usb, kinds: ['thumbnail'] }]),
+  };
+}
 
 interface Snapshot {
   configurationRevision: D.Revision;
@@ -33,11 +36,11 @@ function storageFor(path: string): D.Id<'storage'> {
   return path.startsWith('.udisk/') ? usb : internal;
 }
 
-function storage(id: D.Id<'storage'>, availability: D.Availability): D.PrinterStorage {
+function storage(id: D.Id<'storage'>, availability: D.Availability, timelapse?: D.StorageCollection): D.PrinterStorage {
   return {
     id, name: id === usb ? 'USB drive' : 'Internal', kind: id === usb ? 'removable' : 'internal',
     availability, capacityBytes: null, freeBytes: null,
-    browsing: supported({ kind: 'collections', collections: [collection] }),
+    browsing: supported({ kind: 'collections', collections: timelapse ? [collection, timelapse] : [collection] }),
   };
 }
 
@@ -54,17 +57,12 @@ function previewId(file: D.RemoteFileRef): D.Id<'preview-option'> {
   return `${file.fileId}:thumbnail` as D.Id<'preview-option'>;
 }
 
-function inlineImage(bytes: Uint8Array, mimeType: string): string {
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += 8192) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-  }
-  return `data:${mimeType};base64,${btoa(binary)}`;
-}
-
 export class U1Storage {
   private readonly snapshots = new Map<string, Snapshot>();
-  constructor(private readonly context: HttpServiceContext) {}
+  private readonly timelapses?: U1Timelapses;
+  constructor(private readonly context: HttpServiceContext, transport?: U1TimelapseTransport) {
+    if (transport) this.timelapses = new U1Timelapses(context, transport);
+  }
 
   private current({ printer, entry }: ResolvedConfiguration): Snapshot | undefined {
     const snapshot = this.snapshots.get(printer.id);
@@ -108,17 +106,20 @@ export class U1Storage {
 
   readonly files: NonNullable<HttpServiceBehavior['files']> = {
     listStorages: (target, options) => safe(async () => {
-      const snapshot = await this.scan(await this.context.resolve(target), readSignal(options));
-      return [storage(internal, { kind: 'available' }), storage(usb, snapshot.files[usb].length
+      const resolved = await this.context.resolve(target);
+      const snapshot = await this.scan(resolved, readSignal(options));
+      return [storage(internal, { kind: 'available' }, this.timelapses?.collection(resolved.printer)), storage(usb, snapshot.files[usb].length
         ? { kind: 'available' }
         : { kind: 'unknown', reason: 'No USB G-code files were reported. Refresh after connecting a USB drive or adding files.' })];
     }),
     list: (request, options) => safe(async () => {
       const { target, storageId, location, cursor, kinds, pageSize = 100 } = request;
+      const signal = readSignal(options);
+      if (this.timelapses && location.kind === 'collection' && location.collectionId === u1TimelapseCollectionId)
+        return this.timelapses.list(request, signal);
       if ((storageId !== internal && storageId !== usb) || location.kind !== 'collection' || location.collectionId !== collection.id)
         fail('invalid-target', 'Unknown U1 file collection.');
       if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 500) fail('invalid-request', 'Invalid U1 file page size.');
-      const signal = readSignal(options);
       const resolved = await this.context.resolve(target);
       checkRead(signal);
       const current = this.current(resolved);
@@ -138,6 +139,7 @@ export class U1Storage {
     }),
     listPreviews: (file, options) => safe(async () => {
       const signal = readSignal(options);
+      if (this.timelapses?.ownsFile(file)) return this.timelapses.previews(file, signal);
       const resolved = await this.resolveFile(file, signal);
       const path = await this.thumbnail(resolved, signal);
       return { file: copy(file), options: path ? [{ id: previewId(file), kind: 'thumbnail', label: 'Thumbnail', contentFormat: null }] : [] };
@@ -173,10 +175,11 @@ export class U1Storage {
     const { source, target, requestId } = request;
     if (source.kind !== 'file-preview') fail('unsupported', 'U1 Storage only opens file previews.');
     const file = source.target;
+    const signal = readSignal(options);
+    if (this.timelapses?.ownsFile(file)) return this.timelapses.open({ ...request, source }, signal);
     if (target.printerId !== file.printerId || target.routeId !== file.routeId ||
         (target.expectedConfigurationRevision !== undefined && target.expectedConfigurationRevision !== file.configurationRevision) ||
         source.previewId !== previewId(file)) fail('invalid-target', 'Invalid U1 file preview.');
-    const signal = readSignal(options);
     const resolved = await this.resolveFile(file, signal);
     const path = await this.thumbnail(resolved, signal);
     if (!path) fail('preview-unavailable', 'No thumbnail is available for this file.');
@@ -187,10 +190,11 @@ export class U1Storage {
     return {
       ref: { printerId: file.printerId, routeId: file.routeId, id: `${mediaPrefix}${requestId}` as D.Id<'media'> },
       configurationRevision: file.configurationRevision, revision: 1, source: copy(source),
-      presentation: { kind: 'image', mimeType, url: inlineImage(bytes, mimeType) },
+      presentation: { kind: 'image', mimeType, url: inlineThumbnail(bytes, mimeType) },
       expiresAtMs: null, acceptsUserActivity: false,
     };
   });
 
-  ownsMedia(ref: D.MediaRef): boolean { return ref.id.startsWith(mediaPrefix); }
+  ownsMedia(ref: D.MediaRef): boolean { return ref.id.startsWith(mediaPrefix) || this.timelapses?.ownsMedia(ref) === true; }
+  close: D.PrinterMedia['close'] = ref => safe(async () => this.timelapses?.ownsMedia(ref) ? this.timelapses.close(ref) : null);
 }

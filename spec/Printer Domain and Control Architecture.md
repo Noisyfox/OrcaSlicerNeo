@@ -2580,6 +2580,41 @@ switching, a fresh listing on refresh and re-entry, and GET-only device requests
 The USB scope displayed the expected no-files status. A populated USB drive,
 large physical libraries and a deployed HTTPS browser origin remain unqualified.
 
+#### U1 stored timelapse follow-up
+
+The [timelapse adapter](../packages/printer-control/src/snapmaker/timelapse.ts)
+reads one page of up to 20 records when the user opens the internal Timelapse
+collection. It uses `camera.get_timelapse_instance` over the configured
+Moonraker WebSocket and closes the socket after each page. Cursor scope includes
+the route configuration and page size. The firmware supplies best-effort
+pagination. Video and optional cover suffixes resolve inside the configured
+printer's `/server/files/camera/` root. Cover reads use the existing thumbnail
+contract.
+
+Web uses the browser video element and the printer's direct HTTP media endpoint.
+The browser lists videos on API-key routes and offers playback on routes that
+can serve media without the key. Electron issues a temporary document-owned
+video URL through validated IPC. Its protocol handler forwards single HTTP
+range requests and attaches saved credentials in main. The URL is retired on
+close, document navigation or configuration change. Video bytes stream into the
+player without a full-file staging step.
+
+On 2026-11-09 a stock U1 on firmware `2.0.0.205_20260914173503` completed a
+10 × 10 × 3 mm single-head PLA block through Neo Send & Print. Firmware reported
+Timelapse enabled during the task, 15/15 layers, full progress and zero targets
+for all five heaters at completion. The device recorded 545.14 seconds total
+and generated a 777,007-byte MP4 and JPEG cover for that job. The MP4 route
+returned HTTP 206 for a requested range. The
+[opt-in print harness](../apps/desktop/e2e/snapmaker-print-hardware.e2e.ts)
+can enable recording with `NEO_U1_ACCEPTANCE_TIMELAPSE=1`.
+
+On macOS ARM64, Electron 43.4.0 and Chrome 156.0.8078.81 each displayed the new
+entry and cover and decoded moving 1920 × 1080 video in the shared Storage
+player. Chrome used `http://127.0.0.1:4173` with standard browser security.
+The measured video duration was about 0.504 seconds. Both hosts used an empty
+API key. Real API-key playback on Electron, deployed HTTPS Web and larger
+physical video collections remain unqualified.
+
 ## 3. Identity, configuration and stateless access
 
 Separate printer identity from its routes, provider, configured printer type

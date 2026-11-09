@@ -1,6 +1,6 @@
 import { unavailablePrinterDownloads } from '@orca/printer-control';
 import { createBrowserScreenColorSampler, externalHttpsUrl } from '@orca/platform-contract';
-import { createPrinterService } from '@orca/printer-control';
+import { createPrinterService, readU1TimelapsePage, u1TimelapseVideoUrl } from '@orca/printer-control';
 import {
   MODEL_FILE_ACCEPT,
   NO_RECENT_PROJECTS,
@@ -172,6 +172,12 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       }, {
         id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
         printers: createSnapmakerService({
+          timelapses: {
+            list: (printer, page, rows, signal) => readU1TimelapsePage(printer, page, rows,
+              { http: createBrowserPrinterTransport(), sockets: { create: url => new WebSocket(url) } }, signal),
+            canPlay: printer => !printer.apiKey,
+            open: async (printer, video) => ({ url: u1TimelapseVideoUrl(printer, video) }),
+          },
           camera: resolve => {
             const owner = new U1CameraMedia({ resolve, http: createBrowserPrinterTransport(), sockets: { create: url => new WebSocket(url) } });
             window.addEventListener('pagehide', event => { void (event.persisted ? owner.closeViews() : owner.dispose()); });

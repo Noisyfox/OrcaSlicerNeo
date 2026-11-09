@@ -2900,10 +2900,24 @@ action controls. Refresh and entry load a fresh list. An absent thumbnail uses
 the file placeholder. If the printer reports no USB G-code files, the page
 reports that result while the mount state stays unknown.
 
-This increment covers browsing and thumbnails. File downloads, deletion,
-starting existing device files and stored timelapse browsing remain deferred.
+This increment covers G-code browsing and thumbnails. File downloads, deletion
+and starting existing device files remain deferred.
 The [provider implementation and qualification](Printer%20Domain%20and%20Control%20Architecture.md#read-only-u1-storage-follow-up)
 define the HTTP and host boundaries.
+
+### Snapmaker U1 stored timelapses
+
+Device Storage offers an internal **Timelapse** collection for the configured
+Snapmaker route. It shows completed videos with their print name, optional cover,
+size and date. Select a video and choose **Play selected video** to open the
+shared stored-video dialog. Close the viewer, change storage scope or leave the
+page to release playback. This delivery covers browsing and playback.
+
+Electron plays through a document-scoped streaming relay. Web plays directly
+when the browser can reach and authorize the printer's media URL without a
+custom API-key header. The
+[timelapse protocol and qualification](Printer%20Domain%20and%20Control%20Architecture.md#u1-stored-timelapse-follow-up)
+record the host behavior and physical acceptance.
 
 ### Snapmaker camera live view
 

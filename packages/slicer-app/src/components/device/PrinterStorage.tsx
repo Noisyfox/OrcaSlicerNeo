@@ -205,7 +205,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
           setSelected(previous => new Set([...previous].filter(id => id !== ref.fileId)));
         } else if (result.state === 'unconfirmed') setUnconfirmed(previous => new Set([...previous, ref.fileId]));
       }} />}
-    {playing && <StoredVideoDialog file={playing} printerName={printer.identity.displayName} onClose={() => setPlaying(null)} />}
+    {playing && <StoredVideoDialog file={playing} printerName={printer.identity.displayName} canDownload={canDownload} onClose={() => setPlaying(null)} />}
     {printing && <RemoteFilePrintDialog file={printing} printer={printer} onClose={() => setPrinting(null)} />}
     <PrinterDownloadTasks />
   </section></ThumbnailCacheScope>;
