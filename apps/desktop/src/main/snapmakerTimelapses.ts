@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
-import { readU1TimelapsePage, u1TimelapseVideoUrl, type PrinterConfiguration, type PrinterConfigurationDocument } from '@orca/printer-control';
+import { deleteU1Timelapse, readU1TimelapsePage, u1TimelapseVideoUrl, type PrinterConfiguration, type PrinterConfigurationDocument } from '@orca/printer-control';
 import type { ErrorCode, Result } from '@orca/printer-control/domain';
 import { cameraConfigurationDigest, cameraConfigurationKey } from '../shared/snapmakerCamera';
 import { printerMediaScheme } from '../shared/printerMedia';
@@ -51,7 +51,7 @@ export class SnapmakerTimelapseHost {
       }
       return { ok: true, value: null };
     }
-    if ((method !== 'list' && method !== 'open') || typeof input.printerId !== 'string' || typeof input.configurationDigest !== 'string')
+    if ((method !== 'list' && method !== 'open' && method !== 'delete') || typeof input.printerId !== 'string' || typeof input.configurationDigest !== 'string')
       return failure('invalid-request', 'Invalid U1 timelapse request.');
     const requestId = input.id, page = input.page, rows = input.rows;
     const abort = new AbortController(), epoch = this.configurationEpoch;
@@ -70,6 +70,11 @@ export class SnapmakerTimelapseHost {
         const list = await readU1TimelapsePage(printer, page as number, rows as number,
           { http: cameraHttpTransport, sockets: { create: url => new WebSocket(url) } }, abort.signal);
         return { ok: true, value: list };
+      }
+      if (method === 'delete') {
+        if (typeof input.dateIndex !== 'string') return failure('invalid-request', 'Invalid U1 timelapse index.');
+        return await deleteU1Timelapse(printer, input.dateIndex,
+          { http: cameraHttpTransport, sockets: { create: url => new WebSocket(url) } }, abort.signal);
       }
       if (typeof input.video !== 'string' || input.video.length > 4096) return failure('invalid-request', 'Invalid U1 video.');
       const url = u1TimelapseVideoUrl(printer, input.video);

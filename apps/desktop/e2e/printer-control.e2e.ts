@@ -1,7 +1,7 @@
-import { startSnapmakerFixture, usbGcodeName } from './snapmaker-fixture';
+import { fixtureGcode, fixtureTimelapse, fixtureTimelapseIndex, startSnapmakerFixture, usbGcodeName } from './snapmaker-fixture';
 import { _electron } from './electron-fixture';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -610,10 +610,12 @@ test('Send & Print works with a keyless Moonraker printer and sends no API-key h
 });
 
 
-test('Snapmaker U1 Storage browses internal and USB G-code over Electron IPC', async () => {
+test('Snapmaker U1 Storage browses, downloads and deletes over Electron IPC', async () => {
   const fixture = await startSnapmakerFixture();
+  const destination = mkdtempSync(join(tmpdir(), 'neo-u1-download-'));
   const { app } = await launchApp({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture', apiBaseUrl: fixture.baseUrl, apiKey: 'fixture-key', consoleUrl: '' }] });
   try {
+    await app.evaluate(({ app }, path) => app.setPath('downloads', path), destination);
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
     await page.getByTestId('tab-device').click();
@@ -627,18 +629,43 @@ test('Snapmaker U1 Storage browses internal and USB G-code over Electron IPC', a
     await expect(storage.getByRole('img', { name: 'Thumbnail of no-preview.gcode' })).toHaveCount(0);
     await storage.getByRole('checkbox', { name: 'Select external.gcode', exact: true }).check();
     await expect(storage.getByRole('status').filter({ hasText: '1 selected' })).toBeVisible();
-    await expect(storage.getByRole('button', { name: /Download selected|Delete selected|Print selected file|Play selected video/ })).toHaveCount(0);
+    await storage.getByRole('button', { name: 'Download selected', exact: true }).click();
+    await expect.poll(() => {
+      try { return readFileSync(join(destination, 'external.gcode'), 'utf8'); }
+      catch { return null; }
+    }).toBe(fixtureGcode);
+    expect(fixture.downloads).toEqual([{ name: 'external.gcode', key: 'fixture-key' }]);
+    await expect(storage.getByRole('button', { name: /Print selected file|Play selected video/ })).toHaveCount(0);
+    await storage.getByRole('button', { name: 'Delete selected', exact: true }).click();
+    expect(fixture.deleted).toEqual([]);
+    const confirmation = page.getByRole('dialog', { name: /Delete printer files\?|File deletion/ });
+    await confirmation.getByRole('button', { name: 'Delete files', exact: true }).click();
+    await expect(confirmation.getByRole('status')).toContainText('1 deleted');
+    await confirmation.getByRole('button', { name: 'Close', exact: true }).last().click();
+    expect(fixture.deleted).toEqual(['external.gcode']);
     await storage.getByRole('combobox', { name: 'Storage' }).click();
     await page.getByRole('option', { name: 'USB drive' }).click();
     await expect(storage.getByRole('img', { name: `Thumbnail of ${usbGcodeName}` })).toHaveJSProperty('naturalWidth', 1);
     await expect(storage.getByText('external.gcode', { exact: true })).toHaveCount(0);
-    expect(fixture.storageListReads()).toBe(1);
+    expect(fixture.storageListReads()).toBe(2);
     fixture.setUsbStoragePresent(false);
     await storage.getByRole('button', { name: 'Refresh', exact: true }).click();
     await expect(storage.getByText(/No USB G-code files were reported/)).toBeVisible();
     await expect(storage.getByText(usbGcodeName, { exact: true })).toHaveCount(0);
-    expect(fixture.storageListReads()).toBe(2);
-  } finally { await app.close(); await fixture.close(); }
+    expect(fixture.storageListReads()).toBe(3);
+    await storage.getByRole('tab', { name: 'Timelapse', exact: true }).click();
+    await storage.getByRole('checkbox', { name: 'Select Fixture video.mp4', exact: true }).check();
+    await storage.getByRole('button', { name: 'Download selected', exact: true }).click();
+    await expect.poll(() => {
+      try { return readFileSync(join(destination, 'fixture.mp4'), 'utf8'); }
+      catch { return null; }
+    }).toBe(fixtureTimelapse);
+    expect(fixture.downloads.at(-1)).toEqual({ name: 'fixture.mp4', key: 'fixture-key' });
+    await storage.getByRole('button', { name: 'Delete selected', exact: true }).click();
+    await confirmation.getByRole('button', { name: 'Delete files', exact: true }).click();
+    await expect(confirmation.getByRole('status')).toContainText('1 deleted');
+    expect(fixture.deleted).toEqual(['external.gcode', fixtureTimelapseIndex]);
+  } finally { await app.close(); await fixture.close(); rmSync(destination, { recursive: true, force: true }); }
 });
 
 test('Snapmaker Device uses Electron transport for physical controls and verified preferences', async ({}, testInfo) => {

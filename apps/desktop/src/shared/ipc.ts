@@ -8,7 +8,7 @@
 import type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 import { isRecentProjectMenuCommand } from '../../../../packages/platform-contract/src/menu';
 import type { PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
-import type { PrinterTransportBody } from '../../../../packages/printer-control/src/transport';
+import type { PrinterHttpMethod, PrinterTransportBody } from '../../../../packages/printer-control/src/transport';
 
 export type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 
@@ -165,7 +165,7 @@ export interface ElectronBridge {
 
 /** IPC request types intentionally exclude signal and callback properties. */
 export interface PrinterTransportIpcRequest {
-  method: 'GET' | 'POST';
+  method: PrinterHttpMethod;
   url: string;
   responseType?: 'json' | 'bytes';
   headers?: Readonly<Record<string, string>>;

@@ -41,9 +41,11 @@ export class MoonrakerHttp {
         ...(printer.apiKey ? { 'X-Api-Key': printer.apiKey } : {}), ...request.headers,
       } });
     } catch {
-      throw new MoonrakerFailure({ code: request.signal?.aborted ? 'cancelled' : 'transport', message: 'Printer request interrupted' }, request.method === 'POST');
+      throw new MoonrakerFailure({ code: request.signal?.aborted ? 'cancelled' : 'transport', message: 'Printer request interrupted' }, request.method !== 'GET');
     }
     if (response.status === 404 && notFound) return notFound();
+    if (request.method === 'DELETE' && response.status >= 500)
+      throw new MoonrakerFailure({ code: 'device-failed', message: 'Printer did not confirm file deletion' }, true);
     if (response.status < 200 || response.status >= 300) {
       fail(response.status === 401 ? 'authentication-required' : response.status === 403 ? 'permission-denied' : 'device-rejected', 'Printer rejected the request');
     }
@@ -53,7 +55,7 @@ export class MoonrakerHttp {
       return decode(payload);
     } catch (error) {
       if (error instanceof MoonrakerFailure) throw error;
-      throw new MoonrakerFailure({ code: 'device-failed', message: 'Invalid printer response' }, request.method === 'POST');
+      throw new MoonrakerFailure({ code: 'device-failed', message: 'Invalid printer response' }, request.method !== 'GET');
     }
   }
   get(printer: PrinterConfiguration, path: string, signal?: AbortSignal) {
@@ -66,6 +68,13 @@ export class MoonrakerHttp {
     return this.request(printer, path, { method: 'GET', signal }, payload => {
       if (!Array.isArray(payload.result)) throw new Error('Invalid result');
       return payload.result as readonly unknown[];
+    });
+  }
+  deleteGcode(printer: PrinterConfiguration, path: string, filename: string, signal: AbortSignal) {
+    return this.request(printer, path, { method: 'DELETE', signal }, payload => {
+      const result = objectResult(payload), item = record(result.item);
+      if (result.action !== 'delete_file' || item.root !== 'gcodes' || item.path !== filename)
+        throw new Error('Mismatched deletion acknowledgement');
     });
   }
   async getBytes(printer: PrinterConfiguration, path: string, signal?: AbortSignal): Promise<Uint8Array> {

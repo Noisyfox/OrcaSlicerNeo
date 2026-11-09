@@ -2617,6 +2617,25 @@ The measured video duration was about 0.504 seconds. Both hosts used an empty
 API key. Real API-key playback on Electron, deployed HTTPS Web and larger
 physical video collections remain unqualified.
 
+#### U1 file downloads and deletion
+
+U1 downloads stream authenticated G-code and MP4 reads through the shared
+download executor. Each file reference binds its storage and printer
+configuration. The Electron host resolves saved routes again before queueing
+and execution, then writes through the existing journaled filesystem sink.
+The browser uses its own file or directory picker and streams into a
+browser-granted writable handle. The U1 reader offers complete files.
+
+G-code deletion uses the configured Moonraker file route and checks the
+returned action, root and path before recording completion. Both hosts use
+the shared operation tracker and confirmation dialog. Timelapse deletion
+uses a single recording's timestamp index over the camera WebSocket.
+Interrupted or ambiguous deletion responses leave the outcome unconfirmed.
+Protocol references are the [U1 Moonraker file handler](https://github.com/Snapmaker/u1-moonraker/blob/ed7b3752a9a938c87ee086f3b7b21a9352a2a0c9/moonraker/components/application.py)
+and the [U1 camera endpoint registration](https://github.com/Snapmaker/u1-moonraker/blob/ed7b3752a9a938c87ee086f3b7b21a9352a2a0c9/moonraker/components/repeater.py).
+Loopback Electron and Web fixtures cover these actions without mutating a
+physical printer.
+
 ## 3. Identity, configuration and stateless access
 
 Separate printer identity from its routes, provider, configured printer type
@@ -4100,7 +4119,9 @@ no destination paths and distinguishes managed saving from browser handoff.
 The [desktop registry](../apps/desktop/src/main/printerDownloads.ts), destination
 dialogs, private utility execution/progress, public task IPC and application-close
 coordination are implemented. Shared UI owns task presentation and completion/
-failure notices. The Web host explicitly reports managed downloads unsupported.
+failure notices. The Web host uses the same task engine for U1 with browser-granted
+file handles. It reports managed downloads unsupported when the browser lacks
+the File System Access pickers.
 Renderer/preload/main fixture E2E covers page navigation and task cancellation;
 separate executor tests perform actual file writes, and registry tests cover
 admission and shutdown. This is not real-printer or packaged-platform qualification.

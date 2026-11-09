@@ -6,6 +6,7 @@ type Scope = { printerId: string; configurationDigest: string };
 export interface SnapmakerTimelapseCalls {
   list: { input: Scope & { id: string; page: number; rows: number }; output: Result<U1TimelapsePage> };
   open: { input: Scope & { video: string }; output: Result<{ id: string; url: string }> };
+  delete: { input: Scope & { dateIndex: string }; output: Result<null> };
   cancel: { input: { id: string }; output: Result<null> };
   close: { input: { id: string }; output: Result<null> };
 }

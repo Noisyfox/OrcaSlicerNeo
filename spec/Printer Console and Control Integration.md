@@ -2901,8 +2901,12 @@ a fresh list. An absent thumbnail uses
 the file placeholder. If the printer reports no USB G-code files, the page
 reports that result while the mount state stays unknown.
 
-This increment covers G-code browsing and thumbnails. File downloads, deletion
-and starting existing device files remain deferred.
+Internal and USB G-code support the shared **Download selected**, **Save as…**
+and **Delete selected** actions. Electron uses its configured download folder
+and native save dialogs. Web streams to a file or directory granted by the
+browser's File System Access picker. Deletion requires the existing confirmation
+dialog. An unconfirmed result keeps the row visible and asks for manual refresh.
+Starting existing U1 device files remains deferred.
 The [provider implementation and qualification](Printer%20Domain%20and%20Control%20Architecture.md#read-only-u1-storage-follow-up)
 define the HTTP and host boundaries.
 
@@ -2912,7 +2916,9 @@ Device Storage offers an internal **Timelapse** collection for the configured
 Snapmaker route. It shows completed videos with their print name, optional cover,
 size and date. Select a video and choose **Play selected video** to open the
 shared stored-video dialog. Close the viewer, change storage scope or leave the
-page to release playback. This delivery covers browsing and playback.
+page to release playback. The same download and deletion actions are available
+for completed recordings, including on a Web route whose API-key configuration
+prevents direct in-app playback.
 
 Electron plays through a document-scoped streaming relay. Web plays directly
 when the browser can reach and authorize the printer's media URL without a

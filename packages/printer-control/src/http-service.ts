@@ -28,13 +28,13 @@ export interface HttpServiceBehavior {
   capabilities(entry?: ConfigurationEntry): D.PrinterCapabilities;
   observations?: D.PrinterObservations;
   submissions?: D.PrinterSubmissions;
-  files?: Pick<D.PrinterFiles, 'listStorages' | 'list' | 'listPreviews'>;
+  files?: Pick<D.PrinterFiles, 'listStorages' | 'list' | 'listPreviews' | 'download'>;
   readCurrentPrintPreview?: D.PrinterMedia['readCurrentPrintPreview'];
   media?: Partial<Pick<D.PrinterMedia, 'open' | 'watch' | 'readStream' | 'renew' | 'interact' | 'close'>>;
   validateTask?(resolved: ResolvedConfiguration, taskId: D.Id<'device-task'>): Promise<void>;
   validateCommand?(resolved: ResolvedConfiguration, command: D.PrinterCommand): Promise<void>;
   retainOperation?(resolved: ResolvedConfiguration, command?: D.PrinterCommand): () => void;
-  executeCommand(resolved: ResolvedConfiguration, command: D.PrinterCommand, filePath: (file: D.RemoteFileRef) => string): Promise<void>;
+  executeCommand(resolved: ResolvedConfiguration, command: D.PrinterCommand, filePath: (file: D.RemoteFileRef) => string): Promise<void | 'completed'>;
 }
 const storageId = 'gcodes' as D.Id<'storage'>;
 export const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'Not implemented by this HTTP adapter' } as const;
@@ -238,9 +238,10 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
         void (async () => {
           try {
             operations.update(ref, previous => ({ ...previous, phase: { kind: 'sent' } }));
-            await behavior.executeCommand({ printer, entry }, command, file => filePath(file, request.target, entry));
-            // Moonraker's HTTP acknowledgement does not establish physical completion.
-            operations.update(ref, previous => ({ ...previous, phase: { kind: 'acknowledged' } }));
+            const result = await behavior.executeCommand({ printer, entry }, command, file => filePath(file, request.target, entry));
+            // Ordinary command acknowledgements do not establish completion.
+            operations.update(ref, previous => previous.kind === 'command' ? { ...previous, phase: result === 'completed'
+              ? { kind: 'completed', result: null, confirmation: 'device-result' } : { kind: 'acknowledged' } } : previous);
           } catch (error) {
             operations.update(ref, previous => ({ ...previous, phase: error instanceof MoonrakerFailure && error.uncertain
               ? { kind: 'outcome-unknown', reason: 'Printer command response was interrupted' }

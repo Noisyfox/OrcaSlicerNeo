@@ -23,10 +23,16 @@ function fixture() {
     listing: [usbFile, 'part #%.gcode', 'nested/second.GCO', '.udisk-old/third.gcode', 'nested/no.txt', '../outside.gcode',
       'part #%.gcode'].map((path, index) => ({ path, size: 10 + index, modified: 1700000000.125 - index })),
     metadata: { thumbnails: [{ relative_path: '.thumbs/preview #%.png', width: 48, height: 48 }] },
-    listStatus: 200, metadataStatus: 200, image: png,
+    listStatus: 200, metadataStatus: 200, image: png, deleteMode: 'confirmed',
   };
-  const request = vi.fn(async ({ url }: PrinterTransportRequest) => {
+  const request = vi.fn(async ({ method, url }: PrinterTransportRequest) => {
     const path = new URL(url).pathname;
+    if (method === 'DELETE') {
+      const filename = decodeURIComponent(path.split('/server/files/gcodes/')[1]);
+      if (fixtureData.deleteMode === 'interrupted') throw new Error('connection interrupted');
+      fixtureData.listing = fixtureData.listing.filter(item => item.path !== filename);
+      return { status: 200, json: async () => ({ result: { action: 'delete_file', item: { root: 'gcodes', path: filename } } }), bytes: async () => new Uint8Array() };
+    }
     if (path.endsWith('/list')) return { status: fixtureData.listStatus, json: async () => ({ result: fixtureData.listing }), bytes: async () => new Uint8Array() };
     if (path.endsWith('/metadata')) return { status: fixtureData.metadataStatus, json: async () => ({ result: fixtureData.metadata }), bytes: async () => new Uint8Array() };
     return { status: 200, json: async () => ({}), bytes: async () => fixtureData.image };
@@ -51,10 +57,10 @@ it('enumerates only on demand and shares a scoped paged listing across internal 
   const { service, request, browse, data } = fixture();
   const saved = unwrap(await service.listSaved());
   expect(saved[0].routes[0].capabilities).toMatchObject({ files: { list: { kind: 'supported' }, preview: { kind: 'supported' },
-    download: { kind: 'unsupported' } }, commands: { 'files.delete': { kind: 'unsupported' }, 'jobs.start': { kind: 'unsupported' } } });
+    download: { kind: 'supported' } }, commands: { 'files.delete': { kind: 'supported' }, 'jobs.start': { kind: 'unsupported' } } });
   expect(request).not.toHaveBeenCalled();
   expect(unwrap(await service.files.listStorages(target))).toMatchObject([
-    { id: internal, availability: { kind: 'available' }, browsing: { constraints: { collections: [{ actions: [] }] } } },
+    { id: internal, availability: { kind: 'available' }, browsing: { constraints: { collections: [{ actions: ['download', 'delete'] }] } } },
     { id: usb, availability: { kind: 'available' } },
   ]);
   const onboard = await browse();
@@ -112,7 +118,8 @@ it('keeps missing thumbnails optional and rejects unsafe paths or wrong image by
   expect(await service.media.open(openRequest(file, preview))).toMatchObject({ ok: false, error: { code: 'preview-unavailable' } });
   const before = request.mock.calls.length;
   expect(await service.files.listPreviews({ ...file, storageId: usb })).toMatchObject({ ok: false, error: { code: 'invalid-target' } });
-  expect(await service.files.listPreviews({ ...file, fileId: id<'remote-file'>('snapmaker-storage:..%2Foutside.gcode') }))
+  const traversal = file.fileId.slice(0, file.fileId.lastIndexOf(':') + 1) + '..%2Foutside.gcode';
+  expect(await service.files.listPreviews({ ...file, fileId: id<'remote-file'>(traversal) }))
     .toMatchObject({ ok: false, error: { code: 'invalid-target' } });
   expect(request).toHaveBeenCalledTimes(before);
 });
@@ -136,4 +143,61 @@ it('reports list authorization errors instead of showing an empty printer', asyn
   const { service, data } = fixture();
   data.listStatus = 401;
   expect(await service.files.listStorages(target)).toMatchObject({ ok: false, error: { code: 'authentication-required' } });
+});
+
+it('deletes a scoped USB file once and invalidates its snapshot only after dispatch', async () => {
+  const { service, request, browse } = fixture();
+  const file = (await browse(usb)).files[0].ref;
+  const input = { target, requestId: id<'request'>('delete'), command: { type: 'files.delete', params: { target: file } } } as const;
+  expect(await service.controls.evaluate(target, input.command)).toMatchObject({ ok: true, value: { availability: { kind: 'available' } } });
+  expect(request).toHaveBeenCalledTimes(1);
+  const outcome = await service.controls.submit(input);
+  expect(outcome.kind).toBe('recorded');
+  if (outcome.kind !== 'recorded') throw new Error('Deletion was not recorded');
+  for await (const event of service.operations.watch(outcome.operation)) {
+    if (event.phase.kind === 'completed') break;
+    expect(event.phase.kind).not.toMatch(/failed|outcome-unknown/);
+  }
+  expect(await service.controls.submit(input)).toEqual(outcome);
+  expect(request.mock.calls.filter(([call]) => call.method === 'DELETE').map(([call]) => call.url))
+    .toEqual(['http://printer/proxy/server/files/gcodes/.udisk/%E7%9B%AE%E5%BD%95/part%20%23%25.gcode']);
+  expect((await browse(usb)).files).toEqual([]);
+});
+
+it('rejects cross-storage deletion and records interrupted dispatch as unconfirmed', async () => {
+  const { service, request, browse, data } = fixture();
+  const file = (await browse(usb)).files[0].ref;
+  const input = { target, requestId: id<'request'>('delete'), command: { type: 'files.delete', params: { target: file } } } as const;
+  expect(await service.controls.submit({ ...input, command: { ...input.command, params: { target: { ...file, storageId: internal } } } }))
+    .toMatchObject({ kind: 'rejected', error: { code: 'invalid-target' } });
+  data.deleteMode = 'interrupted';
+  const result = await service.controls.submit(input);
+  if (result.kind !== 'recorded') throw new Error('Deletion was not recorded');
+  for await (const event of service.operations.watch(result.operation)) {
+    if (event.phase.kind === 'outcome-unknown') break;
+    expect(event.phase.kind).not.toMatch(/failed|completed/);
+  }
+  expect(request.mock.calls.filter(([call]) => call.method === 'DELETE')).toHaveLength(1);
+});
+
+it('streams the authenticated USB path and rejects a stale route before starting a download', async () => {
+  const { service, browse, document } = fixture();
+  const target = (await browse(usb)).files[0].ref;
+  const fetchFile = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('G90\n', {
+    headers: { 'content-length': '4', 'content-type': 'text/plain' },
+  }));
+  try {
+    const download = unwrap(await service.files.download({ target }));
+    expect(download).toMatchObject({ suggestedFileName: 'part #%.gcode', totalBytes: 4, returnedRange: null });
+    const decoder = new TextDecoder();
+    let gcode = '';
+    for await (const chunk of download.chunks) gcode += decoder.decode(chunk, { stream: true });
+    expect(gcode + decoder.decode()).toBe('G90\n');
+    expect(fetchFile).toHaveBeenCalledExactlyOnceWith(
+      'http://printer/proxy/server/files/gcodes/.udisk/%E7%9B%AE%E5%BD%95/part%20%23%25.gcode',
+      expect.objectContaining({ headers: { 'X-Api-Key': 'secret' }, redirect: 'error' }));
+    document.printers[0].apiBaseUrl = 'http://other-printer/';
+    expect(await service.files.download({ target })).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+    expect(fetchFile).toHaveBeenCalledTimes(1);
+  } finally { fetchFile.mockRestore(); }
 });

@@ -1,21 +1,23 @@
-/** Read-only U1 G-code collections and previews over the configured Moonraker route. */
+/** U1 G-code collections and previews over the configured Moonraker route. */
 import type * as D from '../domain';
-import { safe, supported, type HttpServiceBehavior, type HttpServiceContext, type ResolvedConfiguration } from '../http-service';
+import { safe, supported, type ConfigurationEntry, type HttpServiceBehavior, type HttpServiceContext, type ResolvedConfiguration } from '../http-service';
 import { fail, record } from '../moonraker-http';
 import { copy, newId } from '../operations';
-import { gcodeMetadataEndpoint, gcodeThumbnailPath, inlineThumbnail, isRelativeFilePath, readGcodeThumbnail } from './file-thumbnail';
+import { gcodeMetadataEndpoint, gcodeThumbnailPath, inlineThumbnail, readGcodeThumbnail } from './file-thumbnail';
+import { isU1Gcode, u1FileId, u1GcodeEndpoint, u1GcodePrefix, u1GcodeRef, u1GcodeStorage, u1InternalStorage as internal,
+  u1StorageRouteDigest, u1TimelapseRef, u1UsbStorage as usb } from './file-reference';
 import { U1Timelapses, u1TimelapseCollectionId, type U1TimelapseTransport } from './timelapse';
+import { readU1Download } from './storage-download';
 
-const internal = 'internal' as D.Id<'storage'>;
-const usb = 'usb' as D.Id<'storage'>;
-const collection = { id: 'gcode' as D.Id<'file-collection'>, name: 'G-code', kinds: ['print-file'], actions: [] } as const satisfies D.StorageCollection;
-const filePrefix = 'snapmaker-storage:';
+const collection = { id: 'gcode' as D.Id<'file-collection'>, name: 'G-code', kinds: ['print-file'], actions: ['download', 'delete'] } as const satisfies D.StorageCollection;
 const mediaPrefix = 'snapmaker-thumbnail:';
 const snapshotLifetimeMs = 5 * 60_000;
+export const u1DeleteCapability = supported([{ storageId: internal }, { storageId: usb }] as const);
 
-export function u1StorageCapabilities(hasTimelapses: boolean): Pick<D.FileCapabilities, 'list' | 'preview'> {
+export function u1StorageCapabilities(hasTimelapses: boolean): Pick<D.FileCapabilities, 'list' | 'preview' | 'download'> {
   return {
     list: supported({ storageIds: [internal, usb], kinds: hasTimelapses ? ['print-file', 'timelapse'] : ['print-file'] }),
+    download: supported([{ storageId: internal, byteRanges: false }, { storageId: usb, byteRanges: false }]),
     preview: supported([{ storageId: internal, kinds: hasTimelapses ? ['thumbnail', 'video'] : ['thumbnail'] }, { storageId: usb, kinds: ['thumbnail'] }]),
   };
 }
@@ -26,14 +28,6 @@ interface Snapshot {
   expiresAt: number;
   files: Record<string, D.RemoteFile[]>;
   thumbnails: Map<string, string | null>;
-}
-
-function isGcode(path: unknown): path is string {
-  return isRelativeFilePath(path) && /\.(gcode|gco|g)$/i.test(path);
-}
-
-function storageFor(path: string): D.Id<'storage'> {
-  return path.startsWith('.udisk/') ? usb : internal;
 }
 
 function storage(id: D.Id<'storage'>, availability: D.Availability, timelapse?: D.StorageCollection): D.PrinterStorage {
@@ -59,9 +53,32 @@ function previewId(file: D.RemoteFileRef): D.Id<'preview-option'> {
 
 export class U1Storage {
   private readonly snapshots = new Map<string, Snapshot>();
+  private readonly mutations = new WeakMap<ConfigurationEntry, number>();
   private readonly timelapses?: U1Timelapses;
   constructor(private readonly context: HttpServiceContext, transport?: U1TimelapseTransport) {
     if (transport) this.timelapses = new U1Timelapses(context, transport);
+  }
+
+  validateDeletion({ printer, entry }: ResolvedConfiguration, file: D.RemoteFileRef): void {
+    const target = this.context.targetFor(printer.id);
+    if (file.printerId !== target.printerId || file.routeId !== target.routeId) fail('invalid-target', 'File belongs to another printer route.');
+    if (file.configurationRevision !== entry.revision) fail('stale-context', 'The printer configuration changed. Refresh Storage.');
+    if (this.timelapses?.ownsFile(file)) u1TimelapseRef(file);
+    else u1GcodeRef(file);
+  }
+
+  async delete(resolved: ResolvedConfiguration, file: D.RemoteFileRef): Promise<void> {
+    this.validateDeletion(resolved, file);
+    const signal = readSignal();
+    if (this.timelapses?.ownsFile(file)) return this.timelapses.delete(file, signal);
+    const { filename, digest } = u1GcodeRef(file);
+    if (digest !== await u1StorageRouteDigest(resolved.printer)) fail('stale-context', 'The printer configuration changed. Refresh Storage.');
+    await this.verify(file, file.configurationRevision, signal);
+    try { await this.context.http.deleteGcode(resolved.printer, u1GcodeEndpoint(filename), filename, signal); }
+    finally {
+      this.mutations.set(resolved.entry, (this.mutations.get(resolved.entry) ?? 0) + 1);
+      this.snapshots.delete(resolved.printer.id);
+    }
   }
 
   private current({ printer, entry }: ResolvedConfiguration): Snapshot | undefined {
@@ -78,18 +95,20 @@ export class U1Storage {
 
   private async scan(resolved: ResolvedConfiguration, signal: AbortSignal): Promise<Snapshot> {
     const { printer, entry } = resolved;
+    const mutation = this.mutations.get(entry);
     const target = this.context.targetFor(printer.id);
     const response = await this.context.http.getArray(printer, '/server/files/list?root=gcodes', signal);
     if (response.length > 20_000) fail('out-of-range', 'The printer reported more than 20,000 files.');
     const files: Snapshot['files'] = { [internal]: [], [usb]: [] };
+    const digest = await u1StorageRouteDigest(printer);
     const seen = new Set<string>();
     for (const item of response) {
       const { path, size, modified } = record(item);
-      if (!isGcode(path) || seen.has(path)) continue;
+      if (!isU1Gcode(path) || seen.has(path)) continue;
       seen.add(path);
-      const storageId = storageFor(path);
+      const storageId = u1GcodeStorage(path);
       files[storageId].push({
-        ref: { ...target, configurationRevision: entry.revision, storageId, fileId: `${filePrefix}${encodeURIComponent(path)}` as D.Id<'remote-file'> },
+        ref: { ...target, configurationRevision: entry.revision, storageId, fileId: u1FileId(u1GcodePrefix, digest, path) },
         directoryId: null, name: path.slice(path.lastIndexOf('/') + 1), mimeType: null,
         sizeBytes: typeof size === 'number' && Number.isSafeInteger(size) && size >= 0 ? size : null,
         createdAtMs: null, modifiedAtMs: typeof modified === 'number' && Number.isFinite(new Date(modified * 1000).getTime()) ? modified * 1000 : null,
@@ -97,6 +116,7 @@ export class U1Storage {
       });
     }
     await this.verify(target, entry.revision, signal);
+    if (mutation !== this.mutations.get(entry)) fail('listing-expired', 'This file list changed during refresh. Refresh Storage.');
     const snapshot = { configurationRevision: entry.revision, revision: newId<'listing'>(), expiresAt: Date.now() + snapshotLifetimeMs, files, thumbnails: new Map() };
     this.snapshots.delete(printer.id);
     this.snapshots.set(printer.id, snapshot);
@@ -105,6 +125,12 @@ export class U1Storage {
   }
 
   readonly files: NonNullable<HttpServiceBehavior['files']> = {
+    download: (request, options) => safe(async () => {
+      const { printer } = await this.context.resolve({ ...request.target, expectedConfigurationRevision: request.target.configurationRevision });
+      const result = await readU1Download(printer, request, options);
+      if (!result.ok) fail(result.error.code, result.error.message);
+      return result.value;
+    }),
     listStorages: (target, options) => safe(async () => {
       const resolved = await this.context.resolve(target);
       const snapshot = await this.scan(resolved, readSignal(options));
@@ -147,14 +173,10 @@ export class U1Storage {
   };
 
   private async resolveFile(file: D.RemoteFileRef, signal: AbortSignal) {
-    if (!file.configurationRevision || !file.fileId.startsWith(filePrefix)) fail('invalid-target', 'Invalid U1 file reference.');
+    const { filename } = u1GcodeRef(file);
     const target = { printerId: file.printerId, routeId: file.routeId, expectedConfigurationRevision: file.configurationRevision };
     const resolved = await this.context.resolve(target);
     checkRead(signal);
-    let filename: string;
-    try { filename = decodeURIComponent(file.fileId.slice(filePrefix.length)); }
-    catch { fail('invalid-target', 'Invalid U1 file reference.'); }
-    if (!isGcode(filename) || storageFor(filename) !== file.storageId) fail('invalid-target', 'Invalid U1 file path.');
     return { ...resolved, filename };
   }
 

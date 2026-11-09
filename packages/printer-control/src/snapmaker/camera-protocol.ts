@@ -195,6 +195,10 @@ export class U1CameraControl {
     const requestId = crypto.getRandomValues(new Uint32Array(1))[0];
     return this.request('camera.get_timelapse_instance', { req_id: requestId, page_index: page, page_rows: rows, thumbnail_direct: false }, signal);
   }
+  async deleteTimelapse(dateIndex: string, signal?: AbortSignal): Promise<void> {
+    const requestId = crypto.getRandomValues(new Uint32Array(1))[0];
+    await this.request('camera.delete_timelapse_instance', { req_id: requestId, date_index: dateIndex }, signal);
+  }
   close(): void { this.finish(failure('cancelled', 'Camera connection closed.')); }
 }
 

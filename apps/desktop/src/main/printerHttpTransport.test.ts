@@ -238,6 +238,17 @@ describe('Electron printer HTTP main transport', () => {
     expect(client.aborted).toBe(true);
   });
 
+  it('rejects DELETE outside the encoded G-code file endpoint', async () => {
+    const client = new FakeClient();
+    const handlers = createPrinterTransportIpcHandlers({ isCurrentRenderer: () => true, client, sendProgress() {} });
+    const sender = {};
+    for (const path of ['/printer/objects/status', '/server/files/camera/movie.mp4', '/server/files/gcodes/%2e%2e%2fother.gcode']) {
+      await expect(handlers.request(sender, path, { method: 'DELETE', url: `http://printer.local${path}` }))
+        .rejects.toThrow('Invalid printer request');
+    }
+    expect(client.handlers).toBeUndefined();
+  });
+
   it('does not return response text when HTTP or JSON parsing fails', async () => {
     const client = new FakeClient();
     const current = {};
