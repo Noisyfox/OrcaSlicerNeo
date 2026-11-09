@@ -82,7 +82,7 @@ const profileEnv = {
   WASM_OUT_DIR: join(root, 'packages/slicer-wasm/out/profile-threaded'),
   DRACO_INCLUDE: join(root, 'packages/slicer-wasm/.work/deps/draco-1.5.7/stage-wasm64-threaded/include'),
   DRACO_ARCHIVE: join(root, 'packages/slicer-wasm/.work/deps/draco-1.5.7/stage-wasm64-threaded/lib/libdraco.a'),
-  OCCT_ROOT: join(root, 'packages/slicer-wasm/.work/deps/occt-7.6.0/stage-wasm64-threaded'),
+  OCCT_ROOT: join(root, 'packages/slicer-wasm/.work/deps/occt-8.0.1/stage-wasm64-threaded'),
   ORCA_E2E: '1',
   ORCA_E2E_REAL: '1',
   ORCA_E2E_VISIBLE: '1',

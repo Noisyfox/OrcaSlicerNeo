@@ -317,7 +317,9 @@ describe('native SegmentTemplate GPU renderer', () => {
     const vertexIds =
       result.backend.pages[0]!.mesh.geometry.getAttribute('vertex_id');
     expect(vertexIds.count).toBe(24);
-    expect(new Set(Array.from(vertexIds.array as Uint8Array))).toEqual(
+    expect(vertexIds.array).toBeInstanceOf(Float32Array);
+    expect(vertexIds.array.BYTES_PER_ELEMENT).toBe(4);
+    expect(new Set(Array.from(vertexIds.array as Float32Array))).toEqual(
       new Set([0, 1, 2, 3, 4, 5, 6, 7]),
     );
     result.backend.dispose();

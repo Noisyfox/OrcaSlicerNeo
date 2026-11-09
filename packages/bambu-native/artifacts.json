@@ -1,7 +1,7 @@
 {
   "release": "v2.2.0",
-  "series": "02.08.01",
-  "orcaCommit": "c936ee9a5ce2979b96a80b47783ab4c29d369227",
+  "series": "02.08.04",
+  "orcaCommit": "40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19",
   "artifacts": {
     "linux-arm64": {
       "url": "https://github.com/ClusterM/open-bamboo-networking/releases/download/v2.2.0/obn-linux-aarch64.tar.gz",

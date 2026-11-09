@@ -27,7 +27,7 @@ struct Fixture {
 };
 static Fixture& fixture(void* handle) { return *static_cast<Fixture*>(handle); }
 EXPORT bool bambu_network_check_debug_consistent(bool debug) { return !debug; }
-EXPORT std::string bambu_network_get_version() { return "02.08.01.fixture"; }
+EXPORT std::string bambu_network_get_version() { return "02.08.04.fixture"; }
 EXPORT void* bambu_network_create_agent(std::string path) { auto f = new Fixture; f->trace = path; f->record("create"); return f; }
 EXPORT int bambu_network_destroy_agent(void* handle) { fixture(handle).record("destroy"); delete static_cast<Fixture*>(handle); return 0; }
 EXPORT int bambu_network_init_log(void* handle) { fixture(handle).record("init-log"); return 0; }
@@ -110,6 +110,7 @@ EXPORT int bambu_network_get_camera_url(void*, std::string, std::function<void(s
 static int run_print(void* handle, PrintParams p, OnUpdateStatusFn update, WasCancelledFn cancel, bool cloud) {
     auto& f = fixture(handle);
     f.record("print:" + p.dev_id + ":" + p.filename + ":" + std::to_string(p.plate_index) + ":" + p.ams_mapping + ":" + p.slicer_uid);
+    f.record("print-queue:" + (p.queue_plate_id.empty() ? std::string("empty") : p.queue_plate_id));
     update(1, 10, "private://upload-token");
     for (int i = 0; i < 50; ++i) {
         if (cancel()) { f.record("print-cancelled"); return -18; }

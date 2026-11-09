@@ -124,7 +124,7 @@ export class BambuMedia {
     } else url = await this.native.getCameraUrl(connection.device.deviceId);
     if (!url.startsWith('bambu:///local/') && !url.startsWith('bambu:///rtsps___')) return reject(error('offline', 'No LAN camera address is available.'));
     if (protocol === 'rtsps' && url.startsWith('bambu:///local/')) url += '&lv=rtsps';
-    url += `&device=${encodeURIComponent(connection.device.deviceId)}&net_ver=02.08.01.99`;
+    url += `&device=${encodeURIComponent(connection.device.deviceId)}&net_ver=${encodeURIComponent(await this.native.getVersion())}`;
     if (signal.aborted || this.retiredOwners.has(r.owner)) return reject(error('cancelled', 'Camera viewing stopped.'));
     const source = join(dirname(this.config.pluginPath), process.platform === 'win32' ? 'BambuSource.dll' : process.platform === 'darwin' ? 'libBambuSource.dylib' : 'libBambuSource.so');
     r.camera = this.load(this.config.addonPath, source, url);

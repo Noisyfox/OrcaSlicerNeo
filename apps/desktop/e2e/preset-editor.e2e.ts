@@ -172,7 +172,7 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await openProjectMenu(page,app);await waitForProjectLoad(page);
     await expect.poll(()=>page.evaluate(()=>(window as any).__orcaE2e.projectLoadEvidence())).toMatchObject({receipt:{sourceDisplayName:basename(fixture!),sourceByteLength:statSync(fixture!).size,nativeResult:{ok:true,mode:'project'}}});
     await page.waitForFunction(()=>Boolean((window as any).__orcaScopedConfigurationGate));
-    expect(await page.evaluate(async()=>(await (window as any).__orcaScopedConfigurationGate.execution()).threaded)).toBe(false);
+    expect(await page.evaluate(async()=>(await (window as any).__orcaScopedConfigurationGate.execution()).threaded)).toBe(true);
     const processProfile=page.getByTestId('config-process-profile');
     // The exported fixture intentionally contains Print edits on several indices.
     await expect(processProfile).toHaveAttribute('data-dirty','true');
@@ -335,8 +335,11 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/extruder-step4-filament.png')});
     await page.getByTestId('preset-editor-reset-field-filament_flow_ratio').click();await expect(ratio).toHaveValue(ratioSource!);
     await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
-    await expect(page.getByTestId('preset-editor-readonly-filament_retraction_length')).toBeVisible();
-    await expect(page.getByTestId('preset-editor-input-filament_retraction_length')).toHaveCount(0);
+    await expect(page.getByTestId('preset-editor-field-filament_retraction_length')).toHaveAttribute('title',/filament_retraction_length\[5\]/);
+    const retractionOverride=page.getByTestId('preset-editor-override-filament_retraction_length');
+    await expect(retractionOverride).toBeEnabled();
+    await expect(retractionOverride).not.toBeChecked();
+    await expect(page.getByTestId('preset-editor-input-filament_retraction_length')).toBeDisabled();
     await page.getByTestId('preset-editor-close').click();await expect(hfChoice).toHaveAttribute('aria-pressed','true');
     await expect(page.getByTestId('filament-preset-1')).toHaveAttribute('title',rackSource!);
     // The same native choices bind selected Object/Part owners independently.
@@ -380,7 +383,8 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/scoped-extruder-dirty-multiselect.png')});
     await hfChoice.click();await speed.fill('189');await speed.press('Enter');await expect(speed).toHaveValue('189');await expect(speed).toBeEnabled();
     const beforeReset=await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status.undoEntries.length);
-    await page.getByTestId('config-category-toggle-Other layers speed').click({button:'right'});await page.getByTestId('config-reset-category-Speed').click();
+    await page.getByTestId('config-category-toggle-Other layers speed').click({button:'right'});
+    await page.getByRole('menuitem',{name:'Reset Other layers speed',exact:true}).click();
     await expect(speed).toHaveValue(sourceBefore);await expect(speed).toBeEnabled();
     expect(await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status.undoEntries.length)).toBe(beforeReset+1);
     await expect(page.getByTestId('scoped-target-label')).toHaveAttribute('data-dirty','false');

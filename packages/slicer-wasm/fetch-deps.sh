@@ -8,20 +8,22 @@
 # per-file compile recipe. Run build.sh --shim-only for the TBB shim.
 set -euo pipefail
 SPIKE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-DEPS="$SPIKE_DIR/.work/deps"
-GEN="$SPIKE_DIR/.work/gen"
+WORK_DIR="${WORK_DIR:-$SPIKE_DIR/.work}"
+DEPS="$WORK_DIR/deps"
+GEN="$WORK_DIR/gen"
 mkdir -p "$DEPS" "$GEN/openssl"
 
-# Versions match OrcaSlicer v2.4.2 deps/ recipes (cereal 1.3.x is API-compatible).
+# Versions match OrcaSlicer v2.5.0 deps/ recipes (cereal 1.3.x is API-compatible).
 EIGEN_VER="5.0.1"
+# Same release tree as GitLab's archive. The GitHub mirror avoids GitLab's
+# HTTP 406 responses on cold CI runners.
+EIGEN_SHA256="41b2d9d288e701b6cce3bf7ee2c14c573f979de53ae6d4a118b2ece696c96d52"
 BOOST_VER="1.84.0"
 CEREAL_VER="1.3.0"
 NLOPT_VER="2.5.0"
 NLOPT_SHA256="c6dd7a5701fff8ad5ebb45a3dc8e757e61d52658de3918e38bab233e7fd3b4ae"
 DRACO_VER="1.5.7"
 DRACO_SHA256="27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77"
-OCCT_VER="7.6.0"
-OCCT_SHA256="28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1dbc"
 
 log() { printf '\033[1;36m[deps]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[deps]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
@@ -29,7 +31,7 @@ die() { printf '\033[1;31m[deps]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
 # ---- Eigen (header-only) ----
 if [[ ! -d "$DEPS/eigen-$EIGEN_VER/Eigen" ]]; then
   log "Fetching Eigen $EIGEN_VER"
-  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://gitlab.com/libeigen/eigen/-/archive/$EIGEN_VER/eigen-$EIGEN_VER.zip" "$DEPS/eigen.zip"
+  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://codeload.github.com/eigen-mirror/eigen/zip/refs/tags/$EIGEN_VER" "$DEPS/eigen.zip" "$EIGEN_SHA256"
   unzip -q -o "$DEPS/eigen.zip" -d "$DEPS"
 fi
 
@@ -65,16 +67,10 @@ if [[ ! -f "$DEPS/nlopt-$NLOPT_VER/CMakeLists.txt" ]]; then
   tar xzf "$NLOPT_ARCHIVE" -C "$DEPS"
 fi
 
-# ---- OCCT (source; built separately per wasm variant) ----
-if [[ ! -f "$DEPS/occt-$OCCT_VER/CMakeLists.txt" ]]; then
-  OCCT_ARCHIVE="$DEPS/occt-$OCCT_VER.zip"
-  log "Fetching OCCT $OCCT_VER"
-  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip" "$OCCT_ARCHIVE" "$OCCT_SHA256"
-  unzip -q -o "$OCCT_ARCHIVE" -d "$DEPS"
-  [[ -d "$DEPS/OCCT-7_6_0" ]] || die "OCCT archive did not contain OCCT-7_6_0"
-  rm -rf "$DEPS/occt-$OCCT_VER"
-  mv "$DEPS/OCCT-7_6_0" "$DEPS/occt-$OCCT_VER"
-fi
+# ---- OCCT and Qhull (verified sources; compiled per WASM variant) ----
+for library in occt qhull; do
+  WORK_DIR="$WORK_DIR" node "$SPIKE_DIR/dependencies/external/build.mjs" fetch --library "$library"
+done
 
 # ---- Generated / stub headers ----
 log "Writing generated + stub headers in .work/gen"

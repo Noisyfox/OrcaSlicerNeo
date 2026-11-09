@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 inline Slic3r::PrintParams read_print_params(const Napi::Object& object, bool device_file = false) {
+    // Ordinary prints leave queue_plate_id empty; queue printing is not exposed.
     Slic3r::PrintParams params{};
     const auto env = object.Env();
 #define STRING(key) if (object.Has(#key)) { auto v = object.Get(#key); if (!v.IsString()) throw Napi::TypeError::New(env, "Invalid print string"); params.key = v.As<Napi::String>().Utf8Value(); }

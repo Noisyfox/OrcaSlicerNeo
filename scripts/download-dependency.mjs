@@ -14,7 +14,7 @@ async function checksum(path) {
 }
 
 export async function downloadDependency(url, archive, {
-  sha256, attempts = 3, timeoutMs = 600_000, retryDelayMs = 1000,
+  sha256, headers, attempts = 3, timeoutMs = 600_000, retryDelayMs = 1000,
 } = {}) {
   if (!Number.isInteger(attempts) || attempts < 1) throw new Error('attempts must be a positive integer');
   if (sha256 !== undefined && !/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid SHA-256 digest');
@@ -27,7 +27,7 @@ export async function downloadDependency(url, archive, {
   for (let attempt = 1; attempt <= attempts; ++attempt) {
     try {
       const signal = AbortSignal.timeout(timeoutMs);
-      const response = await fetch(url, { signal });
+      const response = await fetch(url, { headers, signal });
       if (!response.ok || !response.body) {
         await response.body?.cancel();
         throw new Error(`HTTP ${response.status}`);

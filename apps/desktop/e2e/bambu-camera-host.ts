@@ -10,7 +10,11 @@ process.parentPort.on('message', ({ data, ports }) => {
     const config: BambuHostConfig = data.config;
     const monitor = { acquire: async () => ({ ok: true as const, value: 'fixture-lease' }), stop: async () => ({ ok: true as const, value: null }),
       context: async () => ({ ok: true as const, value: { report: { ipcam: { ipcam_dev: '1', liveview: { local: 'local' } } } } }) };
-    media = new BambuMedia(config, { installDeviceCertificate: async () => {} } as unknown as BambuNative, monitor,
+    const native = {
+      installDeviceCertificate: async () => {},
+      getVersion: async () => '02.08.04.fixture',
+    } satisfies Pick<BambuNative, 'installDeviceCertificate' | 'getVersion'>;
+    media = new BambuMedia(config, native as unknown as BambuNative, monitor,
       { list: async () => [{ deviceId: 'fixture', name: 'Camera fixture', model: null, modelId: null, routes: [{ channel: 'lan', address: '192.0.2.1', revision: 'r1' }] }] },
       { read: async () => ({ version: 1, region: 'Others', clientId: 'fixture', lan: [{ deviceId: 'fixture', name: 'Camera fixture', model: '', ip: '192.0.2.1', accessCode: 'fixture-secret', revision: 'r1' }] }) },
       () => process.parentPort.postMessage({ type: 'changed', change: 'media' }), () => ({

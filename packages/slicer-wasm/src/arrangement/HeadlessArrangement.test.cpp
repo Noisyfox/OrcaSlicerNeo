@@ -26,7 +26,80 @@ struct Fixture {
         return instance;
     }
 };
+void exclusion_tests() {
+    Settings current;
+    current.scope = Scope::CurrentPlate;
+    Fixture elevated;
+    elevated.scene.config.set_key_value("bed_exclude_volumes", new ConfigOptionString("20..40;0x0,100x0,100x100,0x100"));
+    auto* instance = elevated.add(10, 0, 10);
+    auto low = prepare(elevated.scene, current);
+    CHECK(low.params.excluded_regions.size() == 1);
+    CHECK(low.params.excluded_regions[0].is_bed_exclusion);
+    CHECK(low.params.excluded_regions[0].bed_exclusion_extruder_id == -1);
+    CHECK(!arrangement::bed_exclusion_applies(low.movable[0], low.params.excluded_regions[0]));
+    CHECK(solve(low).placements[0].plate == 0);
+    instance->set_offset({0, 0, 25});
+    auto high = prepare(elevated.scene, current);
+    CHECK(high.movable[0].has_z_range && high.movable[0].z_min == 25);
+    CHECK(arrangement::bed_exclusion_applies(high.movable[0], high.params.excluded_regions[0]));
+    CHECK(!solve(high).placements[0].plate);
+
+    Fixture mapped;
+    mapped.scene.config.set_num_extruders(2);
+    mapped.scene.config.set_key_value("bed_exclude_volume_mode", new ConfigOptionEnum<BedExcludeVolumeMode>(BedExcludeVolumeMode::PerExtruder));
+    mapped.scene.config.set_key_value("extruder_bed_exclude_volumes", new ConfigOptionStrings({"", "0..50;0x0,100x0,100x100,0x100"}));
+    mapped.scene.config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(fmmManual));
+    mapped.scene.config.set_key_value("filament_map", new ConfigOptionInts({1, 2}));
+    auto* first = mapped.add(10);
+    auto clear = prepare(mapped.scene, current);
+    CHECK(clear.movable[0].bed_exclusion_extruder_ids == std::vector<int>({0}));
+    CHECK(clear.params.excluded_regions[0].bed_exclusion_extruder_id == 1);
+    CHECK(solve(clear).placements[0].plate == 0);
+    first->get_object()->config.set_key_value("top_surface_filament_id", new ConfigOptionInt(2));
+    auto feature = prepare(mapped.scene, current);
+    CHECK(feature.movable[0].bed_exclusion_extruder_ids == std::vector<int>({0, 1}));
+    CHECK(!solve(feature).placements[0].plate);
+    first->get_object()->config.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+    CHECK(prepare(mapped.scene, current).movable[0].bed_exclusion_extruder_ids == std::vector<int>({0}));
+    first->get_object()->config.set_key_value("enable_support", new ConfigOptionBool(true));
+    first->get_object()->config.set_key_value("support_filament", new ConfigOptionInt(2));
+    CHECK(prepare(mapped.scene, current).movable[0].bed_exclusion_extruder_ids == std::vector<int>({0, 1}));
+    first->get_object()->config.set_key_value("enable_support", new ConfigOptionBool(false));
+
+    mapped.scene.plates.push_back({"plate-2"});
+    mapped.scene.plates[1].settings.set_key_value("filament_map", new ConfigOptionInts({2, 1}));
+    mapped.scene.plates[1].settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(fmmDefault));
+    CHECK(prepare(mapped.scene, {}).movable[0].bed_exclusion_extruder_ids == std::vector<int>({0, 1}));
+    CHECK(prepare(mapped.scene, current).movable[0].bed_exclusion_extruder_ids == std::vector<int>({0}));
+    mapped.scene.bambu = true;
+    mapped.scene.config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(fmmAutoForFlush));
+    auto automatic = prepare(mapped.scene, current);
+    CHECK(automatic.movable[0].bed_exclusion_extruder_ids.empty());
+    CHECK(!solve(automatic).placements[0].plate);
+    mapped.scene.bambu = false;
+    first->get_object()->config.set_key_value("extruder", new ConfigOptionInt(2));
+    // Generic multi-tool auto mapping follows tool ids, not Bambu's seed map.
+    mapped.scene.config.set_key_value("filament_map", new ConfigOptionInts({1, 1}));
+    CHECK(prepare(mapped.scene, current).movable[0].bed_exclusion_extruder_ids == std::vector<int>({1}));
+
+    Fixture offset;
+    offset.scene.config.set_num_extruders(2);
+    offset.scene.config.set_key_value("bed_exclude_volume_mode", new ConfigOptionEnum<BedExcludeVolumeMode>(BedExcludeVolumeMode::ToolheadOffset));
+    offset.scene.config.set_key_value("extruder_offset", new ConfigOptionPoints({{0, 0}, {20, 5}}));
+    offset.scene.config.set_key_value("master_extruder_id", new ConfigOptionInt(1));
+    offset.scene.config.set_key_value("bed_exclude_volumes", new ConfigOptionString("10..30;0x0,10x0,10x10,0x10"));
+    offset.scene.config.set_key_value("bed_exclude_area", new ConfigOptionPoints({{70,70},{80,70},{80,80},{70,80}}));
+    offset.add(10);
+    const auto shifted = prepare(offset.scene, current);
+    CHECK(shifted.params.excluded_regions.size() == 3);
+    const auto first_box = get_extents(shifted.params.excluded_regions[0].poly.contour);
+    const auto second_box = get_extents(shifted.params.excluded_regions[1].poly.contour);
+    CHECK(second_box.min.x() - first_box.min.x() == scaled(20.));
+    CHECK(second_box.min.y() - first_box.min.y() == scaled(5.));
+    CHECK(!shifted.params.excluded_regions[2].is_bed_exclusion);
+}
 void tests() {
+    exclusion_tests();
     Fixture f;
     auto* a = f.add(70); auto* b = f.add(70);
     const auto before = a->get_offset();

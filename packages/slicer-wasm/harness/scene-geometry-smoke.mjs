@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 
 const profiles = resolve(import.meta.dirname, '../../profile-resources/dist');
 const factory = await loadModuleFactory(process.argv[2]);
@@ -217,5 +218,99 @@ assert.equal(deletedRedo.ok, true, JSON.stringify(deletedRedo));
 assert.equal(patch([paintedRenderable.object_id], [paintedResource.volume_id]).renderables[0].paint_key,
   deletedPaintKey, 'Redo must restore the deleted-slot paint version');
 
-console.log('PASS no-paint/cached-key decode fast paths, split MMU paint groups, imported multi-instance dedup, independent resource reuse, slot deletion, Undo/Redo');
+// auto_drop moved from instances to objects in Orca 2.5. Observe the actual
+// persisted field through the production 3MF writer, without a test-only ABI.
+function assertSavedAutoDrop(expectedCount, autoDrop) {
+  const exported = call('orc_export_project', ['string'], ['{}']);
+  assert.equal(exported.ok, true, JSON.stringify(exported));
+  const bytes = module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
+  module._free(Number(exported.bytes_ptr));
+  const settings = readZipEntries(bytes).find(entry => entry.name === 'Metadata/model_settings.config');
+  assert.ok(settings);
+  const objects = new TextDecoder().decode(settings.content).match(/<object\b[^>]*>/g) ?? [];
+  assert.equal(objects.length, expectedCount);
+  for (const object of objects) assert.match(object, new RegExp(`\\bauto_drop="${autoDrop}"`));
+}
+function loadAutoDropFixture(entries) {
+  // The minimal reader asset omits some per-slot arrays. Like the painted
+  // fixture, materialize its two-slot shape before exercising strict history
+  // restore; this test varies auto_drop, not imported filament cardinality.
+  const projectEntry = entries.find(entry => entry.name === 'Metadata/project_settings.config');
+  const project = JSON.parse(new TextDecoder().decode(projectEntry.content));
+  assert.equal(project.filament_settings_id.length, 2);
+  Object.assign(project, {
+    filament_multi_colour: ['', ''], filament_colour_type: ['RGB', 'RGB'],
+    filament_map: ['1', '1'], filament_volume_map: ['0', '0'], filament_nozzle_map: ['0', '0'],
+    filament_map_2: ['1', '1'], filament_self_index: ['0', '0'], filament_extruder_variant: ['0', '0'],
+  });
+  projectEntry.content = new TextEncoder().encode(JSON.stringify(project));
+  const fixture = writeStoredZip(entries);
+  const pointer = Number(module._malloc(fixture.length));
+  module.HEAPU8.set(fixture, pointer);
+  try {
+    const loaded = call('orc_load_project', ['pointer', 'number', 'number', 'string'],
+      [pointer, fixture.length, 0, 'split-auto-drop.3mf']);
+    assert.equal(loaded.ok, true, JSON.stringify(loaded));
+  } finally { module._free(pointer); }
+  call('orc_history_reset', ['string'], [JSON.stringify(context)]);
+}
+// Without new object metadata, the legacy rule applies across all instances:
+// any explicit off wins; all on or all missing retain the default on.
+for (const legacyValues of [[1, 0], [1, 1], [undefined, undefined]]) {
+  const encoder = new TextEncoder(), decoder = new TextDecoder();
+  const entries = readZipEntries(buildIndependentReader3mf());
+  const modelEntry = entries.find(entry => entry.name === '3D/3dmodel.model');
+  const items = legacyValues.map((value, index) =>
+    `<item objectid="1" transform="1 0 0 0 1 0 0 0 1 ${100 + 30 * index} 100 10" printable="1"${value === undefined ? '' : ` auto_drop="${value}"`}/>`);
+  modelEntry.content = encoder.encode(decoder.decode(modelEntry.content)
+    .replace(/<build>[\s\S]*?<\/build>/, `<build>${items.join('')}</build>`));
+  const settingsEntry = entries.find(entry => entry.name === 'Metadata/model_settings.config');
+  settingsEntry.content = encoder.encode(decoder.decode(settingsEntry.content).replace('</model_instance>',
+    '</model_instance><model_instance><metadata key="object_id" value="1"/><metadata key="instance_id" value="1"/><metadata key="identify_id" value="2"/></model_instance>'));
+  loadAutoDropFixture(entries);
+  assert.equal(call('orc_get_model_structure').objects[0].instances.length, 2,
+    'the legacy any-off case must load both build items');
+  assertSavedAutoDrop(1, legacyValues.includes(0) ? 0 : 1);
+}
+for (const autoDrop of [0, 1]) {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const entries = readZipEntries(buildIndependentReader3mf());
+  const modelEntry = entries.find(entry => entry.name === '3D/3dmodel.model');
+  let modelXml = decoder.decode(modelEntry.content);
+  const vertices = modelXml.match(/<vertices>([\s\S]*?)<\/vertices>/)[1];
+  const triangles = modelXml.match(/<triangles>([\s\S]*?)<\/triangles>/)[1];
+  assert.equal((vertices.match(/<vertex\b/g) ?? []).length, 8);
+  // Two disconnected closed cubes in one volume exercise the native split.
+  modelXml = modelXml.replace(vertices, vertices + vertices.replace(/x="([^"]+)"/g,
+    (_match, x) => `x="${Number(x) + 30}"`));
+  modelXml = modelXml.replace(triangles, triangles + triangles.replace(/v([123])="(\d+)"/g,
+    (_match, axis, index) => `v${axis}="${Number(index) + 8}"`));
+  // In the on case the new object attribute must override this legacy off.
+  modelEntry.content = encoder.encode(modelXml.replace('auto_drop="1"', 'auto_drop="0"'));
+  const settingsEntry = entries.find(entry => entry.name === 'Metadata/model_settings.config');
+  settingsEntry.content = encoder.encode(decoder.decode(settingsEntry.content)
+    .replace('<object id="1">', `<object id="1" auto_drop="${autoDrop}">`));
+  loadAutoDropFixture(entries);
+  assertSavedAutoDrop(1, autoDrop);
+  const source = call('orc_get_model_structure').objects[0];
+  assert.equal(source.volumes[0].isSplittable, true);
+  const parts = edit('Split parts', () => call('orc_split_volume_to_parts', ['number', 'number', 'number'],
+    [source.volumes[0].id, 2, 0]));
+  assert.equal(parts.result.parts, 2);
+  assertSavedAutoDrop(1, autoDrop);
+  const undoParts = call('orc_history_undo');
+  assert.equal(undoParts.ok, true, JSON.stringify({ autoDrop, undoParts }));
+  const split = edit('Split objects', () => call('orc_split_object_to_objects', ['number', 'number'], [source.id, 0]));
+  assert.equal(split.result.newObjectIds.length, 2);
+  assertSavedAutoDrop(2, autoDrop);
+  const undoSplit = call('orc_history_undo');
+  assert.equal(undoSplit.ok, true, JSON.stringify({ autoDrop, undoSplit }));
+  assertSavedAutoDrop(1, autoDrop);
+  const redoSplit = call('orc_history_redo');
+  assert.equal(redoSplit.ok, true, JSON.stringify({ autoDrop, redoSplit }));
+  assertSavedAutoDrop(2, autoDrop);
+}
+
+console.log('PASS no-paint/cached-key decode fast paths, split MMU paint groups, imported multi-instance dedup, independent resource reuse, slot deletion, split auto-drop inheritance, Undo/Redo');
 process.exit(0);

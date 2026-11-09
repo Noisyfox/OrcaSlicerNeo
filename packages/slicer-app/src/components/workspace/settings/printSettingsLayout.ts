@@ -13,7 +13,7 @@ interface PrintSettingsPage {
 }
 
 /** Explicit UI allow-list transcribed from TabPrint::build() at pinned Orca
- * 9d3118b7a406a4e44d5344ae69c084f01d72e772. Metadata supplies option
+ * 40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19 for Neo's supported features. Metadata supplies option
  * definitions and eligibility, never additional pages or fields. */
 export const PRINT_SETTINGS_PAGES: readonly PrintSettingsPage[] = [
   { title: "Quality", groups: [
@@ -30,8 +30,8 @@ export const PRINT_SETTINGS_PAGES: readonly PrintSettingsPage[] = [
   ] },
   { title: "Strength", groups: [
     { title: "Walls", keys: ["wall_loops", "alternate_extra_wall", "detect_thin_wall"] },
-    { title: "Top/bottom shells", keys: ["top_shell_layers", "top_shell_thickness", "top_surface_density", "top_surface_pattern", "top_surface_fill_order", "top_layer_direction", "top_surface_expansion", "top_surface_expansion_margin", "top_surface_expansion_direction", "bottom_shell_layers", "bottom_shell_thickness", "bottom_surface_density", "bottom_surface_pattern", "bottom_surface_fill_order", "bottom_layer_direction", "center_of_surface_pattern", "top_bottom_infill_wall_overlap"] },
-    { title: "Infill", keys: ["sparse_infill_density", "fill_multiline", "sparse_infill_pattern", "gyroid_optimized", "sparse_infill_smooth_factor", "infill_direction", "sparse_infill_rotate_template", "skin_infill_density", "skeleton_infill_density", "infill_lock_depth", "skin_infill_depth", "skin_infill_line_width", "skeleton_infill_line_width", "symmetric_infill_y_axis", "infill_shift_step", "lateral_lattice_angle_1", "lateral_lattice_angle_2", "infill_overhang_angle", "lightning_overhang_angle", "lightning_prune_angle", "lightning_straightening_angle", "infill_anchor_max", "infill_anchor", "internal_solid_infill_pattern", "solid_infill_direction", "solid_infill_rotate_template", "gap_fill_target", "filter_out_gap_fill", "separated_infills", "infill_wall_overlap"] },
+    { title: "Top/bottom shells", keys: ["top_shell_layers", "top_shell_thickness", "top_color_penetration_layers", "top_surface_density", "top_surface_pattern", "top_surface_fill_order", "top_layer_direction", "top_surface_expansion", "top_surface_expansion_margin", "top_surface_expansion_direction", "bottom_shell_layers", "bottom_shell_thickness", "bottom_color_penetration_layers", "bottom_surface_density", "bottom_surface_pattern", "bottom_surface_fill_order", "bottom_layer_direction", "center_of_surface_pattern", "top_bottom_infill_wall_overlap"] },
+    { title: "Infill", keys: ["sparse_infill_density", "fill_multiline", "sparse_infill_pattern", "adaptive_infill_mode", "adaptive_infill_interior_density", "adaptive_infill_gradient", "gyroid_optimized", "sparse_infill_smooth_factor", "infill_direction", "sparse_infill_rotate_template", "skin_infill_density", "skeleton_infill_density", "infill_lock_depth", "skin_infill_depth", "skin_infill_line_width", "skeleton_infill_line_width", "symmetric_infill_y_axis", "infill_complete_top", "infill_shift_step", "lateral_lattice_angle_1", "lateral_lattice_angle_2", "infill_overhang_angle", "lightning_overhang_angle", "lightning_prune_angle", "lightning_straightening_angle", "infill_anchor_max", "infill_anchor", "internal_solid_infill_pattern", "solid_infill_direction", "solid_infill_rotate_template", "gap_fill_target", "filter_out_gap_fill", "separated_infills", "infill_wall_overlap"] },
     { title: "Advanced", keys: ["align_infill_direction_to_model", "extra_solid_infills", "bridge_angle", "internal_bridge_angle", "relative_bridge_angle", "minimum_sparse_infill_area", "infill_combination", "infill_combination_max_layer_height", "detect_narrow_internal_solid_infill", "ensure_vertical_shell_thickness"] },
   ] },
   { title: "Speed", groups: [
@@ -67,7 +67,7 @@ export const PRINT_SETTINGS_PAGES: readonly PrintSettingsPage[] = [
     { title: "Brim", keys: ["brim_type", "brim_width", "brim_object_gap", "brim_flow_ratio", "brim_use_efc_outline", "combine_brims", "brim_ears_max_angle", "brim_ears_detection_length", "brim_ears_outer_only"] },
     { title: "Special mode", keys: ["slicing_mode", "print_sequence", "print_order", "spiral_mode", "spiral_mode_smooth", "spiral_mode_max_xy_smoothing", "spiral_starting_flow_ratio", "spiral_finishing_flow_ratio", "timelapse_type", "enable_wrapping_detection"] },
     { title: "Fuzzy skin", keys: ["fuzzy_skin", "fuzzy_skin_mode", "fuzzy_skin_noise_type", "fuzzy_skin_point_distance", "fuzzy_skin_thickness", "fuzzy_skin_scale", "fuzzy_skin_octaves", "fuzzy_skin_persistence", "fuzzy_skin_ripples_per_layer", "fuzzy_skin_ripple_offset", "fuzzy_skin_layers_between_ripple_offset", "fuzzy_skin_first_layer"] },
-    { title: "G-code output", keys: ["reduce_infill_retraction", "gcode_add_line_number", "gcode_comments", "gcode_label_objects", "exclude_object", "filename_format"] },
+    { title: "G-code output", keys: ["reduce_infill_retraction", "gcode_add_line_number", "gcode_comments", "high_precision_gcode", "gcode_label_objects", "exclude_object", "exclude_object_tolerance", "filename_format"] },
     { title: "Change extrusion role G-code", keys: ["process_change_extrusion_role_gcode"] },
     { title: "Post-processing Scripts", keys: ["post_process"] },
     { title: "Slicing Pipeline Plugin", keys: ["slicing_pipeline_plugin"] },

@@ -1,6 +1,6 @@
 # WASM Build and Runtime Reference
 
-**Updated:** 2026-11-05
+**Updated:** 2026-11-08
 **Status:** Current engineering reference
 **Scope:** Native build ownership, artifacts and runtime constraints.
 
@@ -45,12 +45,22 @@ clones and CI can fetch it. External dependency patches remain in
 
 The WASM scaffold compiles libslic3r and the headless Neo adapters, excluding
 wxWidgets. Its dependency closure includes Boost, oneTBB for threaded builds,
-Draco, OCCT/XCAF for STEP, NLopt for arrangement and the complete CGAL,
-GMP/GMPXX, MPFR and CORE closure for Mesh Boolean. Fetch/build scripts and
-CMake own exact versions, library sets and feature exclusions. OCCT builds with
-`USE_FREETYPE=OFF`; its staged manifest records that setting. A normal `build`
-rebuilds older OCCT stages automatically. A `quick` build rejects them with a
-rebuild instruction before linking.
+Draco, OCCT/XCAF for STEP, Qhull for convex hulls, Expat for 3MF/AMF XML,
+NLopt for arrangement and the complete CGAL, GMP/GMPXX, MPFR and CORE closure
+for Mesh Boolean. Fetch/build scripts and CMake own exact versions, library
+sets and feature exclusions. OCCT, Qhull and Expat use separate compiled
+stages through the [external dependency recipe](../packages/slicer-wasm/dependencies/external/build.mjs)
+and [CMake interface](../packages/slicer-wasm/dependencies/external.cmake).
+Qhull's headers and both reentrant/C++ archives come from one pinned release.
+Expat uses the bundled `deps/EXPAT/expat` sources with their generated
+configuration header; the older `deps_src` Qhull/Expat fallbacks are not compiled.
+
+OCCT builds only the STEP toolkit and its dependency closure, with
+`USE_FREETYPE=OFF` and the upstream Release check policy. Its installed headers
+are copied from the source, rather than retaining build-tree headers that
+forward to absolute source paths. This makes the stage usable after restoring
+only the dependency cache. Expat retains namespace/DTD parsing and uses
+Emscripten's cryptographic `/dev/urandom` device for hash seeding.
 
 All build-time dependency archive downloads, including the Bambu plugin, use
 [`scripts/download-dependency.mjs`](../scripts/download-dependency.mjs).
@@ -69,16 +79,21 @@ headless bridge and entrypoint link these archives and the prebuilt dependency
 stages into the same WASM module. CGAL's
 [shared CMake interface](../packages/slicer-wasm/dependencies/cgal.cmake)
 carries its headers, numerical policy and library closure without a separate
-compiled target. The backend acceptance target consumes that same interface.
+compiled target. It propagates publicly from `slic3r_core` so bridge and test
+translation units use the same CGAL type-layout and threading definitions.
+The backend acceptance target consumes that same interface.
 
 [CI](../.github/workflows/ci.yml) keeps all large dependencies in one compiled
 dependency cache and preparation phase for each address width, including both
 threading variants. Its key tracks dependency recipes, compatibility patches
 and the toolchain. Consumer CMake configuration and Orca/MCUT source changes
 invalidate the production WASM artifact cache without invalidating prebuilt
-dependencies. Numerical stages are verified after restoration, including their
-compiler, variant, recipe and file hashes. The dependency cache is saved before
-core compilation; only tested production modules enter the artifact cache.
+dependencies. The bundled Expat inputs also participate in the dependency key.
+Numerical, OCCT, Qhull and Expat stages are verified after restoration, including
+their source, compiler, address width, threading mode, recipe and file hashes.
+A normal `build` replaces stale stages; CMake configuration also verifies them
+when a `quick` build triggers reconfiguration. The dependency cache is saved
+before core compilation; only tested production modules enter the artifact cache.
 The normal shell and cmd build drivers invoke the same
 [`dependencies/cgal/build.mjs`](../packages/slicer-wasm/dependencies/cgal/build.mjs)
 helper. It verifies source archive hashes and stages static numerical
@@ -91,8 +106,11 @@ configure-probe compatibility fix is retained. No Bash
 or MSYS runtime is needed by this helper on Windows.
 
 The numerical recipe and manifests are owned by that helper. CGAL TUs use
-`CGAL_USE_GMPXX=1` and `CGAL_ALWAYS_ROUND_TO_NEAREST=1`; serial builds also
-use `CGAL_HAS_NO_THREADS=1` and MPFR without TLS/shared caches. The MCUT
+`CGAL_USE_GMPXX=1` and `CGAL_ALWAYS_ROUND_TO_NEAREST=1`. Threaded builds define
+`CGAL_LINKED_WITH_TBB`, selecting `CGAL::Parallel_if_available_tag`'s parallel
+implementation. Serial builds leave that macro undefined, use
+`CGAL_HAS_NO_THREADS=1` and build MPFR without TLS/shared caches. Defining the
+TBB macro as zero does not disable the guarded CGAL interfaces. The MCUT
 adaptation is committed in the Orca submodule and guarded by `ORC_NEO_WASM`.
 Without that macro its original manager-thread and perturbation paths remain
 unchanged. Neo's threaded artifact also retains those paths; serial builds
@@ -100,13 +118,24 @@ execute packaged tasks inline with Context-owned perturbation state. The
 compute-helper macro applies only to MCUT source files in threaded builds.
 Dependency preparation does not copy or patch the checked-out MCUT source.
 
-To prepare or verify a numerical stage directly, use the same command on
-any build host (select `wasm32` or `threaded` as needed):
+To prepare or verify these stages directly, use the same commands on any
+build host (select `threaded` or another external library as needed):
 
 ```text
 node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant serial
 node packages/slicer-wasm/dependencies/cgal/build.mjs verify --target wasm64 --variant serial
+node packages/slicer-wasm/dependencies/external/build.mjs build --library occt --target wasm64 --variant serial
+node packages/slicer-wasm/dependencies/external/build.mjs verify --library occt --target wasm64 --variant serial
 ```
+
+The external helper accepts `occt`, `qhull` and `expat`. For the wasm32 fallback
+cache, set `WORK_DIR` to `packages/slicer-wasm/.work/wasm32` and select
+`--target wasm32`; the wasm32 driver sets both automatically. The OCCT shell
+and cmd entry points delegate to this shared recipe. Numerical and external
+build directories distinguish compiler identities as well as variants. When
+changing SDKs for other dependencies or the main module, use fresh build
+configuration/cache directories: activating a new SDK does not replace a
+compiler already recorded by CMake or Boost's build cache.
 
 After a normal build has configured the serial tree, enable and run the
 optional real numerical/wrapper acceptance target:
@@ -121,7 +150,8 @@ The test runner exercises a Node Worker and, with `--browser`, a headless
 Chrome Worker. Serial browser execution deliberately omits cross-origin
 isolation and checks that no internal Workers are created. Threaded browser
 execution uses isolation and shared memory. This target tests exact CORE
-arithmetic, MPFR directed rounding and the original libigl/CGAL/MCUT wrappers,
+arithmetic, MPFR directed rounding, CGAL parallel-tag selection and hole repair,
+and the original libigl/CGAL/MCUT wrappers,
 including Context creation, reuse, interleaving and native perturbation
 fixtures. It adds no test ABI to the production module. Product behavior and
 remaining acceptance are specified in

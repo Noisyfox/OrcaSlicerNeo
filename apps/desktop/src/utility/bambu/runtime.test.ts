@@ -17,7 +17,7 @@ function nativeFixture() {
   const methods = ['createAgent', 'setConfigDirectory', 'initLog', 'setCertificate', 'installCallbacks', 'setCountryCode', 'setExtraHttpHeaders', 'start', 'trackEnable', 'trackRemoveFiles', 'installDiscoveryCallbacks', 'connectServer'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async (...args: unknown[]) => { calls.push({ method, args }); return 0; })])) as unknown as BambuNative;
   native.getUserPrintInfo = vi.fn(async () => ({ result: 0, httpCode: 200, body: '{"devices":[]}' }));
-  native.getVersion = vi.fn(async () => '02.08.01.99');
+  native.getVersion = vi.fn(async () => '02.08.04.99');
   native.startDiscovery = vi.fn(async (...args) => { calls.push({ method: 'startDiscovery', args }); return true; });
   native.isUserLoggedIn = vi.fn(async () => false);
   native.getUserNickname = vi.fn(async () => 'User'); native.getUserAvatar = vi.fn(async () => '');
@@ -26,6 +26,13 @@ function nativeFixture() {
 }
 
 describe('Bambu utility runtime', () => {
+  it('rejects a mismatched plugin before creating an agent or starting discovery', async () => fixture(async directory => {
+    const { native } = nativeFixture(); vi.mocked(native.getVersion).mockResolvedValue('02.08.01.99');
+    const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: 'test' }, () => {}, () => native);
+    expect(await runtime.read('account.state')).toMatchObject({ status: 'unavailable' });
+    expect(native.createAgent).not.toHaveBeenCalled(); expect(native.startDiscovery).not.toHaveBeenCalled();
+    await runtime.close(); expect(native.close).toHaveBeenCalledOnce();
+  }));
   it('reads Storage visibility with a temporary status lease and honors early cancellation', async () => fixture(async directory => {
     const repository = new BambuRepository(directory);
     await repository.update(state => ({ ...state, lan: [{ deviceId: 'a', name: 'A', model: 'H2D', ip: '192.0.2.1', accessCode: 'private', revision: 'r1' }] }));

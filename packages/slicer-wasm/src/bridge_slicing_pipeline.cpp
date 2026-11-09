@@ -454,8 +454,9 @@ void collect_slice_warnings(const std::shared_ptr<SliceTask>& task)
     // Native warnings are durable slicing results, not progress samples. The
     // mailbox coalesces progress (especially during a synchronous serial slice),
     // so projecting callback text alone loses fuzzy/XY-compensation warnings.
-    // Read only current warnings after native processing has completed; cached
-    // Print steps retain their current warnings on a repeated slice.
+    // Read current warnings once after export for a successful slice (G-code
+    // path validation runs there), or after a failed process. Cached Print
+    // steps retain their current warnings on a repeated slice.
     auto& entry = task->lease.entry();
     const auto append_warnings = [&task](const PrintStateBase::StateWithWarnings& step,
                                         const std::string& key, const ModelObject* object = nullptr) {
@@ -473,6 +474,16 @@ void collect_slice_warnings(const std::shared_ptr<SliceTask>& task)
 }
 
 void start_pending_slice_if_any();
+
+void publish_slice_warnings(const std::shared_ptr<SliceTask>& task)
+{
+    try {
+        collect_slice_warnings(task);
+        enqueue_slice_diagnostics(*task, "slicing", task->warnings);
+    } catch (...) {
+        // Diagnostic allocation cannot hide the result or its original error.
+    }
+}
 
 json slice_task_acceptance(const std::uint64_t task_id, const std::string_view plate_id,
                            const std::uint64_t incarnation_id)
@@ -521,15 +532,18 @@ std::pair<std::string, json> finalize_slice_task(
         auto& entry = task->lease.entry();
         materialize_completed_generation(entry, task->thumbnail);
     } catch (const std::bad_alloc&) {
+        publish_slice_warnings(task);
         registry.mark_process_failed(task->lease);
         release_active_slice_task(task);
         return {"out_of_memory", json{{"error", "out of memory while materializing plate result"},
                                       {"plate_id", task->plate_id}, {"layer", "native-result"}}};
     } catch (const std::exception& error) {
+        publish_slice_warnings(task);
         registry.mark_process_failed(task->lease);
         release_active_slice_task(task);
         return {"failed", json{{"error", error.what()}}};
     }
+    publish_slice_warnings(task);
     const bool live_completion = registry.mark_process_completed(
         task->lease, task->revision, current_revision);
     if (!live_completion || !registry.can_publish_completed_job(task->lease, current_revision)) {
@@ -581,7 +595,7 @@ std::optional<std::pair<std::string, json>> run_slice_process(
         error = "unknown exception";
     }
     print.set_status_default();
-    if (!state().plate_runtime_registry.cancellation_requested(task->lease)) {
+    if (outcome != "completed" && !state().plate_runtime_registry.cancellation_requested(task->lease)) {
         try {
             collect_slice_warnings(task);
             json diagnostics = task->warnings;
@@ -666,13 +680,18 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_drain_async_task_mailbox()
                                    {"entry_incarnation", message.payload.value("entry_incarnation", "0")},
                                    {"task_id", std::to_string(message.task_id)}};
             released_slice_job = true;
+            // Finalization exports G-code and can publish new diagnostics.
+            // Put the public terminal after those messages in the same FIFO;
+            // returning it here would let the client finish before seeing them.
+            enqueue_async_task_message(message.task_id, std::move(message.payload));
+            continue;
         }
         message.payload["sequence"] = std::to_string(message.sequence);
         drained.push_back(std::move(message.payload));
     }
-    // The active task's terminal is already in this returned batch. Starting
-    // the one retained replacement now puts all of its messages into the next
-    // FIFO batch, preserving terminal-before-replacement ordering.
+    // The active task's terminal is either in this batch or queued after its
+    // final export diagnostics. A retained replacement appends its messages
+    // after that terminal, preserving terminal-before-replacement ordering.
     if (released_slice_job) start_pending_slice_if_any();
     return dup_json(json{{"ok", true}, {"messages", std::move(drained)}}.dump());
 }
@@ -968,9 +987,9 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // canonical predecessor.
         (void) Neo::History::Codec::capture_model_state(
             state().model, state().mesh_capture_cache, state().mutable_object_capture_cache);
-        // Native validation also checks whether the generated prime tower
-        // footprint overlaps a configured exclusion/wrapping area.  Those
-        // three tower collision classes are slice-time advisories in Neo;
+        // Native validation also checks whether the estimated prime tower
+        // footprint overlaps a configured exclusion/wrapping area. Those
+        // two tower collision classes retain Neo's pre-slice advisory policy;
         // compute the typed warning projection before validation so only the
         // corresponding native tower diagnostics can be downgraded.  All
         // unrelated native validation failures remain blocking.
@@ -996,10 +1015,10 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             };
             const bool exclusion_advisory =
                 has_tower_warning("Prime Tower intersects an exclusion area.") &&
-                is_exact_diagnostic("Prime Tower is too close to an exclusion area, and collisions will be caused.");
+                is_exact_diagnostic("Prime tower is too close to an exclusion area, and collisions will be caused.");
             const bool wrapping_advisory =
                 has_tower_warning("Prime Tower intersects a wrapping-detection area.") &&
-                is_exact_diagnostic("Prime Tower is too close to clumping detection area, and collisions will be caused.");
+                is_exact_diagnostic("Prime tower is too close to the clumping detection area, and collisions will be caused.");
             if (!exclusion_advisory && !wrapping_advisory) {
                 validation_diagnostics.push_back(validation_diagnostic(validation_error, "error"));
                 enqueue_slice_diagnostics(*task, "validation", validation_diagnostics);

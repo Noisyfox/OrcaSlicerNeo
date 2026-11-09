@@ -73,6 +73,7 @@ ModelObject* append_model_object_geometry(Model& destination, const ModelObject&
     ModelObject* object = destination.add_object();
     object->name = source.name; object->module_name = source.module_name;
     object->input_file = source.input_file; object->printable = source.printable;
+    object->auto_drop = source.auto_drop;
     object->origin_translation = source.origin_translation;
     if (const auto* extruder = dynamic_cast<const ConfigOptionInt*>(source.config.option("extruder"));
         extruder != nullptr && extruder->value > 0)
@@ -578,7 +579,7 @@ static TriangleMesh make_primitive(const std::string& type_str, double side) {
         else if (type_str == "Disc")
             mesh = TriangleMesh(its_make_cylinder(0.5 * side, 0.2f));
         else if (type_str == "Torus")
-            mesh = TriangleMesh(its_make_torus(0.5 * side, 0.125 * side, PI / 60));
+            mesh = TriangleMesh(its_make_torus(0.5 * side, 0.125 * side, PI / 60, PI / 60));
         else
             throw Slic3r::RuntimeError("unsupported primitive type: " + type_str);
         return mesh;
@@ -1026,6 +1027,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
         const auto affected_before = member_plate_ids_for_instances(affected_instances);
         ModelObjectPtrs new_objects;
         obj->split(&new_objects, /*remap_paint=*/false);
+        // Since Orca 2.5 this belongs to the object rather than its copied
+        // instances. Native split constructs fresh objects with the default.
+        for (ModelObject* split_object : new_objects)
+            split_object->auto_drop = obj->auto_drop;
         // Remove the source; the split objects now own the geometry.
         state().model.delete_object(ObjectID(*id));
 

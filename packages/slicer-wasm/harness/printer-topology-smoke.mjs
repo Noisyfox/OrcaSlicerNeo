@@ -134,7 +134,7 @@ console.log('topology 3MF reload passed');
 assert.equal(count(), 3, '3MF retains a structural draft differing from its installed source');
 assert.equal(read().effective_values.single_extruder_multi_material, '1');
 const prepared = must(call('orc_prepare_user_preset', ['string'], [JSON.stringify({history_context:context,action:'save-as',kind:'printer',canonical_name:printer,name:'Topology H2D',expected_revision:read().revision})]));
-assert.equal(JSON.parse(prepared.change.content).nozzle_diameter.length, 3);
+assert.equal(JSON.parse(prepared.changes.find(change => change.content !== null).content).nozzle_diameter.length, 3);
 must(call('orc_finish_user_preset', ['string'], [JSON.stringify({token:prepared.token,commit:true})]));
 printer = must(call('orc_get_preset_snapshot')).printer.name;
 assert.equal(count(), 3, 'saved user preset retains physical cardinality');

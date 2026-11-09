@@ -28,7 +28,7 @@ function sharedPrintPlatform() {
         fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))}};
   },getScopedConfigEditor:async(request:{targets:{scope:'object'|'part';id:string}[]})=>{
     const state=useSettingsStore.getState();
-    const keys=Object.keys(state.metadata??{}).filter(key=>state.metadata![key].scopes?.includes(request.targets[0].scope) && !/gcode/i.test(key));
+    const keys=Object.keys(state.metadata??{}).filter(key=>state.metadata![key].scopes?.includes(request.targets[0].scope) && (!/gcode/i.test(key) || state.metadata![key].type === 'bool'));
     return {ok:true,revision:state.nativeScopedConfigRevision,optionMetadata:state.metadata,
       editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))},
       targets:request.targets.map(target=>{
@@ -140,42 +140,52 @@ describe('scoped field drafts', () => {
     expect(onCommit).toHaveBeenCalledTimes(2);
     await act(async () => resolve('0.2'));
   });
-  it('retains the native enum label after selection closes and the field remounts', async () => {
-    const field = { key: 'fuzzy_skin', label: 'Fuzzy skin', value: 'none', meta: {
-      type: 'enum' as const, enum_values: ['none', 'allwalls'], enum_labels: ['Painted only', 'All walls'],
+  it.each([
+    { key: 'fuzzy_skin', label: 'Fuzzy skin', values: ['none', 'allwalls'], labels: ['Painted only', 'All walls'], selected: 1 },
+    { key: 'enable_arc_fitting', label: 'Arc fitting', values: ['disabled', 'enabled', 'sparse_infill'], labels: ['Disabled', 'Enabled', 'Sparse infill only'], selected: 2 },
+    { key: 'adaptive_infill_mode', label: 'Adaptive density (experimental)', values: ['disabled', 'distance_warp', 'smooth_blend', 'stepped_shells', 'lobes', 'normal_z', 'normal_y', 'normal_x'], labels: ['Disabled', 'Distance warp', 'Smooth blend', 'Stepped shells', 'Lobes', 'Normal Z', 'Normal Y', 'Normal X'], selected: 7 },
+    { key: 'adaptive_infill_gradient', label: 'Adaptive gradient', values: ['linear', 'quadratic', 'exponential'], labels: ['Linear', 'Quadratic', 'Exponential'], selected: 2 },
+  ])('submits the native $key enum and retains its label after selection and remounting', async ({ key, label, values, labels, selected }) => {
+    const field = { key, label, value: values[0], meta: {
+      type: 'enum' as const, enum_values: values, enum_labels: labels,
     } };
     const { onCommit, rerender } = await renderField(field, undefined, undefined, false);
     const selectedText = () => container.querySelector('[data-slot="select-value"]')?.textContent;
-    const trigger = () => container.querySelector<HTMLButtonElement>('[data-testid="config-input-fuzzy_skin"]')!;
-    expect(selectedText()).toBe('Painted only');
+    const trigger = () => container.querySelector<HTMLButtonElement>(`[data-testid="config-input-${key}"]`)!;
+    expect(trigger().getAttribute('role')).toBe('combobox');
+    expect(selectedText()).toBe(labels[0]);
     await act(async () => trigger().click());
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
-      .find((element) => element.textContent?.includes('All walls'));
+      .find((element) => element.textContent === labels[selected]);
     expect(option).toBeDefined();
     await act(async () => {
       option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
     });
-    expect(onCommit).toHaveBeenCalledExactlyOnceWith(expect.anything(), 'allwalls');
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(expect.anything(), values[selected]);
     expect(trigger().getAttribute('aria-expanded')).toBe('false');
-    expect(selectedText()).toBe('All walls');
-    await rerender({ value: 'allwalls' });
+    expect(selectedText()).toBe(labels[selected]);
+    await rerender({ value: values[selected] });
     await act(async () => root!.render(null));
-    await rerender({ value: 'allwalls' });
-    expect(selectedText()).toBe('All walls');
+    await rerender({ value: values[selected] });
+    expect(selectedText()).toBe(labels[selected]);
   });
 
   it.each(['project', 'scoped'] as const)('uses Orca ordering and an allow-list in %s mode, including filtered sections', async (mode) => {
     // Deliberately shuffled metadata and unrelated native categories must not
     // decide layout; hidden native options may still have persisted values.
     const keys = ['infill_wall_overlap', 'filter_out_gap_fill', 'gap_fill_target',
+      'infill_complete_top', 'adaptive_infill_gradient', 'adaptive_infill_interior_density', 'adaptive_infill_mode',
+      'top_color_penetration_layers', 'bottom_color_penetration_layers',
+      'high_precision_gcode', 'exclude_object_tolerance',
       'sparse_infill_density', 'top_bottom_infill_wall_overlap', 'bottom_shell_layers',
       'top_shell_thickness', 'top_shell_layers', 'wall_loops', 'layer_height',
       'ironing_expansion', 'support_interface_loop_pattern', 'compatible_printers_condition',
       'future_option', 'internal_bridge_speed', 'overhang_2_4_speed'];
     const scopes = ['project', 'object'] as const;
     const metadata = Object.fromEntries(keys.map((key) => [key, {
-      type: 'float' as const, label: key === 'top_shell_layers' ? 'Top shell layers' : key,
+      type: key === 'high_precision_gcode' ? 'bool' as const : 'float' as const,
+      label: key === 'top_shell_layers' ? 'Top shell layers' : key,
       category: 'Unrelated metadata category', scopes,
     }]));
     const hidden = { ironing_expansion: '2', future_option: '3' };
@@ -197,11 +207,12 @@ describe('scoped field drafts', () => {
     const fieldOrder = () => [...container.querySelectorAll('[data-testid^="config-option-label-"]')]
       .map((el) => el.getAttribute('data-testid')!.replace('config-option-label-', ''));
     expect([...container.querySelectorAll('[data-testid^="config-page-"]')].map((el) => el.textContent))
-      .toEqual(mode === 'scoped' ? ['Frequent', 'Quality', 'Strength', 'Speed'] : ['Quality', 'Strength', 'Speed']);
+      .toEqual(mode === 'scoped' ? ['Frequent', 'Quality', 'Strength', 'Speed', 'Other'] : ['Quality', 'Strength', 'Speed', 'Other']);
     expect(fieldOrder()).toEqual(mode === 'scoped' ? ['layer_height', 'sparse_infill_density', 'wall_loops'] : ['layer_height']);
     await act(async () => button('config-page-Strength').click());
-    expect(fieldOrder()).toEqual(['wall_loops', 'top_shell_layers', 'top_shell_thickness',
-      'bottom_shell_layers', 'top_bottom_infill_wall_overlap', 'sparse_infill_density',
+    expect(fieldOrder()).toEqual(['wall_loops', 'top_shell_layers', 'top_shell_thickness', 'top_color_penetration_layers',
+      'bottom_shell_layers', 'bottom_color_penetration_layers', 'top_bottom_infill_wall_overlap', 'sparse_infill_density',
+      'adaptive_infill_mode', 'adaptive_infill_interior_density', 'adaptive_infill_gradient', 'infill_complete_top',
       'gap_fill_target', 'filter_out_gap_fill', 'infill_wall_overlap']);
     expect(button('config-category-toggle-Top/bottom shells')).toBeTruthy();
     expect(container.querySelector('[data-testid="config-option-label-top_shell_layers"]')!.textContent)
@@ -218,7 +229,7 @@ describe('scoped field drafts', () => {
     expect(fieldOrder()).not.toContain('support_interface_loop_pattern');
     expect(fieldOrder()).not.toContain('compatible_printers_condition');
     expect(fieldOrder()[0]).toBe('layer_height');
-    expect(fieldOrder().slice(-2)).toEqual(['overhang_2_4_speed', 'internal_bridge_speed']);
+    expect(fieldOrder().slice(-4)).toEqual(['overhang_2_4_speed', 'internal_bridge_speed', 'high_precision_gcode', 'exclude_object_tolerance']);
     expect(container.querySelector('[data-testid="config-section-Overhang speed"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="config-section-Bridge"]')).toBeTruthy();
     await search('internal_bridge_speed');
@@ -226,7 +237,7 @@ describe('scoped field drafts', () => {
     expect(container.querySelector('[data-testid="config-section-Bridge"]')!.textContent).toBe('Bridge');
     expect(container.querySelector('[data-testid="config-section-Overhang speed"]')).toBeNull();
     await search('Top/bottom shells');
-    expect(fieldOrder()).toEqual(['top_shell_layers', 'top_shell_thickness', 'bottom_shell_layers', 'top_bottom_infill_wall_overlap']);
+    expect(fieldOrder()).toEqual(['top_shell_layers', 'top_shell_thickness', 'top_color_penetration_layers', 'bottom_shell_layers', 'bottom_color_penetration_layers', 'top_bottom_infill_wall_overlap']);
     await search('future_option');
     expect(fieldOrder()).toEqual([]);
     expect(container.querySelector('[data-testid="scoped-config-empty"]')).toBeTruthy();

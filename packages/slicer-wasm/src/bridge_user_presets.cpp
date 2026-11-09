@@ -188,13 +188,14 @@ std::string retain(Preset::Type type, const std::string& name, PresetContextRena
 // A repository operation is infrequent and owns an isolated rollback snapshot.
 // Geometry archives in history remain shared; no new undo entry is used as a
 // persistence transaction. The Worker excludes every competing command while
-// the host commits the single JSON file.
+// the host commits the JSON file changes as one operation.
 struct Pending {
     const bool had_redo = state().history.can_redo();
     std::map<std::string, std::optional<std::string>> files;
     std::string delete_file;
     void watch(const std::string& file) {
         for (const auto& path : {file, boost::filesystem::path(file).replace_extension(".info").string()}) {
+            if (files.count(path)) continue;
             std::ifstream input(path);
             if (!input) files[path] = std::nullopt;
             else { std::ostringstream content; content << input.rdbuf(); files[path] = content.str(); }
@@ -521,11 +522,16 @@ json prepare(const json& request) {
     if (!save_as) candidate.inherits() = head->inherits();
     // Overwriting an ancestor from its child must not create self-inheritance
     // or a cycle. Full effective values preserve the source configuration.
+    bool detach_replaced_ancestor = false;
     if (destination && save_as) {
         auto parent = candidate.inherits();
         std::set<std::string> visited;
         while (!parent.empty() && visited.insert(parent).second) {
-            if (parent == target) { candidate.inherits() = destination->inherits(); break; }
+            if (parent == target) {
+                candidate.inherits() = destination->inherits();
+                detach_replaced_ancestor = candidate.inherits().empty();
+                break;
+            }
             const auto* preset = c.find_preset(parent, false, true);
             parent = preset ? preset->inherits() : std::string{};
         }
@@ -609,7 +615,7 @@ json prepare(const json& request) {
         if (history_entry && !HistoryMetadata::begin_timestamped_operation(state(), save_as ? "Save preset as" : "Delete preset", before))
             throw std::runtime_error("could not begin preset history");
 
-        json change;
+        json changes = json::array();
         if (remove) {
             // Resolve replacement through the native visible compatible catalogue.
             std::string replacement;
@@ -625,11 +631,20 @@ json prepare(const json& request) {
             c.select_preset_by_name(selected_name, true);
             c.get_edited_preset() = edited;
             result_name = replacement;
-            change = {{"path", repository_path(path)}, {"content", nullptr}};
+            changes.push_back({{"path", repository_path(path)}, {"content", nullptr}});
             transaction->delete_file = path;
         } else {
-            const bool detach = !destination && save_as && is_snapshot(type, from);
-            transaction->watch(destination ? path : c.path_from_name(target, detach));
+            // Orca recreates an overwritten base preset. Keep its empty parent
+            // instead of letting Save As inherit from the source child again.
+            const bool detach = detach_replaced_ancestor ||
+                (!destination && save_as && is_snapshot(type, from));
+            if (destination) transaction->watch(path);
+            // Native replacement derives base/ versus flat from the new parent.
+            // Watch both possible locations before it removes the old files;
+            // transient .info files are part of rollback, not host storage.
+            const auto bare_name = get_preset_bare_name(target);
+            transaction->watch(c.path_from_name(bare_name, false));
+            transaction->watch(c.path_from_name(bare_name, true));
             c.save_current_preset(target, detach, false, &candidate);
             for (const auto& name : descendants) {
                 auto* child = c.find_preset(name, false, true);
@@ -640,7 +655,9 @@ json prepare(const json& request) {
             std::ifstream input(saved->file);
             if (!input) throw std::runtime_error("could not read saved user preset");
             std::ostringstream content; content << input.rdbuf();
-            change = {{"path", repository_path(saved->file)}, {"content", content.str()}};
+            if (destination && path != saved->file)
+                changes.push_back({{"path", repository_path(path)}, {"content", nullptr}});
+            changes.push_back({{"path", repository_path(saved->file)}, {"content", content.str()}});
             if (was_active) {
                 adopt(type, source_active_name, target);
                 if (type == Preset::TYPE_PRINT) c.select_preset_by_name(target, true);
@@ -679,7 +696,7 @@ json prepare(const json& request) {
             {"native_scoped_config", ScopedConfig::native_scoped_config_full_transport(state().history_revision)},
             {"history_entry_delta", history_entry ? 1 : 0}};
         pending = std::move(transaction);
-        return {{"ok", true}, {"token", ++token}, {"change", std::move(change)}, {"result", std::move(result)}};
+        return {{"ok", true}, {"token", ++token}, {"changes", std::move(changes)}, {"result", std::move(result)}};
     } catch (...) {
         if (state().history.operation_active()) HistoryMetadata::abort_timestamped_operation(state());
         throw;

@@ -281,7 +281,10 @@ mesh references, redo branches, selection/gizmo state, or field drafts.
 - Mutable versions are deduplicated by native object timestamp and retained as
   time intervals. A snapshot visits the model graph, but unchanged objects,
   volumes, instances, plate session, and immutable mesh data reuse their prior
-  retained versions instead of being serialized again. The fixed 256 MiB
+  retained versions instead of being serialized again. Object-level `auto_drop`
+  participates in the mutation fingerprint. Unversioned UV and texture-layer
+  payloads conservatively disable archive reuse; native cereal retains their
+  data and paint masks without introducing a texture-editing workflow. The fixed 256 MiB
   session budget evicts oldest retained timestamps while protecting the
   current state and nearest usable history. Native mesh ownership is shared
   directly; there is no legacy encoded-mesh fallback.

@@ -155,7 +155,7 @@ void smart_gap_overhang_tests() {
         if(transformed) transform.linear()=Eigen::AngleAxisd(.4,Vec3d::UnitX()).toRotationMatrix()*Vec3d(-2,.5,3).asDiagonal();
         NativeSelector selector(bent_mesh);
         for(double angle:{44.99,45.,45.01}) {
-            selector.seed_fill_select_triangles(Vec3f(.5,.5,0),0,transform,{},float(angle),0.f,true);
+            selector.seed_fill_select_triangles(Vec3f(.5,.5,0),0,transform,{},float(angle),0.f,Vec3f::UnitZ(),true);
             CHECK(selector.selected_facet_count()==(angle<45.?1:2));
         }
     }
@@ -211,13 +211,13 @@ void smart_gap_overhang_tests() {
     for(double rotation:{0.,M_PI/4.,M_PI/4.+.0001}) {
         Transform3d transform=Transform3d::Identity();
         transform.linear()=Eigen::AngleAxisd(rotation,Vec3d::UnitY()).toRotationMatrix()*Vec3d(-2.,.5,3.).asDiagonal();
-        for(double angle:{44.99,45.,45.01,89.99,90.}) {
+        for(double angle:{0.,43.99,44.,44.01,44.99,45.,45.01,89.,89.99,90.}) {
             const auto membership=transformed_selector.overhang_facets(transform,angle);
             for(int facet=0;facet<12;++facet) {
                 const auto& indices=object->volumes[0]->mesh().its.indices[facet];
                 const auto& vertices=object->volumes[0]->mesh().its.vertices;
                 const Vec3f center=(vertices[indices[0]]+vertices[indices[1]]+vertices[indices[2]])/3.f;
-                transformed_selector.seed_fill_select_triangles(center,facet,transform,{},0.f,float(angle),true);
+                transformed_selector.seed_fill_select_triangles(center,facet,transform,{},0.f,support_overhang_angle(angle),Vec3f::UnitZ(),true);
                 CHECK((transformed_selector.selected_facet_count()>0)==bool(membership.count(facet)));
             }
         }

@@ -81,7 +81,7 @@ function createSegmentTemplateGeometry(): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     'vertex_id',
-    new THREE.Uint8BufferAttribute(SEGMENT_TEMPLATE_VERTEX_IDS, 1),
+    new THREE.Float32BufferAttribute(SEGMENT_TEMPLATE_VERTEX_IDS, 1),
   );
   geometry.setDrawRange(0, SEGMENT_TEMPLATE_INVOCATION_COUNT);
   return geometry;

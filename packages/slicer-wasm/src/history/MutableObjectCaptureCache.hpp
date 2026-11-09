@@ -53,7 +53,6 @@ public:
         std::array<double, 16> transform {};
         std::array<double, 16> assemble_transform {};
         bool printable { false };
-        bool auto_drop { false };
         int print_volume_state { 0 };
         int arrange_order { 0 };
         std::size_t loaded_id { 0 };
@@ -63,7 +62,7 @@ public:
         bool operator==(const InstanceFingerprint& other) const
         {
             return assemble_transform == other.assemble_transform &&
-                printable == other.printable && auto_drop == other.auto_drop &&
+                printable == other.printable &&
                 print_volume_state == other.print_volume_state &&
                 arrange_order == other.arrange_order &&
                 loaded_id == other.loaded_id && assembly_offset == other.assembly_offset &&
@@ -77,6 +76,7 @@ public:
         std::string module_name;
         std::string input_file;
         bool printable { false };
+        bool auto_drop { true };
         std::string metadata;
         std::vector<VolumeFingerprint> volumes;
         std::vector<InstanceFingerprint> instances;
@@ -85,7 +85,7 @@ public:
         {
             return object_config_timestamp == other.object_config_timestamp && name == other.name &&
                 module_name == other.module_name && input_file == other.input_file &&
-                printable == other.printable && metadata == other.metadata &&
+                printable == other.printable && auto_drop == other.auto_drop && metadata == other.metadata &&
                 volumes == other.volumes && instances == other.instances;
         }
     };
@@ -168,7 +168,8 @@ public:
             const auto& prior = it->second.mutation_fingerprint;
             if (prior.object_config_timestamp != mutation_fingerprint.object_config_timestamp ||
                 prior.name != mutation_fingerprint.name || prior.module_name != mutation_fingerprint.module_name ||
-                prior.input_file != mutation_fingerprint.input_file || prior.printable != mutation_fingerprint.printable)
+                prior.input_file != mutation_fingerprint.input_file || prior.printable != mutation_fingerprint.printable ||
+                prior.auto_drop != mutation_fingerprint.auto_drop)
                 ++m_profile_fingerprint_object;
             for (std::size_t index = 0; index < std::min(prior.volumes.size(), mutation_fingerprint.volumes.size()); ++index) {
                 if (prior.volumes[index].transform != mutation_fingerprint.volumes[index].transform)

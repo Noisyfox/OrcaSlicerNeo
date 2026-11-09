@@ -348,6 +348,11 @@ locally and silently. Local parent changes do not generate cloud update notices.
 A retained child snapshot must include enough dependency content to remain
 stable when its parent changes.
 
+Saving a child over an ancestor retains the child's complete effective values
+and the destination's original parent, including an empty parent for a root
+preset. Native replacement may delete and recreate the destination; it must not
+reintroduce inheritance from the source child and form a cycle.
+
 If synchronization deletes a parent, preserve the child's original effective
 configuration so the child remains usable. The parent deletion must not cascade
 into silently deleting or changing child configurations. How to persist the
@@ -970,7 +975,7 @@ complete the following designs:
 
 - Stable local/cloud identity mapping, durable cloud revision metadata, and
   recovery across interrupted multi-record cloud reconciliation. Local
-  single-file and IndexedDB commits are described in section 12.
+  file-batch and IndexedDB commits are described in section 12.
 - Cloud conflict reconciliation and first-login migration UX, including any
   explicit copying from the default library and target-name collisions. Account
   switching itself must continue to detach references as section 2.5 requires.
@@ -1114,14 +1119,26 @@ be saved into another user identity, but its old record/association is not resto
 ### Commit and history
 
 The native prepare operation stages a complete rollback state and the intended
-single-file change. The typed client validates the reply before persistence.
-Electron replaces a file through a same-directory temporary file and rename;
-Web uses one IndexedDB write transaction. The Worker excludes competing requests
-until native commit or rollback. A rejected/failed write restores the previous
-native library, drafts, current selection and history without a new entry.
-The file commit is authoritative across a process exit; a new runtime loads it
-at startup. No cross-process library locking or cross-session notification is
-introduced.
+JSON file changes. Replacing another preset may move it between `base/` and the
+ordinary preset directory: commit the old-file deletion and new-file write as
+one action. Native rollback watches both locations and their transient `.info`
+files before saving; host storage remains JSON-only. The typed client validates
+the complete change list and result before persistence.
+
+Web uses one IndexedDB write transaction. Electron captures the affected old
+files, replaces each destination through a same-directory temporary file and
+rename, and deletes old paths only after all replacements succeed. It restores
+completed changes if a later write fails. If restoration itself
+fails, it reports that failure rather than Save success. This is in-process
+failure recovery and per-file atomic replacement; it does not add a journal
+that recovers an interrupted multi-file batch after process exit or power loss;
+an interrupted migration can leave both old and new paths.
+
+The Worker excludes competing requests until native commit or rollback. A
+rejected/failed write restores the previous native library, drafts, current
+selection and history without a new entry. A completed durable batch is
+authoritative across process exit; a new runtime loads its files at startup.
+No cross-process library locking or cross-session notification is introduced.
 
 Replacing a saved version retains its effective configuration and redirects
 historical references to that version. The saved baseline remains independently

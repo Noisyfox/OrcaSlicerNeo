@@ -71,7 +71,7 @@ export class BambuRuntime {
       this.native = agent;
       this.lan = new BambuLan(agent, this.repository, () => this.publish('printers'));
       const ok = async (result: Promise<number>) => { if (await result !== 0) throw new Error('Bambu initialization failed'); };
-      if (await agent.getVersion() !== '02.08.01.99') throw new Error('Unexpected Bambu plugin version');
+      if (await agent.getVersion() !== '02.08.04.99') throw new Error('Unexpected Bambu plugin version');
       await ok(agent.createAgent(directory));
       await ok(agent.setConfigDirectory(directory));
       await ok(agent.initLog());

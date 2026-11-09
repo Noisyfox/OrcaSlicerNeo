@@ -18,6 +18,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Topic | Maintained authority |
 | --- | --- |
 | Shared hosts, runtime and preferences | [Web–Electron architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md) |
+| Orca core upgrade | [Orca Core Upgrade](../spec/Orca%20Core%20Upgrade.md) (2.5.0 implemented and locally qualified; verification evidence and platform limits recorded; Moonraker and transparency deferred) |
 | Common service providers, accounts and capability boundaries | [Shared provider/account design](../spec/Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts) (shared contracts and Electron Bambu account execution delivered; six-target packaging/startup accepted, separate real-account/hardware limits recorded) |
 | Chrome, controls, layout and diagnostics | [Application Shell](../spec/Application%20Shell.md), including [persistent workspace notifications](../spec/Application%20Shell.md#persistent-workspace-notifications) (implemented; focused development-host qualification, release matrix remains separate) and [exit handling for all unfinished sends](../spec/Printer%20Console%20and%20Control%20Integration.md#application-exit-with-unfinished-sends) (implemented with focused host acceptance) |
 | Prepare/Preview navigation and lifetime | [Workspace modes](../spec/Workspace%20Prepare%20and%20Preview%20Modes.md) |

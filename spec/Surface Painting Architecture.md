@@ -216,6 +216,9 @@ Smart Fill requires a numeric 0–90 degree edge angle. The `null` edge-angle
 option remains specific to MMU Region Fill. Support overhang membership uses
 inverse-transpose normalized normals and the pinned native strict cosine
 comparison, without an additional determinant flip for mirrored transforms.
+For positive thresholds, both highlighting and restricted painting pass
+`min(angle + 1 degree, 90 degrees)` to that comparison, matching Orca 2.5.0's
+painter. The supported Cartesian path uses the positive Z up direction.
 Numeric zero disables the native restriction. The application clears the red
 highlight at zero by sending an explicit `null` highlight angle; the native
 preview API's numeric zero still denotes every eligible leaf. The pinned

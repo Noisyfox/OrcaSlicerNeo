@@ -16,19 +16,20 @@ setlocal
 
 set "PKG_DIR=%~dp0"
 for %%i in ("%PKG_DIR%.") do set "PKG_DIR=%%~fi"
-set "DEPS=%PKG_DIR%\.work\deps"
-set "GEN=%PKG_DIR%\.work\gen"
+if not defined WORK_DIR set "WORK_DIR=%PKG_DIR%\.work"
+set "DEPS=%WORK_DIR%\deps"
+set "GEN=%WORK_DIR%\gen"
 
-REM Versions match OrcaSlicer v2.4.2 deps/ recipes (cereal 1.3.x is API-compatible).
+REM Versions match OrcaSlicer v2.5.0 deps/ recipes (cereal 1.3.x is API-compatible).
 set "EIGEN_VER=5.0.1"
+REM Same Eigen release tree. The mirror avoids GitLab HTTP 406 on CI.
+set "EIGEN_SHA256=41b2d9d288e701b6cce3bf7ee2c14c573f979de53ae6d4a118b2ece696c96d52"
 set "BOOST_VER=1.84.0"
 set "CEREAL_VER=1.3.0"
 set "NLOPT_VER=2.5.0"
 set "NLOPT_SHA256=c6dd7a5701fff8ad5ebb45a3dc8e757e61d52658de3918e38bab233e7fd3b4ae"
 set "DRACO_VER=1.5.7"
 set "DRACO_SHA256=27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77"
-set "OCCT_VER=7.6.0"
-set "OCCT_SHA256=28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1dbc"
 
 if not exist "%DEPS%" mkdir "%DEPS%"
 if not exist "%GEN%\openssl" mkdir "%GEN%\openssl"
@@ -36,7 +37,7 @@ if not exist "%GEN%\openssl" mkdir "%GEN%\openssl"
 REM ---- Eigen (header-only) ----
 if not exist "%DEPS%\eigen-%EIGEN_VER%\Eigen" (
   echo [deps] Fetching Eigen %EIGEN_VER%
-  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://gitlab.com/libeigen/eigen/-/archive/%EIGEN_VER%/eigen-%EIGEN_VER%.zip" "%DEPS%\eigen.zip"
+  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://codeload.github.com/eigen-mirror/eigen/zip/refs/tags/%EIGEN_VER%" "%DEPS%\eigen.zip" "%EIGEN_SHA256%"
   if errorlevel 1 (
     echo [deps] ERROR: Eigen download failed.
     exit /b 1
@@ -163,31 +164,10 @@ if not exist "%DEPS%\nlopt-%NLOPT_VER%\CMakeLists.txt" (
   if errorlevel 1 exit /b 1
 )
 
-REM ---- OCCT (source; built separately per wasm variant) ----
-if not exist "%DEPS%\occt-%OCCT_VER%\CMakeLists.txt" (
-  set "OCCT_ARCHIVE=%DEPS%\occt-%OCCT_VER%.zip"
-  echo [deps] Fetching OCCT %OCCT_VER%
-  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip" "%DEPS%\occt-%OCCT_VER%.zip" "%OCCT_SHA256%"
-  if errorlevel 1 (
-    echo [deps] ERROR: OCCT download failed.
-    exit /b 1
-  )
-  tar -xf "%DEPS%\occt-%OCCT_VER%.zip" -C "%DEPS%"
-  if errorlevel 1 (
-    echo [deps] ERROR: OCCT extract failed.
-    exit /b 1
-  )
-  if not exist "%DEPS%\OCCT-7_6_0\CMakeLists.txt" (
-    echo [deps] ERROR: OCCT archive did not contain OCCT-7_6_0.
-    exit /b 1
-  )
-  if exist "%DEPS%\occt-%OCCT_VER%" rmdir /s /q "%DEPS%\occt-%OCCT_VER%"
-  robocopy "%DEPS%\OCCT-7_6_0" "%DEPS%\occt-%OCCT_VER%" /e /move /njh /njs /ndl /np >nul
-  if errorlevel 8 (
-    echo [deps] ERROR: OCCT source relocation failed.
-    exit /b 1
-  )
-  if exist "%DEPS%\OCCT-7_6_0" rmdir /s /q "%DEPS%\OCCT-7_6_0"
+REM ---- OCCT and Qhull (verified sources; compiled per WASM variant) ----
+for %%L in (occt qhull) do (
+  node "%PKG_DIR%\dependencies\external\build.mjs" fetch --library %%L
+  if errorlevel 1 exit /b 1
 )
 
 REM ---- Generated / stub headers ----

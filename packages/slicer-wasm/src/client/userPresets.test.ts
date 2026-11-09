@@ -19,7 +19,7 @@ describe('user preset durable transaction', () => {
       if (name !== 'orc_prepare_user_preset' && name !== 'orc_finish_user_preset') return original(name, result, types, args);
       if (name === 'orc_prepare_user_preset') preparations.push(JSON.parse(String(args[0])));
       const value = name === 'orc_prepare_user_preset' ? {
-        ok: true, token: 7, change: { path: 'filament/Local.json', content: '{}' },
+        ok: true, token: 7, changes: [{ path: 'filament/base/Local.json', content: null }, { path: 'filament/Local.json', content: '{}' }],
         result: { canonical_name: 'Local', history_entry_delta: 1,
           profile_snapshot: malformed ? {} : read('orc_get_preset_snapshot'),
           filament_session: read('orc_get_filament_session_snapshot'),
@@ -53,6 +53,9 @@ describe('user preset durable transaction', () => {
     release();
     expect(await operation).toMatchObject({ ok: true, canonicalName: 'Local', historyEntryDelta: 1 });
     expect(f.finishes).toEqual([true]);
+    expect(f.write).toHaveBeenCalledWith([
+      { path: 'filament/base/Local.json', content: null }, { path: 'filament/Local.json', content: '{}' },
+    ]);
   });
   it('aborts native state when storage fails', async () => {
     const f = fixture(vi.fn(async () => { throw new Error('Disk full'); }));

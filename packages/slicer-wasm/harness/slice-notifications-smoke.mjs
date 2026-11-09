@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { awaitAsyncTask } from './async-task-mailbox.mjs';
+import { awaitAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, fixtureProfileOptions, installProfilePackages } from './profile-installer.mjs';
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
@@ -56,4 +56,46 @@ assert.ok(rejected.diagnostics[0].diagnostics.some(d => d.severity === 'warning'
 assert.ok(rejected.diagnostics[0].diagnostics.some(d => d.severity === 'error' && d.objectIds.length));
 assert.ok(rejected.messages.findIndex(m => m.type === 'slice-diagnostics') <
   rejected.messages.findIndex(m => m.type === 'task-terminal'));
-console.log('PASS: native validation warnings, warning+error rejection, stable ownership, retry identity and ordered durable phases');
+
+// The object is clear of this volume. Only the custom startup travel crosses
+// it, so the native warning is created during G-code export, after process().
+set('layer_height', '0.2');
+set('enable_wrapping_detection', '0');
+must(call('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'], [0, 0, 150, 150, 10]));
+must(call('orc_recompute_plate_membership'));
+const startupMove = 'G1 X80 Y50 Z5 F3000';
+const historyContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+for (const [key, value] of Object.entries({
+  bed_exclude_volume_mode: 'shared',
+  bed_exclude_volumes: '0..10;40x40,60x40,60x60,40x60',
+  machine_start_gcode: `G28\nG90\nG1 Z20 F3000\nG1 X20 Y50 Z5 F3000\n${startupMove}\n`,
+})) must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+  kind: 'printer', canonical_name: 'Bambu Lab P1P 0.4 nozzle',
+  expected_revision: call('orc_history_status').revision, history_context: historyContext,
+  action: 'set', key, value,
+})]));
+const isCollisionWarning = diagnostic => diagnostic.message.includes('A G-code move intersects a collision volume');
+let previousCollisionWarnings;
+for (let attempt = 0; attempt < 2; ++attempt) {
+  const completed = await slice();
+  must(completed.result);
+  assert.ok(completed.result.receipt, 'a startup collision remains a successful, exportable slice');
+  assert.deepEqual(completed.diagnostics.map(event => event.phase), ['validation', 'processing', 'slicing']);
+  assert.ok(!completed.diagnostics.slice(0, 2).some(event => event.diagnostics.some(isCollisionWarning)),
+    'the fixture must reach the late export warning path');
+  const warnings = completed.result.warnings.filter(isCollisionWarning);
+  assert.equal(warnings.length, 1, JSON.stringify(completed.result.warnings));
+  assert.equal(warnings[0].severity, 'warning', 'native critical warnings remain warnings in the bridge');
+  const reported = completed.diagnostics.flatMap(event => event.diagnostics).filter(isCollisionWarning);
+  assert.deepEqual(reported, warnings, 'the completed result and durable diagnostics report the same warning once');
+  assert.ok(completed.messages.findIndex(message => message.type === 'slice-diagnostics' && message.phase === 'slicing') <
+    completed.messages.findIndex(message => message.type === 'task-terminal'));
+  if (previousCollisionWarnings) assert.deepEqual(warnings, previousCollisionWarnings,
+    'a repeated slice retains the warning without accumulating duplicates');
+  previousCollisionWarnings = warnings;
+  const exported = must(exportGcode(call, { receipt: completed.result.receipt, filenameBase: '' }));
+  assert.ok(module.FS.readFile(exported.path, { encoding: 'utf8' }).includes(startupMove),
+    'the completed generation contains the travel that crossed the collision volume');
+}
+console.log('PASS: native validation and late export warnings, warning+error rejection, stable ownership, retry identity and ordered durable phases');

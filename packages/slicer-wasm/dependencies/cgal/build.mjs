@@ -16,15 +16,17 @@ const stageFiles = ['lib/libgmp.a', 'lib/libgmpxx.a', 'lib/libmpfr.a', 'include/
   'include/gmpxx.h', 'include/mpfr.h', 'include/mpf2mpfr.h', 'include/CGAL/version.h',
   'include/CGAL/CORE/Expr.h', 'include/CGAL/FPU.h'];
 const recipes = [
-  { name: 'gmp', version: '6.2.1', directory: 'gmp-6.2.1', archive: 'gmp-6.2.1.tar.bz2',
-    url: 'https://github.com/SoftFever/OrcaSlicer_deps/releases/download/gmp-6.2.1/gmp-6.2.1.tar.bz2',
-    sha256: 'eae9326beb4158c386e39a356818031bd28f3124cf915f8c5b1dc4c7a36b4d7c' },
+  { name: 'gmp', version: '6.3.0', directory: 'gmp-6.3.0', archive: 'gmp-6.3.0.tar.xz',
+    url: 'https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz',
+    sha256: 'a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898' },
   { name: 'mpfr', version: '4.2.2', directory: 'mpfr-4.2.2', archive: 'mpfr-4.2.2.tar.bz2',
     url: 'https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.bz2',
     sha256: '9ad62c7dc910303cd384ff8f1f4767a655124980bb6d8650fe62c815a231bb7b' },
-  { name: 'cgal', version: '5.6.3', directory: 'CGAL-5.6.3', archive: 'CGAL-5.6.3.zip',
-    url: 'https://github.com/CGAL/cgal/releases/download/v5.6.3/CGAL-5.6.3.zip',
-    sha256: '5d577acb4a9918ccb960491482da7a3838f8d363aff47e14d703f19fd84733d4' },
+  { name: 'cgal', version: '6.2.1', directory: 'CGAL-6.2.1', archive: 'CGAL-6.2.1.zip',
+    // The release web URL can time out. GitHub's asset API serves the same ZIP.
+    url: 'https://api.github.com/repos/CGAL/cgal/releases/assets/544387629',
+    headers: { Accept: 'application/octet-stream' },
+    sha256: 'eebd737d9b7f0199647ba5c1f9f6c7a3d0651aacef9c2fd4dedc52da6c25edbe' },
 ];
 
 function run(command, args, options = {}) {
@@ -34,7 +36,7 @@ function run(command, args, options = {}) {
   return result;
 }
 
-async function digest(path) {
+export async function digest(path) {
   const hash = createHash('sha256');
   for await (const bytes of createReadStream(path)) hash.update(bytes);
   return hash.digest('hex');
@@ -60,7 +62,7 @@ export async function source(recipe, work) {
   const downloads = join(work, 'deps/downloads');
   await mkdir(downloads, { recursive: true });
   const archive = join(downloads, recipe.archive);
-  await downloadDependency(recipe.url, archive, { sha256: recipe.sha256 });
+  await downloadDependency(recipe.url, archive, { sha256: recipe.sha256, headers: recipe.headers });
   const parent = join(work, 'deps', `${recipe.name}-${recipe.version}`);
   const directory = join(parent, `src-${recipe.sha256.slice(0, 12)}`);
   const marker = recipe.sha256 + (recipe.name === 'gmp' ? `:${await digest(join(pkg, 'cpp/deps/GMP/0001-GMP_GCC15.patch'))}` : '');
@@ -71,7 +73,7 @@ export async function source(recipe, work) {
   const temporary = join(parent, `.unpack-${process.pid}`);
   await mkdir(temporary, { recursive: true });
   try {
-    // CMake's libarchive supports both ZIP and tar.bz2 on all build hosts;
+    // CMake's libarchive supports ZIP, tar.xz and tar.bz2 on all build hosts;
     // Linux GNU tar cannot extract the pinned CGAL ZIP.
     run('cmake', ['-E', 'tar', 'xf', archive], { cwd: temporary });
     const extracted = join(temporary, recipe.directory);
@@ -120,18 +122,18 @@ export function settings(args, environment = process.env) {
   if (!['build', 'verify', 'fetch'].includes(options.command)) throw new Error('Expected build, verify or fetch');
   options.work = resolve(environment.WORK_DIR || join(pkg, '.work'));
   options.variant = options.threaded ? 'threaded' : 'serial';
-  options.stage ||= join(options.work, `deps/cgal-5.6.3/stage-wasm${options.width}-${options.variant}`);
+  options.stage ||= join(options.work, `deps/cgal-6.2.1/stage-wasm${options.width}-${options.variant}`);
   return options;
 }
 
-function emscriptenRoot() {
+export function emscriptenRoot() {
   const candidates = [process.env.EMSCRIPTEN, process.env.EMSDK && join(process.env.EMSDK, 'upstream/emscripten')];
   if (process.platform !== 'win32') {
     const result = spawnSync('em-config', ['EMSCRIPTEN_ROOT'], { encoding: 'utf8' });
     if (result.status === 0) candidates.push(result.stdout.trim());
   }
   const path = candidates.find(Boolean);
-  if (!path) throw new Error('Activate emsdk or set EMSCRIPTEN before building numerical dependencies');
+  if (!path) throw new Error('Activate emsdk or set EMSCRIPTEN before building WASM dependencies');
   return path;
 }
 
@@ -183,12 +185,12 @@ async function main(args) {
   const [gmp, mpfr, cgal] = await Promise.all(recipes.map(r => source(r, options.work)));
   if (options.command === 'fetch') return;
   const jobs = process.env.WASM_BUILD_JOBS || '2';
-  const host = join(options.work, 'cgal-generators');
+  const host = join(options.work, 'gmp-6.3.0-generators');
   const nativeEnvironment = { ...process.env };
   for (const key of ['CC', 'CXX', 'CFLAGS', 'CXXFLAGS', 'LDFLAGS', 'CMAKE_TOOLCHAIN_FILE']) delete nativeEnvironment[key];
   run('cmake', ['-S', join(here, 'host'), '-B', host, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', `-DGMP_SOURCE:PATH=${gmp}`], { env: nativeEnvironment });
   run('cmake', ['--build', host, '--parallel', jobs], { env: nativeEnvironment });
-  const tables = join(options.work, `cgal-tables-wasm${options.width}`);
+  const tables = join(options.work, `gmp-6.3.0-tables-wasm${options.width}`);
   await mkdir(join(tables, 'mpn'), { recursive: true });
   const generate = async (name, args, output) => {
     const result = run(join(host, `gen-${name}${process.platform === 'win32' ? '.exe' : ''}`), args,
@@ -196,6 +198,7 @@ async function main(args) {
     await writeChanged(join(tables, output), result.stdout);
   };
   const bits = String(options.width);
+  await generate('sieve', [bits], 'sieve_table.h');
   await generate('fac', [bits, '0'], 'fac_table.h');
   await generate('fib', ['header', bits, '0'], 'fib_table.h');
   await generate('fib', ['table', bits, '0'], 'mpn/fib_table.c');
@@ -204,7 +207,7 @@ async function main(args) {
   await generate('trialdivtab', [bits, '8000'], 'trialdivtab.h');
   await generate('jacobitab', [], 'mpn/jacobitab.h');
   await generate('psqr', [bits, '0'], 'mpn/perfsqr.h');
-  const build = join(options.work, `cgal-build-wasm${options.width}-${options.variant}`);
+  const build = join(options.work, `cgal-6.2.1-build-wasm${options.width}-${options.variant}-${createHash('sha256').update(expected.compiler).digest('hex').slice(0, 12)}`);
   const flags = `-m${options.width} -fexceptions${options.threaded ? ' -pthread' : ''}`;
   run('cmake', ['-S', here, '-B', build, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
     `-DCMAKE_TOOLCHAIN_FILE=${join(emscriptenRoot(), 'cmake/Modules/Platform/Emscripten.cmake')}`,

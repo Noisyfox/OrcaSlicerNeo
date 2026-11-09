@@ -102,6 +102,7 @@
   "mulmid": "mpn/generic/mulmid.c",
   "mulmid_basecase": "mpn/generic/mulmid_basecase.c",
   "mulmid_n": "mpn/generic/mulmid_n.c",
+  "mulmod_bknp1": "mpn/generic/mulmod_bknp1.c",
   "mulmod_bnm1": "mpn/generic/mulmod_bnm1.c",
   "nand_n": "mpn/generic/logops_n.c",
   "neg": "mpn/generic/neg.c",

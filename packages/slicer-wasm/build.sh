@@ -48,10 +48,12 @@ BOOST_INCLUDE="${BOOST_INCLUDE:-$WORK_DIR/deps/boost-1.84.0}"
 CEREAL_INCLUDE="${CEREAL_INCLUDE:-$WORK_DIR/deps/cereal-1.3.0/include}"
 DRACO_ROOT="$WORK_DIR/deps/draco-1.5.7/stage-wasm64-$ARTIFACT_VARIANT"
 NLOPT_ROOT="${NLOPT_ROOT:-$WORK_DIR/deps/nlopt-2.5.0/stage-wasm64-$ARTIFACT_VARIANT}"
-CGAL_ROOT="${CGAL_ROOT:-$WORK_DIR/deps/cgal-5.6.3/stage-wasm64-$ARTIFACT_VARIANT}"
+CGAL_ROOT="${CGAL_ROOT:-$WORK_DIR/deps/cgal-6.2.1/stage-wasm64-$ARTIFACT_VARIANT}"
+QHULL_ROOT="${QHULL_ROOT:-$WORK_DIR/deps/qhull-8.0.2/stage-wasm64-$ARTIFACT_VARIANT}"
+EXPAT_ROOT="${EXPAT_ROOT:-$WORK_DIR/deps/expat-2.5.0/stage-wasm64-$ARTIFACT_VARIANT}"
 DRACO_INCLUDE="${DRACO_INCLUDE:-$DRACO_ROOT/include}"
 DRACO_ARCHIVE="${DRACO_ARCHIVE:-$DRACO_ROOT/lib/libdraco.a}"
-OCCT_ROOT="${OCCT_ROOT:-$WORK_DIR/deps/occt-7.6.0/stage-wasm64-$ARTIFACT_VARIANT}"
+OCCT_ROOT="${OCCT_ROOT:-$WORK_DIR/deps/occt-8.0.1/stage-wasm64-$ARTIFACT_VARIANT}"
 
 log()  { printf '\033[1;36m[wasm]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[wasm] WARNING:\033[0m %s\n' "$*" >&2; }
@@ -184,16 +186,14 @@ if [[ ! -f "$DRACO_ARCHIVE" ]]; then
   WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
     bash "$PKG_DIR/build-draco-wasm64.sh"
 fi
-if [[ ! -f "$OCCT_ROOT/include/opencascade/Standard.hxx" || ! -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]] \
-    || ! grep -qx 'USE_FREETYPE=OFF' "$OCCT_ROOT/manifest.txt" 2>/dev/null; then
-  log "Building OCCT 7.6.0 XCAF/STEP closure ($ARTIFACT_VARIANT wasm64)"
-  WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
-    WORK_DIR="$WORK_DIR" bash "$PKG_DIR/build-occt-wasm64.sh" \
-    || die "OCCT build failed"
-fi
-[[ -f "$OCCT_ROOT/include/opencascade/Standard.hxx" && -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]] \
-  || die "staged OCCT prefix is incomplete: $OCCT_ROOT"
-
+for library in occt qhull expat; do
+  case "$library" in
+    occt) stage="$OCCT_ROOT" ;;
+    qhull) stage="$QHULL_ROOT" ;;
+    expat) stage="$EXPAT_ROOT" ;;
+  esac
+  WORK_DIR="$WORK_DIR" node "$PKG_DIR/dependencies/external/build.mjs" build --library "$library" --target wasm64 --variant "$ARTIFACT_VARIANT" --stage "$stage"
+done
 WORK_DIR="$WORK_DIR" node "$PKG_DIR/dependencies/cgal/build.mjs" build --target wasm64 --variant "$ARTIFACT_VARIANT" --stage "$CGAL_ROOT"
 
 # Profile packages are installed by the runtime Worker before orc_init().
@@ -228,6 +228,8 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DNLOPT_ROOT="$NLOPT_ROOT" \
   -DOCCT_ROOT="$OCCT_ROOT" \
   -DCGAL_ROOT="$CGAL_ROOT" \
+  -DQHULL_ROOT="$QHULL_ROOT" \
+  -DEXPAT_ROOT="$EXPAT_ROOT" \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
   -DTBB_ROOT="$TBB_ROOT" \

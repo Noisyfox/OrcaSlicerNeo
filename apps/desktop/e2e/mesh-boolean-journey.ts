@@ -10,18 +10,22 @@ const state = (page: Page): Promise<any> => page.evaluate(() => (window as any).
 /** Real UI inputs and native geometry; the probe only reads scene facts. */
 export async function meshBooleanJourney(page: Page, addCube: () => Promise<void>, info: TestInfo, openPreferences: () => Promise<void>) {
   await ready(page); await selectPrinter(page);
-  await openPreferences();
   const preferences = page.getByTestId('project-preferences-dialog');
+  const openDeveloperPreferences = async () => {
+    await openPreferences();
+    await preferences.getByRole('tab', { name: 'Developer', exact: true }).click();
+  };
   const keepPainting = preferences.getByRole('checkbox', { name: 'Keep painting', exact: true });
+  await openDeveloperPreferences();
   await expect(keepPainting).not.toBeChecked();
   await keepPainting.check();
   await preferences.getByTestId('project-preferences-cancel').click();
-  await openPreferences();
+  await openDeveloperPreferences();
   await expect(keepPainting).not.toBeChecked();
   await keepPainting.check();
   await preferences.getByTestId('project-preferences-save').click();
   await expect(preferences).toBeHidden();
-  await openPreferences();
+  await openDeveloperPreferences();
   await expect(keepPainting).toBeChecked();
   await preferences.screenshot({ path: info.outputPath('mesh-boolean-preferences.png') });
   await preferences.getByTestId('project-preferences-cancel').click();

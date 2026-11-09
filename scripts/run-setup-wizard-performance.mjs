@@ -22,7 +22,7 @@ if (process.argv.includes('--build')) {
     DRACO_INCLUDE: join(root, 'packages/slicer-wasm/.work/deps/draco-1.5.7/stage-wasm64-threaded/include'),
     DRACO_ARCHIVE: join(root, 'packages/slicer-wasm/.work/deps/draco-1.5.7/stage-wasm64-threaded/lib/libdraco.a'),
     NLOPT_ROOT: join(root, 'packages/slicer-wasm/.work/deps/nlopt-2.5.0/stage-wasm64-threaded'),
-    OCCT_ROOT: join(root, 'packages/slicer-wasm/.work/deps/occt-7.6.0/stage-wasm64-threaded') });
+    OCCT_ROOT: join(root, 'packages/slicer-wasm/.work/deps/occt-8.0.1/stage-wasm64-threaded') });
   run('cmd.exe', ['/d', '/c', `call "${sdk}" && call packages\\slicer-wasm\\build.bat`]);
 }
 env.ORCA_SETUP_PROFILE_MODULE = join(root, 'packages/slicer-wasm/out', variant, 'orca_slice.js');

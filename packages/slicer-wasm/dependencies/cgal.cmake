@@ -41,7 +41,10 @@ add_library(cgal_dependencies INTERFACE)
 target_include_directories(cgal_dependencies INTERFACE "${CGAL_ROOT}/include")
 target_compile_definitions(cgal_dependencies INTERFACE
   CGAL_ALWAYS_ROUND_TO_NEAREST=1 CGAL_USE_GMPXX=1)
-if(NOT WASM_THREADING)
+if(WASM_THREADING)
+  target_compile_definitions(cgal_dependencies INTERFACE CGAL_LINKED_WITH_TBB)
+  target_include_directories(cgal_dependencies INTERFACE "${TBB_INCLUDE_DIR}")
+else()
   target_compile_definitions(cgal_dependencies INTERFACE CGAL_HAS_NO_THREADS=1)
 endif()
 target_link_libraries(cgal_dependencies INTERFACE

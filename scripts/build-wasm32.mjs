@@ -1,9 +1,10 @@
-// Reuse the wasm64 scaffold in a separate generated build tree. Keeping the
-// authoritative native inputs unchanged also preserves existing wasm64 cache keys.
+// Reuse the authoritative native inputs in a separate generated wasm32 build
+// tree. Each address width keeps independent dependency and artifact caches.
 import { copyFile, mkdir, readFile, readdir, symlink, writeFile, lstat, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { recipes as externalRecipes } from '../packages/slicer-wasm/dependencies/external/build.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = join(root, 'packages/slicer-wasm');
@@ -89,20 +90,24 @@ export async function verifyDependencies(deps = join(work, 'deps')) {
   for (const variant of ['threaded', 'serial']) {
     for (const suffix of [`nlopt-2.5.0/stage-wasm32-${variant}/include/nlopt.hpp`,
       `nlopt-2.5.0/stage-wasm32-${variant}/lib/libnlopt.a`, `draco-1.5.7/stage-wasm32-${variant}/lib/libdraco.a`,
-      `occt-7.6.0/stage-wasm32-${variant}/include/opencascade/Standard.hxx`, `occt-7.6.0/stage-wasm32-${variant}/lib/libTKXDESTEP.a`]) {
+      `occt-8.0.1/stage-wasm32-${variant}/include/opencascade/Standard.hxx`, `occt-8.0.1/stage-wasm32-${variant}/lib/libTKDESTEP.a`]) {
       await requireFile(join(deps, suffix));
     }
-    const numerical = join(deps, `cgal-5.6.3/stage-wasm32-${variant}`);
+    const numerical = join(deps, `cgal-6.2.1/stage-wasm32-${variant}`);
     for (const file of ['include/CGAL/CORE/Expr.h', 'include/gmpxx.h', 'include/mpfr.h',
       'lib/libgmp.a', 'lib/libgmpxx.a', 'lib/libmpfr.a']) await requireFile(join(numerical, file));
     const { identity } = JSON.parse(await readFile(join(numerical, 'manifest.json'), 'utf8'));
     if (identity?.width !== 32 || identity?.threaded !== (variant === 'threaded')) {
       throw new Error(`CGAL wasm32 ${variant} stage configuration mismatch: ${numerical}`);
     }
-    const manifest = join(deps, `occt-7.6.0/stage-wasm32-${variant}/manifest.txt`);
-    const settings = await readFile(manifest, 'utf8');
-    if (!settings.split(/\r?\n/).includes('USE_FREETYPE=OFF')) {
-      throw new Error(`OCCT wasm32 ${variant} stage must be rebuilt with USE_FREETYPE=OFF: ${manifest}`);
+    for (const recipe of Object.values(externalRecipes)) {
+      const stage = join(deps, `${recipe.name}-${recipe.version}/stage-wasm32-${variant}`);
+      for (const file of recipe.files) await requireFile(join(stage, file));
+      const { identity } = JSON.parse(await readFile(join(stage, 'manifest.json'), 'utf8'));
+      if (identity?.version !== recipe.version || identity?.width !== 32 || identity?.threaded !== (variant === 'threaded')
+        || (recipe.name === 'occt' && identity?.freetype !== false)) {
+        throw new Error(`${recipe.name} wasm32 ${variant} stage configuration mismatch: ${stage}`);
+      }
     }
   }
 }
@@ -121,6 +126,9 @@ async function main() {
   if (command === 'deps') {
     if (process.platform === 'win32') throw new Error('Dependency bootstrap runs in Linux CI. On Windows activate emsdk and run the generated cmd-native dependency helpers.');
     linuxHelper('fetch-deps.sh');
+    for (const mode of ['threaded', 'serial']) {
+      run(process.execPath, [join(pkg, 'dependencies/cgal/build.mjs'), 'build', '--target', 'wasm32', '--variant', mode]);
+    }
     linuxHelper('build-boost-wasm32.sh');
     linuxHelper('build-onetbb.sh');
     run(process.execPath, [join(pkg, 'harness/run-tbb-parallelism-probe.mjs'), join(generatedPackage, 'out/orca_tbb_probe.js')]);
@@ -128,7 +136,9 @@ async function main() {
       linuxHelper(`build-${dep}-wasm32.sh`, { WASM_THREADING: mode === 'threaded' ? '1' : '0', WASM_ARTIFACT_VARIANT: mode });
     }
     for (const mode of ['threaded', 'serial']) {
-      run(process.execPath, [join(pkg, 'dependencies/cgal/build.mjs'), 'build', '--target', 'wasm32', '--variant', mode]);
+      for (const library of ['qhull', 'expat']) {
+        run(process.execPath, [join(pkg, 'dependencies/external/build.mjs'), 'build', '--library', library, '--target', 'wasm32', '--variant', mode]);
+      }
     }
     await verifyDependencies();
     return;

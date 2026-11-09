@@ -112,7 +112,8 @@ export function printerNozzleCount(values: Readonly<Record<string, string>>) {
 }
 
 /** Presentation-only transcription of ConfigManipulation::toggle_print_fff_options
- * and TabPrinter/TabFilament::toggle_options at Orca c936ee9a5ce2.
+ * and TabPrinter/TabFilament::toggle_options, synchronized for Neo's supported
+ * features through Orca 40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19.
  * Deliberately excludes their config writes, dialogs, enum filtering and labels.
  * Each context is evaluated once, independently of the mounted page or search.
  */
@@ -140,7 +141,8 @@ function updatePrintOptions(c: SettingConditionContext, ui: OptionToggles) {
   ], walls);
 
   // Sparse infill patterns and anchoring.
-  const infill = greaterThan(n('sparse_infill_density'));
+  const infillDensity = n('sparse_infill_density');
+  const infill = greaterThan(infillDensity);
   const pattern = s('sparse_infill_pattern');
   show([
     'sparse_infill_pattern', 'infill_combination', 'fill_multiline', 'infill_direction',
@@ -151,7 +153,13 @@ function updatePrintOptions(c: SettingConditionContext, ui: OptionToggles) {
   show(['infill_anchor', 'infill_anchor_max'], all(infill, anchor));
 
   show('infill_combination_max_layer_height', all(infill, b('infill_combination')));
-  show('gyroid_optimized', all(infill, equalTo(pattern, 'gyroid')));
+  const adaptivePattern = all(infill, infillDensity === undefined ? undefined : infillDensity < 100,
+    oneOf(pattern, ['gyroid', 'tpmsd', 'tpmsfk']));
+  const adaptiveDensity = all(adaptivePattern, not(equalTo(s('adaptive_infill_mode'), 'disabled')));
+  show('adaptive_infill_mode', adaptivePattern);
+  show(['adaptive_infill_interior_density', 'adaptive_infill_gradient'], adaptiveDensity);
+  show('gyroid_optimized', all(infill, equalTo(pattern, 'gyroid'), not(adaptiveDensity)));
+  show('infill_complete_top', all(infill, equalTo(pattern, '3dhoneycomb')));
 
   const multiline = oneOf(pattern, [
     'gyroid', 'grid', 'rectilinear', 'tpmsd', 'tpmsfk', 'crosshatch', 'honeycomb', 'lateral-lattice',
@@ -184,7 +192,7 @@ function updatePrintOptions(c: SettingConditionContext, ui: OptionToggles) {
 
   const smooth = any(oneOf(pattern, ['hilbertcurve', 'octagramspiral', 'lightning', 'honeycomb', '3dhoneycomb', 'concentric', 'crosshatch']),
     all(oneOf(pattern, ['grid', 'triangles', 'tri-hexagon', 'cubic']), greaterThan(n('fill_multiline'), 1)));
-  show('sparse_infill_smooth_factor', smooth);
+  show('sparse_infill_smooth_factor', all(infill, smooth));
 
   enable(['top_surface_pattern', 'top_layer_direction', 'top_surface_line_width', 'top_surface_speed'], top);
   enable('top_surface_density', topLayers);
@@ -201,13 +209,12 @@ function updatePrintOptions(c: SettingConditionContext, ui: OptionToggles) {
   show('bottom_surface_fill_order', all(bottom, oneOf(bottomPattern, centeredFill)));
 
   const sparseRotation = s('sparse_infill_rotate_template'), solidRotation = s('solid_infill_rotate_template');
-  show('separated_infills', any(
-    oneOf(pattern, [
-      'rectilinear', 'alignedrectilinear', 'zigzag', 'crosszag', 'lockedzag', 'grid', 'triangles',
-      'tri-hexagon', 'cubic', 'quartercubic', 'lateral-honeycomb', 'lateral-lattice', 'hilbertcurve', ...centered
-    ]),
-    not(equalTo(sparseRotation, '')), not(equalTo(solidRotation, ''))
-  ));
+  show('separated_infills', oneOf(pattern, [
+    'monotonic', 'monotonicline', 'rectilinear', 'alignedrectilinear', 'zigzag', 'crosszag',
+    'lockedzag', 'line', 'grid', 'triangles', 'tri-hexagon', 'cubic', 'quartercubic', 'honeycomb',
+    '3dhoneycomb', 'lateral-honeycomb', 'lateral-lattice', 'crosshatch', 'tpmsd', 'tpmsfk',
+    'gyroid', 'hilbertcurve', ...centered
+  ]));
 
   enable([
     'infill_direction', 'sparse_infill_line_width', 'gap_fill_target', 'filter_out_gap_fill',
@@ -393,6 +400,7 @@ function updatePrintOptions(c: SettingConditionContext, ui: OptionToggles) {
 
   show(['accel_to_decel_enable', 'accel_to_decel_factor'], klipper);
   enable('accel_to_decel_factor', klipper === false ? undefined : b('accel_to_decel_enable'));
+  show('exclude_object_tolerance', all(klipper, b('exclude_object')));
 
   show(['make_overhang_printable_angle', 'make_overhang_printable_hole_size'], b('make_overhang_printable'));
 
@@ -512,10 +520,9 @@ function updatePrinterOptions(c: SettingConditionContext, ui: OptionToggles) {
 
   // Firmware motion limits.
   const accelerationTravel = all(not(legacy), not(klipper));
-  show('machine_max_acceleration_travel', accelerationTravel);
+  // Unsupported firmware limits remain visible, with their ordinary controls disabled.
   enable('machine_max_acceleration_travel', accelerationTravel);
 
-  show('machine_max_junction_deviation', marlin);
   enable('machine_max_junction_deviation', marlin);
   const junction = c.numbers('machine_max_junction_deviation');
   const zeroJunction = junction?.every(value => value === 0);

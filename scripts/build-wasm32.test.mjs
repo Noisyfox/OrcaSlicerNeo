@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { verifyDependencies, wasm32Source } from './build-wasm32.mjs';
+import { recipes as externalRecipes } from '../packages/slicer-wasm/dependencies/external/build.mjs';
 
 const native = new URL('../packages/slicer-wasm/', import.meta.url);
 test('wasm32 scaffold targets 32-bit code, separate dependency prefixes and a 4 GiB limit', async () => {
@@ -13,15 +14,15 @@ test('wasm32 scaffold targets 32-bit code, separate dependency prefixes and a 4 
     assert.doesNotMatch(output, /-m64|stage-wasm64|address-model=64|CMAKE_SIZEOF_VOID_P:INTERNAL=8/);
     if (source.includes('-m64')) assert.match(output, /-m32/);
     if (name === 'CMakeLists.txt') assert.match(output, /-sMAXIMUM_MEMORY=4GB/);
-    if (name === 'build-occt-wasm64.sh') assert.match(output, /CMAKE_SIZEOF_VOID_P:INTERNAL=4/);
+    if (name.startsWith('build-occt-')) assert.match(output, /--target wasm32/);
     assert.doesNotMatch(output, /-sUSE_FREETYPE=1|libfreetype\.a|freetype-port-probe/);
-    if (name.startsWith('build-occt-')) assert.match(output, /-DUSE_FREETYPE=OFF/);
+
     if (name.endsWith('.bat')) assert.doesNotMatch(output, /(?<!\r)\n/);
     assert.equal(await readFile(new URL(name, native), 'utf8'), source, 'authoritative wasm64 input was not changed');
   }
 });
 
-test('cached wasm32 dependencies require FreeType-free OCCT manifests for both variants', async (t) => {
+test('cached wasm32 dependencies require correct external versions, widths and threading', async (t) => {
   const deps = await mkdtemp(join(tmpdir(), 'orca-wasm32-deps-'));
   t.after(async () => {
     assert.equal(dirname(resolve(deps)), resolve(tmpdir()));
@@ -40,21 +41,27 @@ test('cached wasm32 dependencies require FreeType-free OCCT manifests for both v
   for (const variant of ['threaded', 'serial']) {
     for (const file of [`nlopt-2.5.0/stage-wasm32-${variant}/include/nlopt.hpp`,
       `nlopt-2.5.0/stage-wasm32-${variant}/lib/libnlopt.a`, `draco-1.5.7/stage-wasm32-${variant}/lib/libdraco.a`,
-      `occt-7.6.0/stage-wasm32-${variant}/include/opencascade/Standard.hxx`,
-      `occt-7.6.0/stage-wasm32-${variant}/lib/libTKXDESTEP.a`]) await put(file);
+      `occt-8.0.1/stage-wasm32-${variant}/include/opencascade/Standard.hxx`,
+      `occt-8.0.1/stage-wasm32-${variant}/lib/libTKDESTEP.a`]) await put(file);
     for (const file of ['include/CGAL/CORE/Expr.h', 'include/gmpxx.h', 'include/mpfr.h',
-      'lib/libgmp.a', 'lib/libgmpxx.a', 'lib/libmpfr.a']) await put(`cgal-5.6.3/stage-wasm32-${variant}/${file}`);
-    await put(`cgal-5.6.3/stage-wasm32-${variant}/manifest.json`, JSON.stringify({ identity: { width: 32, threaded: variant === 'threaded' } }));
-    await put(`occt-7.6.0/stage-wasm32-${variant}/manifest.txt`, 'USE_FREETYPE=OFF\r\n');
+      'lib/libgmp.a', 'lib/libgmpxx.a', 'lib/libmpfr.a']) await put(`cgal-6.2.1/stage-wasm32-${variant}/${file}`);
+    await put(`cgal-6.2.1/stage-wasm32-${variant}/manifest.json`, JSON.stringify({ identity: { width: 32, threaded: variant === 'threaded' } }));
+    for (const recipe of Object.values(externalRecipes)) {
+      const stage = `${recipe.name}-${recipe.version}/stage-wasm32-${variant}`;
+      for (const file of recipe.files) await put(`${stage}/${file}`);
+      await put(`${stage}/manifest.json`, JSON.stringify({ identity: { version: recipe.version, width: 32,
+        threaded: variant === 'threaded', ...(recipe.name === 'occt' ? { freetype: false } : {}) } }));
+    }
   }
   await verifyDependencies(deps);
   for (const variant of ['threaded', 'serial']) {
-    const manifest = `occt-7.6.0/stage-wasm32-${variant}/manifest.txt`;
-    for (const stale of ['freetype=Emscripten port\n', 'USE_FREETYPE=ON\n']) {
-      await put(manifest, stale);
-      await assert.rejects(verifyDependencies(deps), new RegExp(`OCCT wasm32 ${variant}.*USE_FREETYPE=OFF`));
+    const manifest = `occt-8.0.1/stage-wasm32-${variant}/manifest.json`;
+    const identity = { version: '8.0.1', width: 32, threaded: variant === 'threaded', freetype: false };
+    for (const change of [{ freetype: true }, { width: 64 }, { version: '7.6.0' }, { threaded: variant !== 'threaded' }]) {
+      await put(manifest, JSON.stringify({ identity: { ...identity, ...change } }));
+      await assert.rejects(verifyDependencies(deps), new RegExp(`occt wasm32 ${variant}.*configuration mismatch`));
     }
-    await put(manifest, 'USE_FREETYPE=OFF\n');
+    await put(manifest, JSON.stringify({ identity }));
   }
   await verifyDependencies(deps);
 });
