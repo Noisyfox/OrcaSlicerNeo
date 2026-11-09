@@ -2237,12 +2237,10 @@ delivery. Do not expose remote-file start or history-based reprint for the
 Snapmaker agent. Repeating a print may re-submit that valid slice through the
 normal preparation flow; upload-only does not persist a prepared remote-file
 binding or create a later-start workflow. Remote printer file browsing/management
-remains deferred. Snapmaker Storage browsing, file-list/thumbnail browsing,
-download and user-triggered file deletion remain outside this delivery.
-Timelapse recording options and submission remain included. The separate
-[Snapmaker camera follow-up](#82-snapmaker-u1-lan-live-view) owns the accepted
-live-view design; camera/Storage integration is not
-a completion requirement for the delivered SnapSend scope.
+remains deferred within SnapSend. The [read-only Storage follow-up](#read-only-u1-storage-follow-up)
+covers lists and thumbnails separately. Timelapse recording options and
+submission remain included in SnapSend. The
+[Snapmaker camera follow-up](#82-snapmaker-u1-lan-live-view) owns live view.
 
 The accepted delivery covers the SnapSend scope and explicit deferrals in the
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-delivery-and-connection).
@@ -2546,6 +2544,30 @@ block software delivery, and mock/host/slicing evidence must not be promoted to
 a physical or broader firmware/platform claim. Record firmware, profile and
 host conditions when physical evidence becomes available. The roadmap records software delivery separately from this physical
 qualification boundary.
+
+#### Read-only U1 Storage follow-up
+
+The [U1 Storage adapter](../packages/printer-control/src/snapmaker/storage.ts)
+uses the configured Moonraker HTTP route and its existing authentication.
+A single `GET /server/files/list?root=gcodes` on Storage entry or refresh
+populates a bounded snapshot for both collections. A leading `.udisk/` path
+segment identifies USB G-code. The firmware listing supplies file presence;
+USB mount state remains unknown when the list has no USB G-code entries.
+The adapter retains up to four five-minute snapshots and accepts up to 20,000
+entries per listing.
+Local cursors bind pages to the snapshot, storage and page size. File references
+bind previews to the printer, route, configuration revision, storage and file
+path.
+
+The adapter shares thumbnail metadata, relative-path validation and authenticated
+PNG/JPEG reads with the Monitor current-task image. Visible cards enumerate
+preview options and receive a self-contained image through the existing
+file-preview media contract. Route revisions and cancellation guard late
+responses. Electron uses the existing renderer-to-main HTTP transport. Browser
+access depends on the deployed origin, CORS and local-network permissions.
+Fixture coverage exercises both host paths. Physical firmware compatibility,
+USB mount behavior and browser access from a deployed HTTPS origin remain
+unqualified.
 
 ## 3. Identity, configuration and stateless access
 

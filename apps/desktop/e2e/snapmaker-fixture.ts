@@ -1,8 +1,12 @@
 /** Loopback U1 protocol fixture shared by host transport acceptance. No hardware claims. */
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
+export const usbGcodeName = '打印 #%.gcode';
+const usbGcodePath = `.udisk/sub/${usbGcodeName}`;
+
 export async function startSnapmakerFixture(filament?: { vendor: string; type: string; subtype: string }) {
   const scripts: string[] = []; let queries = 0, autoRefill = false;
+  let listReads = 0, usbPresent = true;
   let cameraFrame: Buffer | undefined, cameraFailed = false, cameraRequests = 0;
   const filamentColors = ['FF0000FF', '00FF00FF', '0000FFFF', 'FFFFFFFF'];
   const objects = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'configfile', 'filament_feed left', 'filament_feed right'];
@@ -10,7 +14,8 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
   const server = createServer(async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*'); response.setHeader('Access-Control-Allow-Headers', 'content-type,x-api-key'); response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
-    const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    const { pathname: path } = url;
     let value: unknown;
     if (path === '/server/files/camera/monitor.jpg') {
       cameraRequests++;
@@ -28,9 +33,16 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
         heater_bed: { temperature: 60, target: 60 }, purifier: { power_detected: true, mode: 1, inner_fan: { speed: .2 }, exhaust_fan: { speed: .4 } },
         configfile: { settings: { extruder: { max_temp: 300 }, heater_bed: { max_temp: 100 } } },
       } } };
-    } else if (path === '/server/files/metadata') value = { result: { job_id: '000001', print_start_time: 1234, uuid: 'fixture',
-      thumbnails: [{ width: 1, height: 1, relative_path: '.thumbs/external.png' }] } };
-    else if (path === '/server/files/gcodes/.thumbs/external.png') {
+    } else if (path === '/server/files/list' && url.searchParams.get('root') === 'gcodes') {
+      listReads++;
+      value = { result: ['external.gcode', 'no-preview.gcode', ...(usbPresent ? [usbGcodePath] : [])]
+        .map(filePath => ({ path: filePath, size: 100, modified: 1700000000, permissions: 'rw' })) };
+    } else if (path === '/server/files/metadata') {
+      const filename = url.searchParams.get('filename');
+      if (filename === 'no-preview.gcode') { response.writeHead(404); response.end(); return; }
+      value = { result: { job_id: '000001', print_start_time: 1234, uuid: 'fixture',
+        thumbnails: [{ width: 1, height: 1, relative_path: filename === usbGcodePath ? '.thumbs/usb%23 #.png' : '.thumbs/external.png' }] } };
+    } else if (path === '/server/files/gcodes/.thumbs/external.png' || path === '/server/files/gcodes/.udisk/sub/.thumbs/usb%2523%20%23.png') {
       response.writeHead(200, { 'content-type': 'image/png' });
       response.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
       return;
@@ -54,6 +66,8 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('Fixture address');
   return { baseUrl: `http://127.0.0.1:${address.port}`, scripts, cameraCommands, queryCount: () => queries,
+    storageListReads: () => listReads,
+    setUsbStoragePresent: (present: boolean) => { usbPresent = present; },
     setCameraFrame: (frame: Buffer) => { cameraFrame = frame; },
     setCameraFailed: (failed: boolean) => { cameraFailed = failed; },
     cameraRequests: () => cameraRequests,

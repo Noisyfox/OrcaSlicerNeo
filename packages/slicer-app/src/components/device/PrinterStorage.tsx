@@ -50,6 +50,9 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const availableStorages = storages.filter(storage => collectionsOf(storage).some(item => item.id === categoryId));
   const storage = availableStorages.find(storage => storage.id === storageId) ?? availableStorages[0] ?? storages[0];
   const category = storage && collectionsOf(storage).find(item => item.id === categoryId);
+  const actions = category?.actions ?? [];
+  const canDownload = actions.includes('download') && downloads.capability.kind === 'supported';
+  const canSelect = actions.length > 0;
   const scope = `${storage?.id ?? ''}:${category?.id ?? ''}`;
   useEffect(() => { setStorageId(storage?.id ?? ''); }, [storage?.id]);
   const filtered = useMemo(() => files.filter(file => file.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [files, search]);
@@ -67,7 +70,8 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     discovery.current?.abort(); listing.current?.abort();
     const controller = new AbortController(); discovery.current = controller;
     setDiscovering(true); setLoading(false); setError(null); setNeedsAuthorization(false);
-    if (!refresh) { setFiles([]); setCursor(null); setSelected(new Set()); }
+    setFiles([]); setCursor(null);
+    if (!refresh) setSelected(new Set());
     try {
       const result = await service.files.listStorages(target, { signal: controller.signal });
       if (controller.signal.aborted) return;
@@ -146,7 +150,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
       : storage?.browsing.kind === 'unsupported' || storage?.browsing.kind === 'unknown' ? <p role="status">{storage.browsing.reason}</p>
       : storage?.browsing.kind === 'supported' && storage.browsing.constraints.kind === 'directories' ? <p role="status">Directory browsing is not available in this view.</p> : null}
     {downloadError && <p role="alert" className="text-sm text-destructive">{downloadError}</p>}
-    {category && <>
+    {!discovering && category && storage?.availability.kind === 'available' && <>
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-40 max-w-xs flex-1"><SearchInput aria-label="Filter loaded files" placeholder="Filter loaded files…" value={search} onValueChange={setSearch} /></div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -157,13 +161,13 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
             <SelectContent><SelectItem value="none">None</SelectItem><SelectItem value="year">Year</SelectItem><SelectItem value="month">Month</SelectItem></SelectContent>
           </Select>
         </div>
-        <Button size="sm" variant="ghost" disabled={!filtered.length} onClick={() => setSelected(previous => {
+        {canSelect && <Button size="sm" variant="ghost" disabled={!filtered.length} onClick={() => setSelected(previous => {
           const next = new Set(previous); for (const file of filtered) { if (allLoadedSelected) next.delete(file.ref.fileId); else next.add(file.ref.fileId); } return next;
-        })}>{allLoadedSelected ? 'Deselect loaded results' : 'Select loaded results'}</Button>
-        <span role="status" className="text-xs text-muted-foreground">{selected.size} selected · {filtered.length} matching of {files.length} loaded</span>
+        })}>{allLoadedSelected ? 'Deselect loaded results' : 'Select loaded results'}</Button>}
+        <span role="status" className="text-xs text-muted-foreground">{canSelect && `${selected.size} selected · `}{filtered.length} matching of {files.length} loaded</span>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {category.actions.includes('download') && downloads.capability.kind === 'supported' && <div className="flex flex-wrap items-center gap-2">
+      {canSelect && <div className="flex flex-wrap items-center gap-2">
+        {canDownload && <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download('default')}>Download selected</Button>
           <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download('choose')}>Save as…</Button>
         </div>}
@@ -173,14 +177,15 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
           onClick={() => setPrinting(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Print selected file</Button>}
         {category.actions.includes('preview') && <Button size="sm" variant="outline" disabled={selected.size !== 1 || loading}
           onClick={() => setPlaying(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Play selected video</Button>}
-      </div>
+      </div>}
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loading}>
         {groups.map(([label, items]) => <div key={label} className="mb-4">
           {label && <h3 className="mb-2 text-sm font-medium">{label}</h3>}
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-            {items.map(file => <div onClick={() => toggle(file.ref.fileId)} key={file.ref.fileId} className={`flex cursor-pointer flex-col gap-2 rounded-lg border p-3 ${selected.has(file.ref.fileId) ? 'border-primary bg-accent/20' : 'hover:bg-muted/40'}`}>
-              <div className="flex items-start justify-between"><Checkbox onClick={event => event.stopPropagation()} aria-label={`Select ${file.name}`} checked={selected.has(file.ref.fileId)} onCheckedChange={() => toggle(file.ref.fileId)} />
-              </div>
+            {items.map(file => <div onClick={canSelect ? () => toggle(file.ref.fileId) : undefined} key={file.ref.fileId}
+              className={`flex flex-col gap-2 rounded-lg border p-3 ${canSelect ? 'cursor-pointer' : ''} ${selected.has(file.ref.fileId) ? 'border-primary bg-accent/20' : canSelect ? 'hover:bg-muted/40' : ''}`}>
+              {canSelect && <div className="flex items-start justify-between"><Checkbox onClick={event => event.stopPropagation()} aria-label={`Select ${file.name}`} checked={selected.has(file.ref.fileId)} onCheckedChange={() => toggle(file.ref.fileId)} />
+              </div>}
               <StorageThumbnail file={file} fallback={file.metadata.kind === 'recording' || file.metadata.kind === 'timelapse' ? <Film className="size-10 text-muted-foreground" /> : <File className="size-10 text-muted-foreground" />} />
               <span className="break-all text-sm font-medium">{file.name}</span>
               {unconfirmed.has(file.ref.fileId) && <span className="text-xs text-amber-500">Deletion unconfirmed · Refresh manually</span>}

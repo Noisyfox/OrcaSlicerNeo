@@ -18,6 +18,10 @@ export function publicError(error: unknown): PrinterError {
 export function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
+function objectResult(payload: Record<string, unknown>): Record<string, unknown> {
+  if (!payload.result || typeof payload.result !== 'object' || Array.isArray(payload.result)) throw new Error('Invalid result');
+  return record(payload.result);
+}
 export function endpoint(base: string, path: string): string {
   const url = new URL(base);
   const [pathname, search = ''] = path.split('?', 2);
@@ -28,7 +32,8 @@ export function endpoint(base: string, path: string): string {
 }
 export class MoonrakerHttp {
   constructor(private readonly transport: PrinterTransport) {}
-  private async request<T>(printer: PrinterConfiguration, path: string, request: Omit<PrinterTransportRequest, 'url'>, decode: (payload: Record<string, unknown>) => T): Promise<T> {
+  private async request<T>(printer: PrinterConfiguration, path: string, request: Omit<PrinterTransportRequest, 'url'>,
+    decode: (payload: Record<string, unknown>) => T, notFound?: () => T): Promise<T> {
     if (request.signal?.aborted) fail('cancelled', 'Printer request cancelled');
     let response;
     try {
@@ -38,6 +43,7 @@ export class MoonrakerHttp {
     } catch {
       throw new MoonrakerFailure({ code: request.signal?.aborted ? 'cancelled' : 'transport', message: 'Printer request interrupted' }, request.method === 'POST');
     }
+    if (response.status === 404 && notFound) return notFound();
     if (response.status < 200 || response.status >= 300) {
       fail(response.status === 401 ? 'authentication-required' : response.status === 403 ? 'permission-denied' : 'device-rejected', 'Printer rejected the request');
     }
@@ -51,9 +57,15 @@ export class MoonrakerHttp {
     }
   }
   get(printer: PrinterConfiguration, path: string, signal?: AbortSignal) {
+    return this.request(printer, path, { method: 'GET', signal }, objectResult);
+  }
+  getOptional(printer: PrinterConfiguration, path: string, signal?: AbortSignal) {
+    return this.request<Record<string, unknown> | null>(printer, path, { method: 'GET', signal }, objectResult, () => null);
+  }
+  getArray(printer: PrinterConfiguration, path: string, signal?: AbortSignal) {
     return this.request(printer, path, { method: 'GET', signal }, payload => {
-      if (!payload.result || typeof payload.result !== 'object' || Array.isArray(payload.result)) throw new Error('Invalid result');
-      return record(payload.result);
+      if (!Array.isArray(payload.result)) throw new Error('Invalid result');
+      return payload.result as readonly unknown[];
     });
   }
   async getBytes(printer: PrinterConfiguration, path: string, signal?: AbortSignal): Promise<Uint8Array> {
