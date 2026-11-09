@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { u1VideoScheme } from './src/shared/snapmakerTimelapses';
 
 const clientRoot = fileURLToPath(new URL('../../packages/slicer-wasm/src/client', import.meta.url));
 const appRoot = fileURLToPath(new URL('../../packages/slicer-app/src', import.meta.url));
@@ -73,7 +74,7 @@ export default defineConfig(({ mode }) => {
           'content-security-policy':
             "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; " +
             // Bed artwork is decoded from Worker filesystem bytes via Blob URLs.
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; " +
+            `style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: ${u1VideoScheme}:; ` +
             // Vite emits the package worker as a data URL in the e2e/mock bundle;
             // keep the allowance scoped to worker-src (never script-src).
             // Shared thumbnails copy temporary Blob images before releasing provider leases.
