@@ -3,7 +3,7 @@ import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { readU1TimelapsePage, u1TimelapseVideoUrl, type PrinterConfiguration, type PrinterConfigurationDocument } from '@orca/printer-control';
 import type { ErrorCode, Result } from '@orca/printer-control/domain';
 import { cameraConfigurationDigest, cameraConfigurationKey } from '../shared/snapmakerCamera';
-import { u1VideoScheme } from '../shared/snapmakerTimelapses';
+import { printerMediaScheme } from '../shared/printerMedia';
 import { cameraHttpTransport } from '../utility/snapmaker/http';
 
 const failure = (code: ErrorCode, message: string): Result<never> => ({ ok: false, error: { code, message } });
@@ -78,7 +78,7 @@ export class SnapmakerTimelapseHost {
       }
       const id = randomUUID();
       this.videos.set(id, { sender, origin: new URL(frame.url).origin, printer, url, abort });
-      return { ok: true, value: { id, url: `${u1VideoScheme}://video/${id}` } };
+      return { ok: true, value: { id, url: `${printerMediaScheme}://video/${id}` } };
     } catch (error) {
       if (abort.signal.aborted) return failure('cancelled', 'Timelapse request cancelled.');
       const detail = object(object(error).detail);

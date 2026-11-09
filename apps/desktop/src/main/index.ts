@@ -11,7 +11,7 @@ import { BambuMediaIpc } from './bambuMediaIpc';
 import { SnapmakerCameraIpc } from './snapmakerCameraIpc';
 import { SnapmakerCameraUtility } from './snapmakerCameraUtility';
 import { SnapmakerTimelapseHost } from './snapmakerTimelapses';
-import { u1VideoScheme } from '../shared/snapmakerTimelapses';
+import { printerMediaCsp, printerMediaScheme } from '../shared/printerMedia';
 import { loadPrinterConfigurationFile } from './printerConfigurationPersistence';
 import { compareAndSwapPreferences, savePreferences } from './preferencePersistence';
 import { withFileLock } from './fileLock';
@@ -48,7 +48,7 @@ import { rendererIsolationHeaders } from './sessionHeaders';
 
 declare const __ORCA_E2E__: boolean;
 
-protocol.registerSchemesAsPrivileged([{ scheme: u1VideoScheme,
+protocol.registerSchemesAsPrivileged([{ scheme: printerMediaScheme,
   privileges: { standard: true, secure: true, stream: true, corsEnabled: true, supportFetchAPI: true } }]);
 
 // Chromium documents this as a preference for a discrete GPU when multiple
@@ -479,7 +479,7 @@ function registerIpc(): void {
   const snapmakerTimelapses = new SnapmakerTimelapseHost(
     () => loadPrinterConfigurationFile(printerConfigurationPath(), { readText: path => readFile(path, 'utf8') }), isCurrentRenderer);
   ipcMain.handle(Ipc.snapmakerTimelapse, (event, request: unknown) => snapmakerTimelapses.call(event, request));
-  protocol.handle(u1VideoScheme, request => snapmakerTimelapses.serve(request));
+  protocol.handle(printerMediaScheme, request => snapmakerTimelapses.serve(request));
   ipcMain.handle(Ipc.bambuMedia, (event, request: unknown) => cameraIpc.call(event, request));
   ipcMain.on(Ipc.bambuMediaConnect, (event, request: unknown) => { try { cameraIpc.connect(event, request); } catch { /* Reject guest/invalid requests without exposing private state. */ } });
 
@@ -686,7 +686,7 @@ function startRendererServer(): void {
         'content-security-policy':
           "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
           // Bed artwork is decoded from Worker filesystem bytes via Blob URLs.
-          `style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: ${u1VideoScheme}:; ` +
+          `style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; ${printerMediaCsp} ` +
           // The Vite e2e/mock renderer emits its bundled module worker as a
           // data URL. Keep this narrowly scoped to workers, not scripts.
           // Shared thumbnails copy temporary Blob images before releasing provider leases.

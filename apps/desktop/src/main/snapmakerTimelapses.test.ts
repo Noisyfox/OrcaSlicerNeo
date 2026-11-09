@@ -31,6 +31,7 @@ it('relays a same-document range with saved credentials and revokes the URL when
   }));
   vi.stubGlobal('fetch', fetchVideo);
   const video = await open();
+  expect(video.url).toBe(`orca-printer-media://video/${video.id}`);
   const request = () => new Request(video.url, { headers: { Origin: origin, Range: 'bytes=0-1' } });
   expect((await host.serve(new Request(video.url, { headers: { Origin: 'http://other' } }))).status).toBe(404);
   expect(fetchVideo).not.toHaveBeenCalled();

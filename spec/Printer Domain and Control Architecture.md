@@ -2594,8 +2594,10 @@ contract.
 Web uses the browser video element and the printer's direct HTTP media endpoint.
 The browser lists videos on API-key routes and offers playback on routes that
 can serve media without the key. Electron issues a temporary document-owned
-video URL through validated IPC. Its protocol handler forwards single HTTP
-range requests and attaches saved credentials in main. The URL is retired on
+video URL under the shared `orca-printer-media:` scheme through validated IPC.
+Development and production use the same media policy for the scheme. The U1
+adapter validates grants, forwards single HTTP range requests and attaches saved
+credentials in main. The URL is retired on
 close, document navigation or configuration change. Video bytes stream into the
 player without a full-file staging step.
 

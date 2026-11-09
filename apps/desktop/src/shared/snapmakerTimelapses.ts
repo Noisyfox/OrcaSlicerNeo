@@ -1,7 +1,6 @@
 import type { U1TimelapsePage } from '@orca/printer-control';
 import type { Result } from '@orca/printer-control/domain';
 
-export const u1VideoScheme = 'orca-u1-media';
 type Scope = { printerId: string; configurationDigest: string };
 
 export interface SnapmakerTimelapseCalls {
