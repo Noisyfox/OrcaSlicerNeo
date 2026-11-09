@@ -65,12 +65,7 @@ test('Web U1 Storage uses direct CORS transport for USB listings and thumbnails'
     await expect(storage.getByRole('img', { name: 'Thumbnail of external.gcode' })).toHaveJSProperty('naturalWidth', 1);
     await storage.getByRole('checkbox', { name: 'Select external.gcode', exact: true }).check();
     await expect(storage.getByRole('status').filter({ hasText: '1 selected' })).toBeVisible();
-    for (const name of ['Download selected', 'Save as…']) {
-      const button = storage.getByRole('button', { name, exact: true });
-      await expect(button).toBeVisible();
-      await expect(button).toBeEnabled();
-    }
-    await expect(storage.getByRole('button', { name: /Delete selected|Print selected file|Play selected video/ })).toHaveCount(0);
+    await expect(storage.getByRole('button', { name: /Download selected|Delete selected|Print selected file|Play selected video/ })).toHaveCount(0);
     await storage.getByRole('combobox', { name: 'Storage' }).click();
     await page.getByRole('option', { name: 'USB drive' }).click();
     await expect(storage.getByRole('img', { name: `Thumbnail of ${usbGcodeName}` })).toHaveJSProperty('naturalWidth', 1);

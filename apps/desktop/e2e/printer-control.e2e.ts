@@ -627,12 +627,7 @@ test('Snapmaker U1 Storage browses internal and USB G-code over Electron IPC', a
     await expect(storage.getByRole('img', { name: 'Thumbnail of no-preview.gcode' })).toHaveCount(0);
     await storage.getByRole('checkbox', { name: 'Select external.gcode', exact: true }).check();
     await expect(storage.getByRole('status').filter({ hasText: '1 selected' })).toBeVisible();
-    for (const name of ['Download selected', 'Save as…']) {
-      const button = storage.getByRole('button', { name, exact: true });
-      await expect(button).toBeVisible();
-      await expect(button).toBeEnabled();
-    }
-    await expect(storage.getByRole('button', { name: /Delete selected|Print selected file|Play selected video/ })).toHaveCount(0);
+    await expect(storage.getByRole('button', { name: /Download selected|Delete selected|Print selected file|Play selected video/ })).toHaveCount(0);
     await storage.getByRole('combobox', { name: 'Storage' }).click();
     await page.getByRole('option', { name: 'USB drive' }).click();
     await expect(storage.getByRole('img', { name: `Thumbnail of ${usbGcodeName}` })).toHaveJSProperty('naturalWidth', 1);

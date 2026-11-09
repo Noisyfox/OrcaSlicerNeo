@@ -81,7 +81,7 @@ export function StoredVideoDialog({ file, printerName, onClose }: { file: D.Remo
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {queued && <p role="status">Download queued. When it finishes, choose Open in Storage downloads to use your system player.</p>}
       <div className="flex justify-end gap-2">
-        <Button variant="outline" disabled={saving || closing || queued} onClick={() => void save()}>Download for system player</Button>
+        <Button variant="outline" disabled={saving || closing || queued || downloads.capability.kind !== 'supported'} onClick={() => void save()}>Download for system player</Button>
         <Button variant="ghost" disabled={closing} onClick={() => void close()}>{cleanupFailed ? 'Close anyway' : 'Close'}</Button>
       </div>
     </DialogContent>

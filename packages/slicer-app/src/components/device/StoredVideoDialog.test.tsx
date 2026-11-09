@@ -8,7 +8,8 @@ import { StoredVideoDialog } from './StoredVideoDialog';
 vi.mock('./media/StoredVideoPlayer', () => ({ StoredVideoPlayer: () => <p>Player fixture</p> }));
 let root: Root | undefined;
 afterEach(async () => { await act(async () => root?.unmount()); root = undefined; document.body.innerHTML = ''; });
-async function fixture(mode: 'ready' | 'unsupported' | 'late' | 'progressive') {
+async function fixture(mode: 'ready' | 'unsupported' | 'late' | 'progressive',
+  capability: D.PrinterDownloads['capability'] = { kind: 'supported', constraints: {} }) {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const file = { name: 'movie.mp4', ref: { printerId: 'p', routeId: 'r', configurationRevision: '1', storageId: 's', fileId: 'f' } } as D.RemoteFile;
   const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, configurationRevision: '1', revision: 1, expiresAtMs: null, acceptsUserActivity: false,
@@ -25,7 +26,7 @@ async function fixture(mode: 'ready' | 'unsupported' | 'late' | 'progressive') {
   const watch = vi.fn(async function* () {});
   const service = { files: { listPreviews: async () => ({ ok: true, value: { options: [{ kind: 'video', id: 'agent-option' }] } }) },
     media: { open, close, watch, renew: vi.fn() } };
-  const platform = { printers: { service, downloads: { capability: { kind: 'supported' }, start } } } as unknown as PlatformCapabilities;
+  const platform = { printers: { service, downloads: { capability, start } } } as unknown as PlatformCapabilities;
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   const dismiss = vi.fn();
   await act(async () => root!.render(<PlatformProvider value={platform}>
@@ -70,4 +71,11 @@ it('opens a progressive video without a media watch and reports an unsupported d
   expect(f.start).toHaveBeenCalledOnce();
   expect(document.querySelector('[role="alert"]')?.textContent).toBe('This printer does not provide managed downloads on this host.');
   expect(f.close).toHaveBeenCalledWith(f.descriptor.ref);
+});
+it('shows the download button disabled on a host without managed downloads', async () => {
+  const f = await fixture('progressive', { kind: 'unsupported', layer: 'adapter', reason: 'Managed downloads are unavailable.' });
+  expect(f.downloadButton?.disabled).toBe(true);
+  await act(async () => f.downloadButton!.click());
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.close).not.toHaveBeenCalled();
 });
