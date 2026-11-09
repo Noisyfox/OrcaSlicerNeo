@@ -2565,9 +2565,20 @@ preview options and receive a self-contained image through the existing
 file-preview media contract. Route revisions and cancellation guard late
 responses. Electron uses the existing renderer-to-main HTTP transport. Browser
 access depends on the deployed origin, CORS and local-network permissions.
-Fixture coverage exercises both host paths. Physical firmware compatibility,
-USB mount behavior and browser access from a deployed HTTPS origin remain
-unqualified.
+Fixture coverage exercises both host paths, including populated USB collections
+and pagination.
+
+On 2026-11-09, read-only internal Storage acceptance passed against stock U1
+firmware `2.0.0.205_20260914173503` and Moonraker `2.0.0` on macOS ARM64.
+Electron `43.4.0` used the normal IPC route. Chrome `156.0.8078.81` used direct
+HTTP from `http://127.0.0.1:4173` with browser security enabled. Both used the
+saved LAN connection with an empty API key. Each listed 13 internal G-code
+files, decoded three sampled 300 × 300 thumbnails, exercised filename filtering,
+and recovered from an injected listing failure via Retry against the same U1.
+Request auditing confirmed entry-only discovery, snapshot reuse during storage
+switching, a fresh listing on refresh and re-entry, and GET-only device requests.
+The USB scope displayed the expected no-files status. A populated USB drive,
+large physical libraries and a deployed HTTPS browser origin remain unqualified.
 
 ## 3. Identity, configuration and stateless access
 
