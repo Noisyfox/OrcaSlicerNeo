@@ -50,8 +50,6 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const availableStorages = storages.filter(storage => collectionsOf(storage).some(item => item.id === categoryId));
   const storage = availableStorages.find(storage => storage.id === storageId) ?? availableStorages[0] ?? storages[0];
   const category = storage && collectionsOf(storage).find(item => item.id === categoryId);
-  const startDownload = category?.actions.includes('download') && downloads.capability.kind === 'supported'
-    ? (request: Parameters<typeof downloads.start>[0]) => downloads.start(request) : undefined;
   const scope = `${storage?.id ?? ''}:${category?.id ?? ''}`;
   useEffect(() => { setStorageId(storage?.id ?? ''); }, [storage?.id]);
   const filtered = useMemo(() => files.filter(file => file.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [files, search]);
@@ -108,10 +106,10 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   }, [scope, service, target]);
   useEffect(() => { void load(); return () => listing.current?.abort(); }, [scope, service, target, discoveryRevision]);
 
-  const download = async (start: typeof downloads.start, destination: 'default' | 'choose') => {
+  const download = async (destination: 'default' | 'choose') => {
     setQueuing(true); setDownloadError(null);
     try {
-      const result = await start({ destination, files: files.filter(file => selected.has(file.ref.fileId)).map(file => ({ file: file.ref, name: file.name, printerName: printer.identity.displayName })) });
+      const result = await downloads.start({ destination, files: files.filter(file => selected.has(file.ref.fileId)).map(file => ({ file: file.ref, name: file.name, printerName: printer.identity.displayName })) });
       if (!result.ok) setDownloadError(result.error.message);
     } catch { setDownloadError('The download could not be queued.'); }
     finally { setQueuing(false); }
@@ -166,10 +164,10 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
         <span role="status" className="text-xs text-muted-foreground">{selected.size} selected · {filtered.length} matching of {files.length} loaded</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {startDownload && <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download(startDownload, 'default')}>Download selected</Button>
-          <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download(startDownload, 'choose')}>Save as…</Button>
-        </div>}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download('default')}>Download selected</Button>
+          <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download('choose')}>Save as…</Button>
+        </div>
         {category.actions.includes('delete') && <Button size="sm" variant="destructive" disabled={!selected.size || loading || queuing}
           onClick={() => setDeleting(files.filter(file => selected.has(file.ref.fileId)))}>Delete selected</Button>}
         {category.actions.includes('inspect-print') && <Button size="sm" variant="outline" disabled={selected.size !== 1 || loading}
@@ -203,9 +201,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
           setSelected(previous => new Set([...previous].filter(id => id !== ref.fileId)));
         } else if (result.state === 'unconfirmed') setUnconfirmed(previous => new Set([...previous, ref.fileId]));
       }} />}
-    {playing && <StoredVideoDialog file={playing} downloadForSystemPlayer={startDownload && (() => startDownload({
-      files: [{ file: playing.ref, name: playing.name, printerName: printer.identity.displayName }], destination: 'default',
-    }))} onClose={() => setPlaying(null)} />}
+    {playing && <StoredVideoDialog file={playing} printerName={printer.identity.displayName} onClose={() => setPlaying(null)} />}
     {printing && <RemoteFilePrintDialog file={printing} printer={printer} onClose={() => setPrinting(null)} />}
     <PrinterDownloadTasks />
   </section></ThumbnailCacheScope>;

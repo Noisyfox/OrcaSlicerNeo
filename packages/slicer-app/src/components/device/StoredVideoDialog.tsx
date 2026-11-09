@@ -6,10 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cameraClientCapabilities } from './media/playback';
 import { StoredVideoPlayer } from './media/StoredVideoPlayer';
 
-type DownloadVideo = () => ReturnType<D.PrinterDownloads['start']>;
-
-export function StoredVideoDialog({ file, downloadForSystemPlayer, onClose }: { file: D.RemoteFile; downloadForSystemPlayer?: DownloadVideo; onClose(): void }) {
-  const { service } = usePlatform().printers;
+export function StoredVideoDialog({ file, printerName, onClose }: { file: D.RemoteFile; printerName: string; onClose(): void }) {
+  const { service, downloads } = usePlatform().printers;
   const [descriptor, setDescriptor] = useState<D.MediaDescriptor | null>(null), [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false), [queued, setQueued] = useState(false);
   const [closing, setClosing] = useState(false), [cleanupFailed, setCleanupFailed] = useState(false);
@@ -59,11 +57,11 @@ export function StoredVideoDialog({ file, downloadForSystemPlayer, onClose }: { 
     })().catch(() => { if (!abort.signal.aborted) failed('Stored video could not be played.'); });
     return () => { void close().catch(() => {}); };
   }, [service, file, failed]);
-  const save = async (download: DownloadVideo) => {
+  const save = async () => {
     setSaving(true);
     try {
       await release.current(); setDescriptor(null);
-      const result = await download();
+      const result = await downloads.start({ files: [{ file: file.ref, name: file.name, printerName }], destination: 'default' });
       if (!result.ok) setError(result.error.message); else if (result.value.status === 'queued') setQueued(true);
     } catch { setError('The video could not be queued for download.'); }
     finally { setSaving(false); }
@@ -82,8 +80,10 @@ export function StoredVideoDialog({ file, downloadForSystemPlayer, onClose }: { 
       {!descriptor && !error && !queued && <p role="status">Opening video…</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {queued && <p role="status">Download queued. When it finishes, choose Open in Storage downloads to use your system player.</p>}
-      <div className="flex justify-end gap-2">{downloadForSystemPlayer && <Button variant="outline" disabled={saving || closing || queued} onClick={() => void save(downloadForSystemPlayer)}>Download for system player</Button>}
-        <Button variant="ghost" disabled={closing} onClick={() => void close()}>{cleanupFailed ? 'Close anyway' : 'Close'}</Button></div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" disabled={saving || closing || queued} onClick={() => void save()}>Download for system player</Button>
+        <Button variant="ghost" disabled={closing} onClick={() => void close()}>{cleanupFailed ? 'Close anyway' : 'Close'}</Button>
+      </div>
     </DialogContent>
   </Dialog>;
 }
