@@ -2237,12 +2237,10 @@ delivery. Do not expose remote-file start or history-based reprint for the
 Snapmaker agent. Repeating a print may re-submit that valid slice through the
 normal preparation flow; upload-only does not persist a prepared remote-file
 binding or create a later-start workflow. Remote printer file browsing/management
-remains deferred. Snapmaker Storage browsing, file-list/thumbnail browsing,
-download and user-triggered file deletion remain outside this delivery.
-Timelapse recording options and submission remain included. The separate
-[Snapmaker camera follow-up](#82-snapmaker-u1-lan-live-view) owns the accepted
-live-view design; camera/Storage integration is not
-a completion requirement for the delivered SnapSend scope.
+remains deferred within SnapSend. The [read-only Storage follow-up](#read-only-u1-storage-follow-up)
+covers lists and thumbnails separately. Timelapse recording options and
+submission remain included in SnapSend. The
+[Snapmaker camera follow-up](#82-snapmaker-u1-lan-live-view) owns live view.
 
 The accepted delivery covers the SnapSend scope and explicit deferrals in the
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-delivery-and-connection).
@@ -2546,6 +2544,78 @@ block software delivery, and mock/host/slicing evidence must not be promoted to
 a physical or broader firmware/platform claim. Record firmware, profile and
 host conditions when physical evidence becomes available. The roadmap records software delivery separately from this physical
 qualification boundary.
+
+#### Read-only U1 Storage follow-up
+
+The [U1 Storage adapter](../packages/printer-control/src/snapmaker/storage.ts)
+uses the configured Moonraker HTTP route and its existing authentication.
+A single `GET /server/files/list?root=gcodes` on Storage entry or refresh
+populates a bounded snapshot for both collections. A leading `.udisk/` path
+segment identifies USB G-code. The firmware listing supplies file presence;
+USB mount state remains unknown when the list has no USB G-code entries.
+The adapter retains up to four five-minute snapshots and accepts up to 20,000
+entries per listing.
+Local cursors bind pages to the snapshot, storage and page size. File references
+bind previews to the printer, route, configuration revision, storage and file
+path.
+
+The adapter shares thumbnail metadata, relative-path validation and authenticated
+PNG/JPEG reads with the Monitor current-task image. Visible cards enumerate
+preview options and receive a self-contained image through the existing
+file-preview media contract. Route revisions and cancellation guard late
+responses. Electron uses the existing renderer-to-main HTTP transport. Browser
+access depends on the deployed origin, CORS and local-network permissions.
+Fixture coverage exercises both host paths, including populated USB collections
+and pagination.
+
+On 2026-11-09, read-only internal Storage acceptance passed against stock U1
+firmware `2.0.0.205_20260914173503` and Moonraker `2.0.0` on macOS ARM64.
+Electron `43.4.0` used the normal IPC route. Chrome `156.0.8078.81` used direct
+HTTP from `http://127.0.0.1:4173` with browser security enabled. Both used the
+saved LAN connection with an empty API key. Each listed 13 internal G-code
+files, decoded three sampled 300 × 300 thumbnails, exercised filename filtering,
+and recovered from an injected listing failure via Retry against the same U1.
+Request auditing confirmed entry-only discovery, snapshot reuse during storage
+switching, a fresh listing on refresh and re-entry, and GET-only device requests.
+The USB scope displayed the expected no-files status. A populated USB drive,
+large physical libraries and a deployed HTTPS browser origin remain unqualified.
+
+#### U1 stored timelapse follow-up
+
+The [timelapse adapter](../packages/printer-control/src/snapmaker/timelapse.ts)
+reads one page of up to 20 records when the user opens the internal Timelapse
+collection. It uses `camera.get_timelapse_instance` over the configured
+Moonraker WebSocket and closes the socket after each page. Cursor scope includes
+the route configuration and page size. The firmware supplies best-effort
+pagination. Video and optional cover suffixes resolve inside the configured
+printer's `/server/files/camera/` root. Cover reads use the existing thumbnail
+contract.
+
+Web uses the browser video element and the printer's direct HTTP media endpoint.
+The browser lists videos on API-key routes and offers playback on routes that
+can serve media without the key. Electron issues a temporary document-owned
+video URL under the shared `orca-printer-media:` scheme through validated IPC.
+Development and production use the same media policy for the scheme. The U1
+adapter validates grants, forwards single HTTP range requests and attaches saved
+credentials in main. The URL is retired on
+close, document navigation or configuration change. Video bytes stream into the
+player without a full-file staging step.
+
+On 2026-11-09 a stock U1 on firmware `2.0.0.205_20260914173503` completed a
+10 × 10 × 3 mm single-head PLA block through Neo Send & Print. Firmware reported
+Timelapse enabled during the task, 15/15 layers, full progress and zero targets
+for all five heaters at completion. The device recorded 545.14 seconds total
+and generated a 777,007-byte MP4 and JPEG cover for that job. The MP4 route
+returned HTTP 206 for a requested range. The
+[opt-in print harness](../apps/desktop/e2e/snapmaker-print-hardware.e2e.ts)
+can enable recording with `NEO_U1_ACCEPTANCE_TIMELAPSE=1`.
+
+On macOS ARM64, Electron 43.4.0 and Chrome 156.0.8078.81 each displayed the new
+entry and cover and decoded moving 1920 × 1080 video in the shared Storage
+player. Chrome used `http://127.0.0.1:4173` with standard browser security.
+The measured video duration was about 0.504 seconds. Both hosts used an empty
+API key. Real API-key playback on Electron, deployed HTTPS Web and larger
+physical video collections remain unqualified.
 
 ## 3. Identity, configuration and stateless access
 

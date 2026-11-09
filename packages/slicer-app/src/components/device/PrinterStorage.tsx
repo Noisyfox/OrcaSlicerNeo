@@ -67,7 +67,8 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     discovery.current?.abort(); listing.current?.abort();
     const controller = new AbortController(); discovery.current = controller;
     setDiscovering(true); setLoading(false); setError(null); setNeedsAuthorization(false);
-    if (!refresh) { setFiles([]); setCursor(null); setSelected(new Set()); }
+    setFiles([]); setCursor(null);
+    if (!refresh) setSelected(new Set());
     try {
       const result = await service.files.listStorages(target, { signal: controller.signal });
       if (controller.signal.aborted) return;
@@ -146,7 +147,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
       : storage?.browsing.kind === 'unsupported' || storage?.browsing.kind === 'unknown' ? <p role="status">{storage.browsing.reason}</p>
       : storage?.browsing.kind === 'supported' && storage.browsing.constraints.kind === 'directories' ? <p role="status">Directory browsing is not available in this view.</p> : null}
     {downloadError && <p role="alert" className="text-sm text-destructive">{downloadError}</p>}
-    {category && <>
+    {!discovering && category && storage?.availability.kind === 'available' && <>
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-40 max-w-xs flex-1"><SearchInput aria-label="Filter loaded files" placeholder="Filter loaded files…" value={search} onValueChange={setSearch} /></div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">

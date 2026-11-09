@@ -13,6 +13,7 @@ it('seeks within the downloaded range using the shared slider keyboard controls'
   const root = createRoot(container);
   const descriptor = { acceptsUserActivity: false, ref: { printerId: 'p', routeId: 'r', id: 'video' }, presentation: {
     kind: 'video', live: false, durationSeconds: 20, cachedRanges: [{ startSeconds: 0, endSeconds: 10 }],
+    delivery: { transport: 'mse-fmp4', streamId: 'stream', mimeType: 'video/mp4' },
   } } as unknown as MediaDescriptor;
   try {
     await act(async () => root.render(<StoredVideoPlayer descriptor={descriptor} media={{} as PrinterMedia} onError={vi.fn()} />));

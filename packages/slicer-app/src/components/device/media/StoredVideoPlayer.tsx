@@ -1,10 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MediaDescriptor, PrinterMedia } from '@orca/printer-control/domain';
+import type { MediaDescriptor, PrinterMedia, VideoDelivery } from '@orca/printer-control/domain';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { startStoredPlayback } from './storedPlayback';
 
 export function StoredVideoPlayer({ descriptor, media, onError }: { descriptor: MediaDescriptor; media: PrinterMedia; onError: (message: string) => void }) {
+  const presentation = descriptor.presentation;
+  if (presentation.kind === 'video' && presentation.delivery.transport === 'progressive-http') {
+    return <ProgressiveVideoPlayer delivery={presentation.delivery} onError={onError} />;
+  }
+  return <BufferedVideoPlayer descriptor={descriptor} media={media} onError={onError} />;
+}
+
+function ProgressiveVideoPlayer({ delivery, onError }: { delivery: Extract<VideoDelivery, { transport: 'progressive-http' | 'hls' | 'mjpeg' }>; onError: (message: string) => void }) {
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const element = video.current!;
+    element.src = delivery.url;
+    return () => { element.pause(); element.removeAttribute('src'); element.load(); };
+  }, [delivery.url]);
+  return <div data-testid="stored-video-player">
+    <video ref={video} className="aspect-video max-h-[55vh] w-full bg-black object-contain" aria-label="Stored video" controls autoPlay muted playsInline
+      crossOrigin={delivery.credentials === 'include' ? 'use-credentials' : 'anonymous'}
+      onError={() => onError('Stored video could not be played.')} />
+  </div>;
+}
+
+function BufferedVideoPlayer({ descriptor, media, onError }: { descriptor: MediaDescriptor; media: PrinterMedia; onError: (message: string) => void }) {
   const video = useRef<HTMLVideoElement>(null), player = useRef<ReturnType<typeof startStoredPlayback> | null>(null);
   const cleanup = useRef(Promise.resolve()), latest = useRef({ descriptor, onError }); latest.current = { descriptor, onError };
   const [position, setPosition] = useState(0), [paused, setPaused] = useState(false);

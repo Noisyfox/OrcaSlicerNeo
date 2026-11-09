@@ -93,6 +93,7 @@ const bridge: ElectronBridge = {
   },
 
   printers: {
+    timelapses: { call: (method, input) => ipcRenderer.invoke(Ipc.snapmakerTimelapse, { method, input }) },
     camera: {
       call: (method, input) => ipcRenderer.invoke(Ipc.snapmakerCamera, { method, input }),
       connect: request => ipcRenderer.send(Ipc.snapmakerCameraConnect, request),

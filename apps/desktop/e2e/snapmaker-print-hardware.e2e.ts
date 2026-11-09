@@ -9,6 +9,7 @@ import { selectFixturePrinter } from './printer-selection';
 
 const configPath = process.env.NEO_U1_ACCEPTANCE_CONFIG;
 const headCount = Number(process.env.NEO_U1_ACCEPTANCE_HEADS ?? '1');
+const timelapse = process.env.NEO_U1_ACCEPTANCE_TIMELAPSE === '1';
 if (![1, 4].includes(headCount)) throw new Error('NEO_U1_ACCEPTANCE_HEADS must be 1 or 4');
 
 interface PrintEvidence {
@@ -16,12 +17,12 @@ interface PrintEvidence {
   progress: number;
   activeExtruder: string;
   heaters: { target: number }[];
-  task: { mapping: number[]; usedHeads: boolean[] };
+  task: { mapping: number[]; usedHeads: boolean[]; timelapse?: boolean };
 }
 
 function verifyCompletedPrint(observations: readonly PrintEvidence[], heads = 1, layers = 15) {
   const printing = observations.find(observation => observation.print.state === 'printing');
-  const completed = observations.find(observation => observation.print.state === 'complete');
+  const completed = observations.find(observation => observation.print.state === 'complete' && observation.print.filename === printing?.print.filename);
   expect(printing).toBeDefined();
   expect(completed).toBeDefined();
   expect(completed?.print.filename).toBe(printing?.print.filename);
@@ -31,6 +32,7 @@ function verifyCompletedPrint(observations: readonly PrintEvidence[], heads = 1,
   // Firmware clears active task flags at completion. Use the printing snapshot.
   expect(printing?.task.usedHeads).toEqual(Array.from({ length: 4 }, (_, index) => index < heads));
   expect(printing?.task.mapping.slice(0, heads)).toEqual(Array.from({ length: heads }, (_, index) => index));
+  if (timelapse) expect(printing?.task.timelapse).toBe(true);
   expect(completed?.heaters.map(heater => heater.target)).toEqual([0, 0, 0, 0, 0]);
   if (heads > 1) {
     for (let index = 0; index < heads; index++) {
@@ -129,8 +131,10 @@ test(`real U1 slices and prints a ${headCount}-head PLA test through Send and Pr
     await expect(mapping.getByTestId('mapping-mode-2')).toHaveAttribute('aria-pressed', 'true');
     for (let slot = 1; slot <= headCount; slot++) {
       const target = mapping.getByTestId(`mapping-filament-${slot}`);
-      await target.click();
-      await page.locator(`[id="${await target.getAttribute('aria-controls')}"]`).getByRole('option', { name: `Nozzle ${slot}`, exact: true }).click();
+      if (!(await target.innerText()).includes(`Nozzle ${slot}`)) {
+        await target.click();
+        await page.getByRole('option', { name: `Nozzle ${slot}`, exact: true }).click();
+      }
       await expect(target).toContainText(`Nozzle ${slot}`);
     }
     await mapping.getByRole('button', { name: 'Confirm and slice', exact: true }).click();
@@ -145,7 +149,7 @@ test(`real U1 slices and prints a ${headCount}-head PLA test through Send and Pr
     await expect(dialog.getByTestId('send-printer-select')).toContainText(selected.displayName);
     for (let slot = 1; slot <= headCount; slot++)
       await expect(dialog.getByLabel(`Material ${slot} source`, { exact: true })).toHaveAttribute('data-source', `snapmaker-path:${slot - 1}`);
-    for (const [label, value] of [['Bed leveling', 'On'], ['Flow calibration', 'Off'], ['Timelapse', 'Off']]) {
+    for (const [label, value] of [['Bed leveling', 'On'], ['Flow calibration', 'Off'], ['Timelapse', timelapse ? 'On' : 'Off']]) {
       await dialog.getByRole('group', { name: label, exact: true }).getByRole('button', { name: value, exact: true }).click();
     }
     await dialog.getByRole('button', { name: 'Rename print job', exact: true }).click();

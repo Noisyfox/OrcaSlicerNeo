@@ -2876,23 +2876,49 @@ The configured model and native model matcher narrow the target list, while
 fresh agent observations supply actual toolheads, nozzles, loaded materials
 and readiness. Model equality alone does not validate a material binding.
 
-Printer-file browsing/management remains deferred in this delivery. The separate
-[camera follow-up](#snapmaker-camera-live-view) records the selected live-view
-design and its separate completion requirements.
+The [Storage follow-up](#snapmaker-u1-storage-browsing) and
+[camera follow-up](#snapmaker-camera-live-view) have separate delivery scopes.
 The current-task image in Monitor uses the printer's available thumbnail,
 including for jobs started outside Neo. It remains scoped to the reported task
 and route, and uses the shared placeholder when no image is available.
-Do not add a Snapmaker Storage browser, file-list/thumbnail browsing, remote-file
-downloads or user-triggered file deletion. These features are not completion
-requirements for the accepted SnapSend scope. Keep the accepted timelapse
-recording switch, upload and Send & Print paths. Starting remote files and
-history-based reprinting remain deferred above; retaining an uploaded file does
-not imply that Neo provides a browser for managing it.
+The accepted SnapSend scope covers the timelapse recording switch, upload and
+Send & Print. Downloads, deletion, starting remote files and history-based
+reprinting remain deferred.
 
 Persistent printer preferences, the current submission's choices and Neo's
 remembered defaults retain the separate save/apply behavior above. UI state
 refresh should preserve user assignments and unsaved edits, while reporting
 changed compatibility or availability.
+
+### Snapmaker U1 Storage browsing
+
+The shared Device Storage page presents an internal and a USB G-code collection
+for a configured Snapmaker LAN route in Electron and browser-direct Web.
+It uses the existing loaded-file filter, date grouping, pagination and
+viewport thumbnail loading. Selection is available across collections. File
+actions follow the collection's advertised operations. Refresh and entry load
+a fresh list. An absent thumbnail uses
+the file placeholder. If the printer reports no USB G-code files, the page
+reports that result while the mount state stays unknown.
+
+This increment covers G-code browsing and thumbnails. File downloads, deletion
+and starting existing device files remain deferred.
+The [provider implementation and qualification](Printer%20Domain%20and%20Control%20Architecture.md#read-only-u1-storage-follow-up)
+define the HTTP and host boundaries.
+
+### Snapmaker U1 stored timelapses
+
+Device Storage offers an internal **Timelapse** collection for the configured
+Snapmaker route. It shows completed videos with their print name, optional cover,
+size and date. Select a video and choose **Play selected video** to open the
+shared stored-video dialog. Close the viewer, change storage scope or leave the
+page to release playback. This delivery covers browsing and playback.
+
+Electron plays through a document-scoped streaming relay. Web plays directly
+when the browser can reach and authorize the printer's media URL without a
+custom API-key header. The
+[timelapse protocol and qualification](Printer%20Domain%20and%20Control%20Architecture.md#u1-stored-timelapse-follow-up)
+record the host behavior and physical acceptance.
 
 ### Snapmaker camera live view
 

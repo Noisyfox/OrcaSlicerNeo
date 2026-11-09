@@ -1,4 +1,4 @@
-import { startSnapmakerFixture } from './snapmaker-fixture';
+import { startSnapmakerFixture, usbGcodeName } from './snapmaker-fixture';
 import { _electron } from './electron-fixture';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -609,6 +609,37 @@ test('Send & Print works with a keyless Moonraker printer and sends no API-key h
   }
 });
 
+
+test('Snapmaker U1 Storage browses internal and USB G-code over Electron IPC', async () => {
+  const fixture = await startSnapmakerFixture();
+  const { app } = await launchApp({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture', apiBaseUrl: fixture.baseUrl, apiKey: 'fixture-key', consoleUrl: '' }] });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId('device-select-u1').click();
+    expect(fixture.storageListReads()).toBe(0);
+    await page.locator('#device-tab-storage').click();
+    const storage = page.getByTestId('printer-storage');
+    await expect(storage.getByText('no-preview.gcode', { exact: true })).toBeVisible();
+    await expect(storage.getByRole('img', { name: 'Thumbnail of external.gcode' })).toHaveJSProperty('naturalWidth', 1);
+    await expect(storage.getByRole('img', { name: 'Thumbnail of no-preview.gcode' })).toHaveCount(0);
+    await storage.getByRole('checkbox', { name: 'Select external.gcode', exact: true }).check();
+    await expect(storage.getByRole('status').filter({ hasText: '1 selected' })).toBeVisible();
+    await expect(storage.getByRole('button', { name: /Download selected|Delete selected|Print selected file|Play selected video/ })).toHaveCount(0);
+    await storage.getByRole('combobox', { name: 'Storage' }).click();
+    await page.getByRole('option', { name: 'USB drive' }).click();
+    await expect(storage.getByRole('img', { name: `Thumbnail of ${usbGcodeName}` })).toHaveJSProperty('naturalWidth', 1);
+    await expect(storage.getByText('external.gcode', { exact: true })).toHaveCount(0);
+    expect(fixture.storageListReads()).toBe(1);
+    fixture.setUsbStoragePresent(false);
+    await storage.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(storage.getByText(/No USB G-code files were reported/)).toBeVisible();
+    await expect(storage.getByText(usbGcodeName, { exact: true })).toHaveCount(0);
+    expect(fixture.storageListReads()).toBe(2);
+  } finally { await app.close(); await fixture.close(); }
+});
 
 test('Snapmaker Device uses Electron transport for physical controls and verified preferences', async ({}, testInfo) => {
   const fixture = await startSnapmakerFixture();

@@ -10,6 +10,8 @@ import { externalHttpsUrl } from '../../../../packages/platform-contract/src/ext
 import { BambuMediaIpc } from './bambuMediaIpc';
 import { SnapmakerCameraIpc } from './snapmakerCameraIpc';
 import { SnapmakerCameraUtility } from './snapmakerCameraUtility';
+import { SnapmakerTimelapseHost } from './snapmakerTimelapses';
+import { printerMediaCsp, printerMediaScheme } from '../shared/printerMedia';
 import { loadPrinterConfigurationFile } from './printerConfigurationPersistence';
 import { compareAndSwapPreferences, savePreferences } from './preferencePersistence';
 import { withFileLock } from './fileLock';
@@ -18,7 +20,7 @@ import { isBambuControlRequest } from '../shared/bambuControl';
 import { BambuUtility, bambuPaths, createBambuIpc } from './bambuUtility';
 import { BambuLogin } from './bambuLogin';
 import { BAMBU_REGIONS, isBambuPrinterCommand, isBambuCommand, unavailableBambuAccount } from '../shared/bambu';
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell, type WebContents } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { dirname, extname, join, sep } from 'node:path';
@@ -45,6 +47,9 @@ import { attachSlicerUtility, stopSlicerUtilities } from './slicerUtility';
 import { rendererIsolationHeaders } from './sessionHeaders';
 
 declare const __ORCA_E2E__: boolean;
+
+protocol.registerSchemesAsPrivileged([{ scheme: printerMediaScheme,
+  privileges: { standard: true, secure: true, stream: true, corsEnabled: true, supportFetchAPI: true } }]);
 
 // Chromium documents this as a preference for a discrete GPU when multiple
 // adapters are available. It does not name or require a particular GPU; the
@@ -471,6 +476,10 @@ function registerIpc(): void {
   }, isCurrentRenderer, () => loadPrinterConfigurationFile(printerConfigurationPath(), { readText: path => readFile(path, 'utf8') }));
   ipcMain.handle(Ipc.snapmakerCamera, (event, request: unknown) => snapmakerCameraIpc.call(event, request));
   ipcMain.on(Ipc.snapmakerCameraConnect, (event, request: unknown) => { try { snapmakerCameraIpc.connect(event, request); } catch { /* Ignore invalid or retired documents. */ } });
+  const snapmakerTimelapses = new SnapmakerTimelapseHost(
+    () => loadPrinterConfigurationFile(printerConfigurationPath(), { readText: path => readFile(path, 'utf8') }), isCurrentRenderer);
+  ipcMain.handle(Ipc.snapmakerTimelapse, (event, request: unknown) => snapmakerTimelapses.call(event, request));
+  protocol.handle(printerMediaScheme, request => snapmakerTimelapses.serve(request));
   ipcMain.handle(Ipc.bambuMedia, (event, request: unknown) => cameraIpc.call(event, request));
   ipcMain.on(Ipc.bambuMediaConnect, (event, request: unknown) => { try { cameraIpc.connect(event, request); } catch { /* Reject guest/invalid requests without exposing private state. */ } });
 
@@ -546,6 +555,7 @@ function registerIpc(): void {
   ipcMain.handle(Ipc.printerConfigurationSave, async (event, document: unknown): Promise<void> => {
     await printerConfigurationIpc.save(event.sender, document);
     await snapmakerCameraIpc.configurationChanged();
+    snapmakerTimelapses.configurationChanged();
     for (const window of BrowserWindow.getAllWindows()) {
       if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.printerConfigurationChanged);
     }
@@ -676,7 +686,7 @@ function startRendererServer(): void {
         'content-security-policy':
           "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
           // Bed artwork is decoded from Worker filesystem bytes via Blob URLs.
-          "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; " +
+          `style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; ${printerMediaCsp} ` +
           // The Vite e2e/mock renderer emits its bundled module worker as a
           // data URL. Keep this narrowly scoped to workers, not scripts.
           // Shared thumbnails copy temporary Blob images before releasing provider leases.

@@ -36,22 +36,25 @@ export function StoredVideoDialog({ file, printerName, onClose }: { file: D.Remo
       const previews = await service.files.listPreviews(file.ref, { signal: abort.signal }); if (abort.signal.aborted) return;
       if (!previews.ok) { failed(previews.error.message); return; }
       const preview = previews.value.options.find(option => option.kind === 'video');
-      if (!preview) { failed('This file has no embedded video preview. Download it to use a system player.'); return; }
+      if (!preview) { failed('This file has no video preview.'); return; }
+      const client = cameraClientCapabilities();
       const result = await service.media.open({ requestId: crypto.randomUUID() as D.Id<'request'>,
         target: { printerId: file.ref.printerId, routeId: file.ref.routeId, expectedConfigurationRevision: file.ref.configurationRevision },
-        source: { kind: 'file-preview', target: file.ref, previewId: preview.id }, client: { ...cameraClientCapabilities(), video: cameraClientCapabilities().video.filter(v => v.transport === 'mse-fmp4') } }, { signal: abort.signal });
+        source: { kind: 'file-preview', target: file.ref, previewId: preview.id },
+        client: { ...client, video: client.video.filter(v => v.transport === 'mse-fmp4' || v.transport === 'progressive-http') } }, { signal: abort.signal });
       if (!result.ok) { if (!abort.signal.aborted) failed(result.error.message); return; }
       owned = result.value.ref;
       if (abort.signal.aborted) { await service.media.close(owned); return; }
       if (result.value.presentation.kind !== 'video' || result.value.presentation.live) { failed('This file has no stored video presentation.'); return; }
       setDescriptor(result.value); renew(result.value);
+      if (result.value.presentation.delivery.transport === 'progressive-http') return;
       for await (const event of service.media.watch(owned, { signal: abort.signal })) {
         if (abort.signal.aborted) return;
         if (event.payload.type === 'descriptor') setDescriptor(event.payload.descriptor);
         if (event.payload.type === 'error') { failed(event.payload.error.message); return; }
         if (event.payload.type === 'closed') { failed('The video was closed.'); return; }
       }
-    })().catch(() => { if (!abort.signal.aborted) failed('Stored video could not be played. Download it to use a system player.'); });
+    })().catch(() => { if (!abort.signal.aborted) failed('Stored video could not be played.'); });
     return () => { void close().catch(() => {}); };
   }, [service, file, failed]);
   const save = async () => {
@@ -74,11 +77,13 @@ export function StoredVideoDialog({ file, printerName, onClose }: { file: D.Remo
   return <Dialog open onOpenChange={open => { if (!open) void close(); }}>
     <DialogContent className="sm:max-w-4xl"><DialogHeader><DialogTitle>Stored video</DialogTitle><DialogDescription>{file.name}</DialogDescription></DialogHeader>
       {descriptor && !error && <StoredVideoPlayer descriptor={descriptor} media={service.media} onError={failed} />}
-      {!descriptor && !error && !queued && <p role="status">Waiting for a transfer slot and reading video…</p>}
+      {!descriptor && !error && !queued && <p role="status">Opening video…</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {queued && <p role="status">Download queued. When it finishes, choose Open in Storage downloads to use your system player.</p>}
-      <div className="flex justify-end gap-2"><Button variant="outline" disabled={saving || closing || queued || downloads.capability.kind !== 'supported'} onClick={() => void save()}>Download for system player</Button>
-        <Button variant="ghost" disabled={closing} onClick={() => void close()}>{cleanupFailed ? 'Close anyway' : 'Close'}</Button></div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" disabled={saving || closing || queued || downloads.capability.kind !== 'supported'} onClick={() => void save()}>Download for system player</Button>
+        <Button variant="ghost" disabled={closing} onClick={() => void close()}>{cleanupFailed ? 'Close anyway' : 'Close'}</Button>
+      </div>
     </DialogContent>
   </Dialog>;
 }

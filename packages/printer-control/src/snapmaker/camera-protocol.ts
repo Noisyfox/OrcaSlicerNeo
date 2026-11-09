@@ -191,6 +191,10 @@ export class U1CameraControl {
   async stop(signal?: AbortSignal): Promise<void> {
     await this.request('camera.stop_monitor', { domain: 'lan', clientid: this.clientId }, signal);
   }
+  listTimelapses(page: number, rows: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const requestId = crypto.getRandomValues(new Uint32Array(1))[0];
+    return this.request('camera.get_timelapse_instance', { req_id: requestId, page_index: page, page_rows: rows, thumbnail_direct: false }, signal);
+  }
   close(): void { this.finish(failure('cancelled', 'Camera connection closed.')); }
 }
 

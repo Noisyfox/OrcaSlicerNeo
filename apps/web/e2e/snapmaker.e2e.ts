@@ -1,4 +1,4 @@
-import { startSnapmakerFixture } from '../../desktop/e2e/snapmaker-fixture';
+import { startSnapmakerFixture, usbGcodeName } from '../../desktop/e2e/snapmaker-fixture';
 import { test, expect } from './browser-fixture';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -49,6 +49,29 @@ test('Web persists a manual Snapmaker connection without a model or printer acce
   await expect(page.getByTestId('device-adapter')).toContainText('Snapmaker');
 });
 
+
+test('Web U1 Storage uses direct CORS transport for USB listings and thumbnails', async ({ page }) => {
+  const fixture = await startSnapmakerFixture();
+  try {
+    await page.addInitScript(baseUrl => localStorage.setItem('orca-slicer-neo:printer-configuration:v1', JSON.stringify({ version: 1,
+      printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture', apiBaseUrl: baseUrl, apiKey: 'fixture-key', consoleUrl: '' }] })), fixture.baseUrl);
+    await page.goto('/');
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId('device-select-u1').click();
+    await page.locator('#device-tab-storage').click();
+    const storage = page.getByTestId('printer-storage');
+    await expect(storage.getByRole('img', { name: 'Thumbnail of external.gcode' })).toHaveJSProperty('naturalWidth', 1);
+    await storage.getByRole('checkbox', { name: 'Select external.gcode', exact: true }).check();
+    await expect(storage.getByRole('status').filter({ hasText: '1 selected' })).toBeVisible();
+    await expect(storage.getByRole('button', { name: /Download selected|Delete selected|Print selected file|Play selected video/ })).toHaveCount(0);
+    await storage.getByRole('combobox', { name: 'Storage' }).click();
+    await page.getByRole('option', { name: 'USB drive' }).click();
+    await expect(storage.getByRole('img', { name: `Thumbnail of ${usbGcodeName}` })).toHaveJSProperty('naturalWidth', 1);
+    expect(fixture.storageListReads()).toBe(1);
+  } finally { await fixture.close(); }
+});
 
 test('Web U1 direct transport monitors and saves preferences without a gateway', async ({ page }) => {
   const fixture = await startSnapmakerFixture();

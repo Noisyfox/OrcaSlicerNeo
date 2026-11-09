@@ -31,7 +31,7 @@ test('dev HTML revalidation delivers the current CSP while modules retain condit
       headers['content-security-policy'] = currentPolicy;
       const revalidated = await fetch(new URL(path, origin), { headers: { accept: 'text/html', 'if-none-match': etag! } });
       expect(revalidated.status).toBe(200);
-      expect(revalidated.headers.get('content-security-policy')).toContain("media-src 'self' blob:");
+      expect(revalidated.headers.get('content-security-policy')).toContain("media-src 'self' blob: orca-printer-media:;");
       expect(revalidated.headers.get('content-security-policy')).toContain("connect-src 'self' blob:;");
       expect(await revalidated.text()).toBe(html);
     }

@@ -28,8 +28,9 @@ export interface HttpServiceBehavior {
   capabilities(entry?: ConfigurationEntry): D.PrinterCapabilities;
   observations?: D.PrinterObservations;
   submissions?: D.PrinterSubmissions;
+  files?: Pick<D.PrinterFiles, 'listStorages' | 'list' | 'listPreviews'>;
   readCurrentPrintPreview?: D.PrinterMedia['readCurrentPrintPreview'];
-  media?: Pick<D.PrinterMedia, 'open' | 'watch' | 'readStream' | 'renew' | 'interact' | 'close'>;
+  media?: Partial<Pick<D.PrinterMedia, 'open' | 'watch' | 'readStream' | 'renew' | 'interact' | 'close'>>;
   validateTask?(resolved: ResolvedConfiguration, taskId: D.Id<'device-task'>): Promise<void>;
   validateCommand?(resolved: ResolvedConfiguration, command: D.PrinterCommand): Promise<void>;
   retainOperation?(resolved: ResolvedConfiguration, command?: D.PrinterCommand): () => void;
@@ -252,6 +253,7 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
   };
   const files: D.PrinterFiles = {
     listStorages: async () => rejected(), list: async () => rejected(), stat: async () => rejected(), download: async () => rejected(), listPreviews: async () => rejected(), watchChanges: unsupportedStream,
+    ...behavior.files,
     upload: async (request, source) => {
       try {
         request = copy(request);
