@@ -692,7 +692,7 @@ function AppContent() {
           {titleBar}
           <main className="flex flex-1 items-center justify-center">
             <section className="flex w-full max-w-lg flex-col gap-3 rounded-md border bg-card p-8 shadow-sm">
-              <header className="flex flex-col gap-1">
+              <header className="flex flex-col gap-0.5">
                 <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
                 <p className="text-xs text-muted-foreground" data-testid="startup-version">
                   v{NEO_VERSION} base on OrcaSlicer {ORCA_VERSION}
