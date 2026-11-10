@@ -1,4 +1,4 @@
-export type PrinterHttpMethod = 'GET' | 'POST';
+export type PrinterHttpMethod = 'GET' | 'POST' | 'DELETE';
 
 export interface PrinterJsonBody {
   kind: 'json';

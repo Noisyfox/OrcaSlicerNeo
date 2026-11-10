@@ -25,5 +25,10 @@ export function snapmakerTimelapses(bridge: SnapmakerTimelapseBridge): U1Timelap
       const { id, url } = unwrap(await bridge.call('open', { printerId: printer.id, configurationDigest, video }));
       return { url, close: async () => { unwrap(await bridge.call('close', { id })); } };
     },
+    async delete(printer, dateIndex, signal) {
+      const configurationDigest = await cameraConfigurationDigest(printer);
+      signal.throwIfAborted();
+      return bridge.call('delete', { printerId: printer.id, configurationDigest, dateIndex });
+    },
   };
 }

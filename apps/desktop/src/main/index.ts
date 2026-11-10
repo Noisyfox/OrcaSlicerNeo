@@ -1,6 +1,8 @@
 import { DesktopPrinterDownloads } from './printerDownloads';
 import { StoredMediaQueue } from './storedMediaQueue';
 import { bambuDownloadBinding } from './bambuDownloads';
+import { snapmakerDownloadBinding } from './snapmakerDownloads';
+import type { DownloadRecovery } from '../utility/downloadFiles';
 import { downloadDestinationHost } from './downloadDestination';
 import { isDownloadRequest } from '../shared/printerDownloads';
 import { loadNativeScreenColorSampler } from '@orca/color-sampler-native';
@@ -152,9 +154,10 @@ let snapmakerCameraCleanup: Promise<void> | undefined;
 let snapmakerCameraStopped = false;
 let bambuLogin: BambuLogin | null = null;
 let bambuDirectory: string | null = null;
-let bambuCleanup: Promise<void> | null = null;
-let bambuStopped = false;
+let downloadHostsCleanup: Promise<void> | null = null;
+let downloadHostsStopped = false;
 let printerDownloads: DesktopPrinterDownloads;
+let snapmakerDownloads: ReturnType<typeof snapmakerDownloadBinding> | undefined;
 let closingDownloads = false;
 
 function isCurrentRenderer(sender: WebContents): boolean {
@@ -724,9 +727,14 @@ app.whenReady().then(() => {
     });
   } catch { bambuUtility = null; }
   const downloadDirectory = process.env.ORCA_E2E === '1' ? join(bambuDirectory!, 'downloads') : join(app.getPath('userData'), 'downloads');
-  printerDownloads = new DesktopPrinterDownloads(bambuUtility ? [bambuDownloadBinding(bambuUtility, join(downloadDirectory, 'journal'), () => {
-    void dialog.showMessageBox({ type: 'warning', message: 'Some interrupted download files could not be cleaned up.', detail: 'Completed downloads are preserved. Unrecognized records were left untouched.', buttons: ['OK'] });
-  })] : [],
+  const reportDownloadRecovery = ({ failed, ignored }: DownloadRecovery) => {
+    if (failed || ignored) void dialog.showMessageBox({ type: 'warning', message: 'Some interrupted download files could not be cleaned up.', detail: 'Completed downloads are preserved. Unrecognized records were left untouched.', buttons: ['OK'] });
+  };
+  snapmakerDownloads = snapmakerDownloadBinding(
+    () => loadPrinterConfigurationFile(printerConfigurationPath(), { readText: path => readFile(path, 'utf8') }),
+    join(downloadDirectory, 'snapmaker-journal'), reportDownloadRecovery);
+  printerDownloads = new DesktopPrinterDownloads([snapmakerDownloads.binding,
+    ...(bambuUtility ? [bambuDownloadBinding(bambuUtility, join(downloadDirectory, 'journal'), reportDownloadRecovery)] : [])],
     downloadDestinationHost(downloadDirectory, () => mainWindow));
   printerDownloads.onChanged(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(Ipc.printerDownloadChanged); });
   setupSessionHeaders();
@@ -760,12 +768,13 @@ app.on('will-quit', (event) => {
     snapmakerCameraCleanup ??= snapmakerCameraUtility.close().catch(() => undefined).then(() => { snapmakerCameraStopped = true; app.quit(); });
     return;
   }
-  if (!bambuStopped && bambuUtility) {
+  if (!downloadHostsStopped && (bambuUtility || snapmakerDownloads)) {
     event.preventDefault();
     bambuLogin?.dispose();
-    if (!bambuCleanup) bambuCleanup = printerDownloads.close().catch(() => undefined).then(() => bambuUtility!.close()).catch(() => undefined).then(async () => {
+    if (!downloadHostsCleanup) downloadHostsCleanup = printerDownloads.close().catch(() => undefined)
+      .then(() => Promise.allSettled([snapmakerDownloads?.close(), bambuUtility?.close()])).then(async () => {
       if (process.env.ORCA_E2E === '1' && !process.env.ORCA_E2E_BAMBU_DIRECTORY && bambuDirectory) await rm(bambuDirectory, { recursive: true, force: true }).catch(() => undefined);
-      bambuStopped = true; app.quit();
+      downloadHostsStopped = true; app.quit();
     });
     return;
   }

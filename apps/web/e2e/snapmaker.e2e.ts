@@ -1,4 +1,4 @@
-import { startSnapmakerFixture, usbGcodeName } from '../../desktop/e2e/snapmaker-fixture';
+import { fixtureGcode, fixtureTimelapse, fixtureTimelapseIndex, startSnapmakerFixture, usbGcodeName } from '../../desktop/e2e/snapmaker-fixture';
 import { test, expect } from './browser-fixture';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -50,9 +50,13 @@ test('Web persists a manual Snapmaker connection without a model or printer acce
 });
 
 
-test('Web U1 Storage uses direct CORS transport for USB listings and thumbnails', async ({ page }) => {
+test('Web U1 Storage browses, downloads and deletes over direct CORS transport', async ({ page }) => {
   const fixture = await startSnapmakerFixture();
   try {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'showSaveFilePicker', { value: async ({ suggestedName }: { suggestedName: string }) =>
+        (await navigator.storage.getDirectory()).getFileHandle(suggestedName, { create: true }) });
+    });
     await page.addInitScript(baseUrl => localStorage.setItem('orca-slicer-neo:printer-configuration:v1', JSON.stringify({ version: 1,
       printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture', apiBaseUrl: baseUrl, apiKey: 'fixture-key', consoleUrl: '' }] })), fixture.baseUrl);
     await page.goto('/');
@@ -65,11 +69,36 @@ test('Web U1 Storage uses direct CORS transport for USB listings and thumbnails'
     await expect(storage.getByRole('img', { name: 'Thumbnail of external.gcode' })).toHaveJSProperty('naturalWidth', 1);
     await storage.getByRole('checkbox', { name: 'Select external.gcode', exact: true }).check();
     await expect(storage.getByRole('status').filter({ hasText: '1 selected' })).toBeVisible();
-    await expect(storage.getByRole('button', { name: /Download selected|Delete selected|Print selected file|Play selected video/ })).toHaveCount(0);
+    await storage.getByRole('button', { name: 'Download selected', exact: true }).click();
+    const saved = (name: string) => page.evaluate(async filename => {
+      try {
+        const handle = await (await navigator.storage.getDirectory()).getFileHandle(filename);
+        return (await handle.getFile()).text();
+      } catch { return null; }
+    }, name);
+    await expect.poll(() => saved('external.gcode')).toBe(fixtureGcode);
+    expect(fixture.downloads).toEqual([{ name: 'external.gcode', key: 'fixture-key' }]);
+    await expect(storage.getByRole('button', { name: /Print selected file|Play selected video/ })).toHaveCount(0);
+    await storage.getByRole('button', { name: 'Delete selected', exact: true }).click();
+    expect(fixture.deleted).toEqual([]);
+    const confirmation = page.getByRole('dialog', { name: /Delete printer files\?|File deletion/ });
+    await confirmation.getByRole('button', { name: 'Delete files', exact: true }).click();
+    await expect(confirmation.getByRole('status')).toContainText('1 deleted');
+    await confirmation.getByRole('button', { name: 'Close', exact: true }).last().click();
+    expect(fixture.deleted).toEqual(['external.gcode']);
     await storage.getByRole('combobox', { name: 'Storage' }).click();
     await page.getByRole('option', { name: 'USB drive' }).click();
     await expect(storage.getByRole('img', { name: `Thumbnail of ${usbGcodeName}` })).toHaveJSProperty('naturalWidth', 1);
-    expect(fixture.storageListReads()).toBe(1);
+    expect(fixture.storageListReads()).toBe(2);
+    await storage.getByRole('tab', { name: 'Timelapse', exact: true }).click();
+    await storage.getByRole('checkbox', { name: 'Select Fixture video.mp4', exact: true }).check();
+    await storage.getByRole('button', { name: 'Download selected', exact: true }).click();
+    await expect.poll(() => saved('Fixture video.mp4')).toBe(fixtureTimelapse);
+    expect(fixture.downloads.at(-1)).toEqual({ name: 'fixture.mp4', key: 'fixture-key' });
+    await storage.getByRole('button', { name: 'Delete selected', exact: true }).click();
+    await confirmation.getByRole('button', { name: 'Delete files', exact: true }).click();
+    await expect(confirmation.getByRole('status')).toContainText('1 deleted');
+    expect(fixture.deleted).toEqual(['external.gcode', fixtureTimelapseIndex]);
   } finally { await fixture.close(); }
 });
 

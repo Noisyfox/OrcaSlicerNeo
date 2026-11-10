@@ -1,14 +1,14 @@
 import type { PrinterConfiguration } from '../configuration';
 import type * as D from '../domain';
 import { safe, type HttpServiceContext } from '../http-service';
-import { endpoint, fail, record } from '../moonraker-http';
+import { endpoint, fail, MoonrakerFailure, record } from '../moonraker-http';
 import { copy } from '../operations';
 import { U1CameraControl, type U1CameraControlOptions } from './camera-protocol';
-import { inlineThumbnail, isRelativeFilePath, readThumbnail } from './file-thumbnail';
+import { inlineThumbnail, readThumbnail } from './file-thumbnail';
+import { isU1TimelapseIndex, u1FileId, u1InternalStorage as internal, u1StorageRouteDigest, u1TimelapseAsset as assetPath,
+  u1TimelapseAssetEndpoint, u1TimelapsePrefix as filePrefix, u1TimelapseRef } from './file-reference';
 
 export const u1TimelapseCollectionId = 'timelapse' as D.Id<'file-collection'>;
-const internal = 'internal' as D.Id<'storage'>;
-const filePrefix = 'snapmaker-timelapse:';
 const mediaPrefix = 'snapmaker-timelapse-media:';
 
 interface TimelapseEntry {
@@ -30,22 +30,13 @@ export interface U1TimelapseTransport {
   list(printer: Readonly<PrinterConfiguration>, page: number, rows: number, signal: AbortSignal): Promise<U1TimelapsePage>;
   canPlay(printer: Readonly<PrinterConfiguration>): boolean;
   open(printer: Readonly<PrinterConfiguration>, video: string, signal: AbortSignal): Promise<{ url: string; close?: () => Promise<void> }>;
-}
-
-function assetPath(path: unknown, kind: 'video' | 'cover'): path is string {
-  return typeof path === 'string' && path.length <= 4096 && path.startsWith('/files/camera/') && isRelativeFilePath(path.slice('/files/camera/'.length))
-    && (kind === 'video' ? /\.mp4$/i : /\.(png|jpe?g)$/i).test(path);
+  delete(printer: Readonly<PrinterConfiguration>, dateIndex: string, signal: AbortSignal): Promise<D.Result<null>>;
 }
 
 function durationSeconds(value: unknown): number | null {
   if (typeof value !== 'string' || !/^\d+:\d{2}(?::\d{2})?$/.test(value)) return null;
   const seconds = value.split(':').reduce((sum, part) => sum * 60 + Number(part), 0);
   return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null;
-}
-
-export function u1TimelapseAssetEndpoint(path: string, kind: 'video' | 'cover'): string {
-  if (!assetPath(path, kind)) fail('invalid-target', 'Invalid U1 timelapse asset.');
-  return `/server${path.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 export function u1TimelapseVideoUrl(printer: Pick<PrinterConfiguration, 'apiBaseUrl'>, path: string): string {
@@ -62,7 +53,7 @@ export async function readU1TimelapsePage(printer: Pick<PrinterConfiguration, 'a
     const entries: TimelapseEntry[] = [];
     for (const value of instances) {
       const item = record(value), video = item.video_local_url_suffix;
-      if (!assetPath(video, 'video') || typeof item.date_index !== 'string' || !item.date_index) continue;
+      if (!assetPath(video, 'video') || !isU1TimelapseIndex(item.date_index)) continue;
       const name = typeof item.gcode_name === 'string' && item.gcode_name ? item.gcode_name : video.slice(video.lastIndexOf('/') + 1);
       const stamp = typeof item.unix_timestamp_s === 'number' ? item.unix_timestamp_s * 1000 : NaN;
       const cover = item.cover_local_url_suffix;
@@ -74,6 +65,16 @@ export async function readU1TimelapsePage(printer: Pick<PrinterConfiguration, 'a
   } finally { control.close(); }
 }
 
+export function deleteU1Timelapse(printer: Pick<PrinterConfiguration, 'apiBaseUrl' | 'apiKey'>, dateIndex: string,
+  options: Pick<U1CameraControlOptions, 'http' | 'sockets'>, signal: AbortSignal): Promise<D.Result<null>> {
+  return safe(async () => {
+    if (!/^\d{14}$/.test(dateIndex)) fail('invalid-request', 'Invalid U1 timelapse index.');
+    const control = await U1CameraControl.connect(printer, { ...options, signal, clientId: crypto.randomUUID() });
+    try { await control.deleteTimelapse(dateIndex, signal); return null; }
+    finally { control.close(); }
+  });
+}
+
 function optionId(file: D.RemoteFileRef, kind: 'thumbnail' | 'video'): D.Id<'preview-option'> {
   return `${file.fileId}:${kind}` as D.Id<'preview-option'>;
 }
@@ -83,7 +84,8 @@ export class U1Timelapses {
   constructor(private readonly context: HttpServiceContext, private readonly transport: U1TimelapseTransport) {}
 
   collection(printer: Readonly<PrinterConfiguration>): D.StorageCollection {
-    return { id: u1TimelapseCollectionId, name: 'Timelapse', kinds: ['timelapse'], actions: this.transport.canPlay(printer) ? ['preview'] : [] };
+    return { id: u1TimelapseCollectionId, name: 'Timelapse', kinds: ['timelapse'],
+      actions: this.transport.canPlay(printer) ? ['download', 'delete', 'preview'] : ['download', 'delete'] };
   }
 
   ownsFile(file: D.RemoteFileRef): boolean { return file.fileId.startsWith(filePrefix); }
@@ -102,31 +104,44 @@ export class U1Timelapses {
     if (request.cursor !== undefined && (!request.cursor.startsWith(prefix) || !Number.isSafeInteger(page) || page < 2))
       fail('listing-expired', 'This timelapse list has changed. Refresh Storage.');
     const result = await this.transport.list(printer, page, rows, signal);
+    const digest = await u1StorageRouteDigest(printer);
     await this.verify(request.target, entry.revision, signal);
     const files: D.RemoteFile[] = result.entries.map(item => ({
       ref: { ...this.context.targetFor(printer.id), storageId: internal, configurationRevision: entry.revision,
-        fileId: `${filePrefix}${encodeURIComponent(JSON.stringify([item.dateIndex, item.video, item.cover]))}` as D.Id<'remote-file'> },
-      directoryId: null, name: item.name, mimeType: 'video/mp4', sizeBytes: item.bytes, createdAtMs: null, modifiedAtMs: item.modified,
+        fileId: u1FileId(filePrefix, digest, JSON.stringify([item.dateIndex, item.video, item.cover])) },
+      directoryId: null, name: /\.mp4$/i.test(item.name) ? item.name : `${item.name.replace(/\.(gcode|gco|g)$/i, '')}.mp4`,
+      mimeType: 'video/mp4', sizeBytes: item.bytes, createdAtMs: null, modifiedAtMs: item.modified,
       metadata: { kind: 'timelapse', durationSeconds: item.duration, width: null, height: null },
     }));
     return { ...empty, files, nextCursor: page * rows < result.total ? `${prefix}${page + 1}` : null };
   }
 
   private async resolve(file: D.RemoteFileRef, signal: AbortSignal) {
-    if (file.storageId !== internal || !file.configurationRevision || !this.ownsFile(file)) fail('invalid-target', 'Invalid U1 timelapse reference.');
-    let parts: unknown;
-    try { parts = JSON.parse(decodeURIComponent(file.fileId.slice(filePrefix.length))); }
-    catch { fail('invalid-target', 'Invalid U1 timelapse reference.'); }
-    if (!Array.isArray(parts) || parts.length !== 3 || typeof parts[0] !== 'string' || !assetPath(parts[1], 'video') ||
-      (parts[2] !== null && !assetPath(parts[2], 'cover'))) fail('invalid-target', 'Invalid U1 timelapse reference.');
+    const { video, cover } = u1TimelapseRef(file);
     const { printer } = await this.context.resolve({ ...file, expectedConfigurationRevision: file.configurationRevision });
     if (signal.aborted) fail('cancelled', 'Timelapse request cancelled.');
-    return { printer, video: parts[1], cover: parts[2] as string | null };
+    return { printer, video, cover };
   }
 
   private async verify(target: D.PrinterTarget, revision: D.Revision, signal: AbortSignal) {
     await this.context.resolve({ ...target, expectedConfigurationRevision: revision });
     if (signal.aborted) fail('cancelled', 'Timelapse request cancelled.');
+  }
+
+  async delete(file: D.RemoteFileRef, signal: AbortSignal): Promise<void> {
+    const { digest, dateIndex } = u1TimelapseRef(file);
+    if (!/^\d{14}$/.test(dateIndex)) fail('invalid-target', 'This timelapse does not have a supported deletion identity.');
+    const { printer } = await this.context.resolve({ ...file, expectedConfigurationRevision: file.configurationRevision });
+    if (digest !== await u1StorageRouteDigest(printer)) fail('stale-context', 'The printer configuration changed. Refresh Storage.');
+    await this.verify(file, file.configurationRevision, signal);
+    let result: D.Result<null>;
+    try { result = await this.transport.delete(printer, dateIndex, signal); }
+    catch { throw new MoonrakerFailure({ code: 'transport', message: 'Timelapse deletion response was interrupted.' }, true); }
+    if (!result.ok) {
+      // The firmware proxy can report failure after a lost reply. Never retry it.
+      const uncertain = !['unsupported', 'authentication-required', 'permission-denied', 'stale-context'].includes(result.error.code);
+      throw new MoonrakerFailure(result.error, uncertain);
+    }
   }
 
   async previews(file: D.RemoteFileRef, signal: AbortSignal): Promise<D.FilePreviewListing> {

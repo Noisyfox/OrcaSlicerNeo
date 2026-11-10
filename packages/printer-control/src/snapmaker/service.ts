@@ -12,7 +12,7 @@ import { U1Submissions } from './submissions';
 import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './preparation';
 import { matchU1Materials, type FilamentMatcher } from './observation';
 import { U1_CAMERA_ID, u1CameraCapability } from './camera';
-import { U1Storage, u1StorageCapabilities } from './storage';
+import { U1Storage, u1DeleteCapability, u1StorageCapabilities } from './storage';
 import type { U1TimelapseTransport } from './timelapse';
 
 export interface SnapmakerServiceOptions extends HttpServiceOptions {
@@ -63,7 +63,7 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
     result.currentPrintPreview = supported({ mimeTypes: ['image/png', 'image/jpeg'] });
     Object.assign(result.files, u1StorageCapabilities(options.timelapses !== undefined));
     if (camera) result.cameras = [copy(u1CameraCapability)];
-    result.commands = { ...result.commands, 'jobs.start': unsupported, ...u1DeviceCapabilities(entry ? deviceState(entry).device : undefined) };
+    result.commands = { ...result.commands, 'jobs.start': unsupported, ...u1DeviceCapabilities(entry ? deviceState(entry).device : undefined), 'files.delete': u1DeleteCapability };
     for (const topic of ['preferences', 'descriptor', 'status', 'thermal', 'actuators', 'materials', 'sensors'] as const)
       result.observations[topic] = supported({ delivery: ['poll', 'on-demand'] });
     return result;
@@ -165,12 +165,15 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
       await resolve({ ...targetFor(printer.id), expectedConfigurationRevision: entry.revision });
     },
     validateCommand: async ({ printer, entry }, command) => {
-      if (!command.type.startsWith('jobs.')) {
+      if (command.type === 'files.delete') {
+        storage.validateDeletion({ printer, entry }, command.params.target);
+      } else if (!command.type.startsWith('jobs.')) {
         if (!deviceState(entry).device) await hub(printer, entry).refresh();
         u1DeviceCommand(deviceState(entry).device!, command);
       }
     },
     retainOperation: ({ printer, entry }, command) => {
+      if (command?.type === 'files.delete') return () => {};
       const state = deviceState(entry);
       const materialOperation = command?.type === 'materials.load' || command?.type === 'materials.unload';
       if (materialOperation && state.materialOperationActive) fail('busy', 'Another individual material operation is still running');
@@ -179,6 +182,10 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
       return () => { if (materialOperation) state.materialOperationActive = false; release(); };
     },
     executeCommand: async ({ printer, entry }, command) => {
+      if (command.type === 'files.delete') {
+        await storage.delete({ printer, entry }, command.params.target);
+        return 'completed';
+      }
       const state = deviceState(entry);
       if (command.type === 'preferences.set') {
         state.device = await readU1Device(http, printer);

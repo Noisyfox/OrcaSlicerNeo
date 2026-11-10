@@ -91,7 +91,8 @@ function invalidRequest(): Error { return new Error('Invalid printer request'); 
 function validRequest(value: unknown): value is PrinterTransportIpcRequest {
   if (!value || typeof value !== 'object') return false;
   const request = value as Record<string, unknown>;
-  if ((request.method !== 'GET' && request.method !== 'POST') || typeof request.url !== 'string') return false;
+  if ((request.method !== 'GET' && request.method !== 'POST' && request.method !== 'DELETE') || typeof request.url !== 'string') return false;
+  if (request.method === 'DELETE' && (request.body !== undefined || request.responseType === 'bytes')) return false;
   if (request.responseType !== undefined && request.responseType !== 'json' && request.responseType !== 'bytes') return false;
   if (request.headers !== undefined && (!request.headers || typeof request.headers !== 'object' ||
       Object.values(request.headers as Record<string, unknown>).some((header) => typeof header !== 'string'))) return false;
@@ -103,6 +104,14 @@ function validRequest(value: unknown): value is PrinterTransportIpcRequest {
   if (Object.values(body.fields as Record<string, unknown>).some((field) => typeof field !== 'string')) return false;
   const file = body.file as Record<string, unknown> | undefined;
   return Boolean(file && typeof file.fileName === 'string' && file.bytes instanceof Uint8Array);
+}
+
+function isGcodeDeleteUrl(url: URL): boolean {
+  const match = /\/server\/files\/gcodes\/(.+\.(?:gcode|gco|g))$/i.exec(url.pathname);
+  if (!match || url.search || url.hash || url.username || url.password) return false;
+  try {
+    return match[1].split('/').map(decodeURIComponent).every(part => part && part !== '.' && part !== '..' && !/[/\\\0]/.test(part));
+  } catch { return false; }
 }
 
 interface ActiveRequest {
@@ -133,6 +142,8 @@ export function createPrinterTransportIpcHandlers(deps: PrinterTransportIpcDepen
       let url: URL;
       try { url = new URL(payload.url); } catch { return Promise.reject(invalidRequest()); }
       if (url.protocol !== 'http:' && url.protocol !== 'https:') return Promise.reject(invalidRequest());
+      if (payload.method === 'DELETE' && !isGcodeDeleteUrl(url))
+        return Promise.reject(invalidRequest());
       const protocol: 'http:' | 'https:' = url.protocol === 'https:' ? 'https:' : 'http:';
       const headers: Record<string, string> = { ...(payload.headers ?? {}) };
       let encoded: EncodedPrinterBody | undefined;
