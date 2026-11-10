@@ -42,13 +42,14 @@ export function readU1Download(printer: Readonly<PrinterConfiguration>, request:
     };
     const response = await timed(() => fetch(url, { signal, redirect: 'error', cache: 'no-store',
       headers: printer.apiKey ? { 'X-Api-Key': printer.apiKey } : {} }));
-    const encoding = response.headers.get('content-encoding');
-    if (response.status !== 200 || !response.body || (encoding !== null && encoding !== 'identity')) {
+    const encoding = response.headers.get('content-encoding')?.trim().toLowerCase();
+    if (response.status !== 200 || !response.body || (encoding && !['identity', 'gzip', 'deflate', 'br', 'zstd'].includes(encoding))) {
       await response.body?.cancel().catch(() => undefined);
       fail(response.status === 401 ? 'authentication-required' : response.status === 403 ? 'permission-denied' :
         response.status === 404 ? 'file-not-found' : 'device-rejected', 'The printer did not return a complete file.');
     }
-    const length = response.headers.get('content-length');
+    // Fetch exposes decoded bytes. A compressed response's length describes the wire body.
+    const length = !encoding || encoding === 'identity' ? response.headers.get('content-length') : null;
     const bytes = length !== null && /^\d+$/.test(length) && Number.isSafeInteger(Number(length)) ? Number(length) : null;
     const reader = response.body.getReader();
     let pending: Uint8Array | undefined, ended = false;

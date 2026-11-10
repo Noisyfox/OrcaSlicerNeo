@@ -201,3 +201,18 @@ it('streams the authenticated USB path and rejects a stale route before starting
     expect(fetchFile).toHaveBeenCalledTimes(1);
   } finally { fetchFile.mockRestore(); }
 });
+
+it('streams decoded gzip G-code without treating the compressed length as the file size', async () => {
+  const { service, browse } = fixture();
+  const target = (await browse()).files[0].ref;
+  const fetchFile = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('G90\n', {
+    headers: { 'content-encoding': 'gzip', 'content-length': '24', 'content-type': 'text/plain' },
+  }));
+  try {
+    const download = unwrap(await service.files.download({ target }));
+    expect(download).toMatchObject({ totalBytes: null, responseBytes: null });
+    const chunks = [];
+    for await (const chunk of download.chunks) chunks.push(...chunk);
+    expect(new TextDecoder().decode(Uint8Array.from(chunks))).toBe('G90\n');
+  } finally { fetchFile.mockRestore(); }
+});

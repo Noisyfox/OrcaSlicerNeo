@@ -2636,6 +2636,22 @@ and the [U1 camera endpoint registration](https://github.com/Snapmaker/u1-moonra
 Loopback Electron and Web fixtures cover these actions without mutating a
 physical printer.
 
+On 2026-11-10 the development-host LAN round used stock U1 with Moonraker
+2.0.0, Electron 43.4.0 and Chrome 156.0.8078.81 on macOS ARM64. Both hosts
+saved a newly uploaded internal G-code file, matched its SHA-256, confirmed
+deletion and verified that the exact file disappeared. U1 returned gzip for
+the G-code reads. The reader streams Fetch's decoded bytes and excludes the
+encoded wire length from file-size validation.
+
+Both hosts used **Save as…** to save the 777,007-byte recording from the prior
+Neo print. The two saved copies matched an independent archive by SHA-256.
+Electron confirmed deletion of that test recording. Chrome showed the empty
+collection after refresh, and the device returned HTTP 404 for its asset.
+The run used an isolated Electron save destination and a browser-private file
+handle in place of manual picker selection. The printer reported zero USB
+G-code files. USB file actions and Web-initiated recording deletion retain
+fixture coverage. No print was started in this round.
+
 ## 3. Identity, configuration and stateless access
 
 Separate printer identity from its routes, provider, configured printer type
