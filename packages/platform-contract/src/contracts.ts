@@ -1,5 +1,5 @@
 import type { AccountProvider } from '@orca/service-provider';
-import type { SlicerClient } from '@slicer/client';
+import type { BuildInfo, SlicerClient } from '@slicer/client';
 import type { HistoryRuntimeMethods } from '@slicer/client';
 import type { PrinterService } from '@orca/printer-control/domain';
 import type { PrinterConfigurationDocument } from '@orca/printer-control';
@@ -297,7 +297,7 @@ export interface PlatformChrome {
 }
 
 export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: string; }
-export interface ProfileManifest { version: 1; packages: ProfilePackage[]; }
+export interface ProfileManifest { version: 1; buildInfo: BuildInfo; packages: ProfilePackage[]; }
 
 /** Supplies profile assets using deployment-relative URLs, never host paths. */
 export interface ProfileSource {

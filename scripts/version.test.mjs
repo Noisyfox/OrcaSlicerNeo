@@ -26,6 +26,9 @@ test('synchronizes every workspace and checks drift without writing', t => {
   mkdirSync(join(root, 'packages/slicer-wasm/src/client'), { recursive: true });
   manageVersions('sync', undefined, root);
   assert.equal(manageVersions('check', undefined, root), '1.0.0-dev');
+  const generated = join(root, 'packages/slicer-wasm/src/client/version.ts');
+  writeFileSync(generated, readFileSync(generated, 'utf8').replaceAll('\n', '\r\n'));
+  assert.equal(manageVersions('check', undefined, root), '1.0.0-dev');
   manageVersions('set', '2.1.0-beta.2', root);
   assert.equal(manageVersions('check', undefined, root), '2.1.0-beta.2');
   const path = join(root, 'apps/desktop/package.json');

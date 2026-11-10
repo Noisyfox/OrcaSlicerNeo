@@ -14,7 +14,8 @@ All four WASM variants and the packaged profiles come from the same workflow run
 The Pages build tests/typechecks Web, builds it, runs
 `node apps/web/scripts/non-root-smoke.mjs`, and prepares `apps/web/dist` with
 `node scripts/prepare-web-pages.mjs`. Preparation verifies HTML, the profile
-manifest and six production JS/WASM/data files for serial wasm64 and wasm32.
+manifest, six production JS/WASM/data files and their two build-info files for
+serial wasm64 and wasm32.
 It removes both threaded variants and other WASM-directory content
 (debug/profiling artifacts and maps), writes `.nojekyll`, and rejects artifacts
 over 1,000,000,000 bytes.
@@ -37,7 +38,10 @@ the idempotent fetch script when their production-artifact cache misses.
 Each WASM variant caches its production output only after all of that job's
 native tests and smokes pass, including serial publication-rollback injection.
 The artifact key includes the superproject's pinned Orca submodule commit (no
-submodule file-content hashing), Emscripten version and native build inputs.
+submodule file-content hashing), Emscripten version and native build inputs,
+including `version.json` and the version/build-metadata scripts. A Neo release
+change regenerates its version-bearing WASM artifacts. Dependency compilation
+has its own cache lifetime.
 Standalone test sources, harnesses, fixtures, JS dependencies, profile-packaging
 code and workflow test steps do not participate in the artifact key. Changes
 only to those inputs reuse an available exact cache and skip native tests;

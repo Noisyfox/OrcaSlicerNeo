@@ -2,7 +2,8 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isolationHeaders } from './src/viteIsolation';
 
@@ -18,14 +19,20 @@ function webOnlyWasmLoader() {
       const wasmRoot = root('../../apps/web/dist/wasm');
       for (const variant of ['', 'threaded', 'serial', 'wasm32/threaded', 'wasm32/serial']) {
         const file = `${wasmRoot}/${variant ? `${variant}/` : ''}orca_slice.js`;
+        let source: string;
         try {
-          let source = await readFile(file, 'utf8');
-          source = source.replace(/node:(module|worker_threads|fs|path|url|util)/g, 'web-only-disabled:$1');
-          source = source.replace(/globalThis\.process/g, 'undefined');
-          await writeFile(file, source);
+          source = await readFile(file, 'utf8');
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+          throw error;
         }
+        source = source.replace(/node:(module|worker_threads|fs|path|url|util)/g, 'web-only-disabled:$1');
+        source = source.replace(/globalThis\.process/g, 'undefined');
+        await writeFile(file, source);
+        const metadataFile = `${dirname(file)}/build-info.json`;
+        const metadata = JSON.parse(await readFile(metadataFile, 'utf8'));
+        metadata.files['orca_slice.js'] = createHash('sha256').update(source).digest('hex');
+        await writeFile(metadataFile, `${JSON.stringify(metadata, null, 2)}\n`);
       }
     },
   };

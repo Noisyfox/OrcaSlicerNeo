@@ -64,6 +64,7 @@ import type {
 } from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
+import { NEO_VERSION } from './version';
 
 const REAL_PROJECT_PROFILE_BUILD = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
 const REAL_PROJECT_PROFILE_JS_SENTINEL = 'ORCA_REAL_PROJECT_PROFILE_JS_V1';
@@ -2258,9 +2259,17 @@ export function createClient(
   }
 
   const client: SlicerClient = {
+    async getBuildInfo() {
+      const value = callJson(await module(), 'orc_get_build_info', [], []) as import('./types').BuildInfo;
+      if (!value || value.neoVersion !== NEO_VERSION || typeof value.coreRevision !== 'string' || !/^[0-9a-f]{40}$/.test(value.coreRevision)) {
+        throw new Error('WASM build identity does not match the Neo client');
+      }
+      return value;
+    },
     ...createPaintingApi(module, normalizeHistoryStatus),
     async init(activation: ProfileActivation | null): Promise<InitResult> {
       if (activation === undefined) throw new Error('explicit nullable activation is required');
+      await client.getBuildInfo();
       const m = await module();
       if (!beforeInitPromise) {
         if (beforeInit || userPresets) {

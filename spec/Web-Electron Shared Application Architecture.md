@@ -718,6 +718,20 @@ a fuller About surface remains deferred.
 
 ## 9. Release, Cache, and Versioning
 
+The root [version.json](../version.json) owns the Neo SemVer release identity.
+All Neo workspace packages and host/runtime artifacts share that version.
+Package manifests and the runtime constant are synchronized through the
+[version commands](../README.md#neo-version) and checked in CI. The slicing
+core's identity comes from the superproject's recorded submodule pin, with
+the core's own Orca/Bambu versions governing its existing format semantics.
+
+Native WASM and addon build information records `neoVersion` and `coreRevision`.
+Profile manifests carry the same build information. Staging verifies the
+release and core pin against the current source inputs, and WASM metadata
+binds the JS, WASM and data files to their SHA-256 hashes. The typed client
+validates the loaded native Neo release before initialization. Web's loader
+sanitization refreshes the corresponding JS hash in its derived artifact.
+
 The shared UI, WASM core, and system profile resource manifest are versioned as
 one compatibility set. Electron and Web are independently built and deployed;
 Web may ship UI-only fixes independently, but must not silently change its

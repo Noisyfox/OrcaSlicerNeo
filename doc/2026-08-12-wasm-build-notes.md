@@ -6,6 +6,13 @@
 
 ## Build entry points
 
+Neo release identity is configured in [version.json](../version.json) through
+the [version commands](../README.md#neo-version). CMake resolves the actual
+repository through `ORCA_SRC`, including the generated wasm32 scaffold, and
+embeds the Neo version and recorded core pin in the bridge. Each production
+artifact directory includes `build-info.json` with that identity and hashes
+of its JS, WASM and data files. Full and quick drivers collect all four files.
+
 [README](../README.md#building) owns prerequisites and the command catalogue.
 Use `scripts\build-windows.bat` from a Visual Studio developer environment on
 Windows; use `scripts/build.sh` on macOS/Linux. Driver `help` is authoritative

@@ -75,6 +75,10 @@ Napi::Value Cancel(const Napi::CallbackInfo& info) {
     return info.Env().Undefined();
 }
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    auto build_info = Napi::Object::New(env);
+    build_info.Set("neoVersion", NEO_VERSION);
+    build_info.Set("coreRevision", NEO_CORE_REVISION);
+    exports.Set("buildInfo", build_info);
     auto* binding = new Binding;
     env.AddCleanupHook([](Binding* state) {
         if (state->active) state->active->Shutdown();

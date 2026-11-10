@@ -8,7 +8,7 @@ const dist = resolve(process.argv[2] ?? fileURLToPath(new URL('../apps/web/dist'
 const wasmRoot = join(dist, 'wasm');
 // Pages cannot supply COOP/COEP headers, so neither threaded build is usable.
 const variants = ['serial', 'wasm32/serial'];
-const runtimeFiles = new Set(['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']);
+const runtimeFiles = new Set(['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data', 'build-info.json']);
 const productionFiles = new Set(variants.flatMap(variant => [...runtimeFiles].map(file => `${variant}/${file}`)));
 
 for (const variant of variants) {

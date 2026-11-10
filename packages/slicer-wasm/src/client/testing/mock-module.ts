@@ -1,4 +1,5 @@
 import type { SetupWizardCatalogue, ProfileActivation } from '../setupWizard';
+import { NEO_VERSION } from '../version';
 import { paintingMock } from './painting-mock';
 // packages/slicer-wasm/src/client/testing/mock-module.ts
 // ----------------------------------------------------------------
@@ -2366,6 +2367,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         plate_session: bridge.orc_get_plate_session_snapshot(),
         native_scoped_config: (bridge.orc_get_native_scoped_config() as any).native_scoped_config };
     },
+    orc_get_build_info() {
+      return { neoVersion: NEO_VERSION, coreRevision: '0'.repeat(40) };
+    },
     orc_init(optionsJson: string) {
       const options = JSON.parse(optionsJson);
       if (!Object.hasOwn(options, 'profile_activation')) return { ok: false, error: 'explicit activation required' };
@@ -4185,6 +4189,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_prepare_profile_activation: { ret: 'number', args: ['string'] },
     orc_apply_profile_activation: { ret: 'number', args: [] },
     orc_init: { ret: 'number', args: ['string'] },
+    orc_get_build_info: { ret: 'number', args: [] },
     orc_history_begin: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
     orc_history_commit: { ret: 'number', args: ['string', 'string'] },
     orc_history_abort: { ret: 'number', args: ['string'] },

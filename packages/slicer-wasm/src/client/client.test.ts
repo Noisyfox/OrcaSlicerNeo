@@ -1,4 +1,5 @@
 import { MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
+import { NEO_VERSION } from './version';
 // packages/slicer-wasm/src/client/client.test.ts
 // Contract tests for the typed bridge client, driven against the
 // bridge-shaped mock module (Task 1). These pin the M2 bridge
@@ -24,6 +25,22 @@ function wireColour(effective: string, provenance: 'preset' | 'user' = 'preset')
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('reads the native build identity and rejects a foreign Neo release before initialization', async () => {
+    const module = createMockModule();
+    const client = createClient(async () => module);
+    expect(await client.getBuildInfo()).toEqual({ neoVersion: NEO_VERSION, coreRevision: '0'.repeat(40) });
+    const ccall = module.ccall.bind(module);
+    module.ccall = (name, ret, types, args) => {
+      if (name === 'orc_get_build_info') {
+        const bytes = new TextEncoder().encode('{"neoVersion":"0.0.0","coreRevision":"foreign"}\u0000');
+        const ptr = module._malloc(bytes.length);
+        module.HEAPU8.set(bytes, ptr);
+        return ptr;
+      }
+      return ccall(name, ret, types, args);
+    };
+    await expect(client.init(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('WASM build identity');
+  });
   it.each([false, true])('copies slice thumbnail pixels into native admission and frees the input on failure=%s', async fail => {
     const module = createMockModule();
     const client = createClient(async () => module);

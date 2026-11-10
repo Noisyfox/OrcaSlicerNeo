@@ -13,7 +13,7 @@
     "version:sync": "node scripts/version.mjs sync",
     "version:check": "node scripts/version.mjs check",
     "dev": "pnpm --filter @orca/desktop dev",
-    "test": "pnpm version:check && node --test scripts/version.test.mjs && pnpm -r test",
+    "test": "pnpm version:check && node --test scripts/version.test.mjs scripts/artifact-version.test.mjs && pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "build:wasm": "bash packages/slicer-wasm/build.sh",
     "build:wasm:dual": "bash scripts/build-wasm-dual.sh",

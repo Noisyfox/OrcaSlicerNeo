@@ -5,10 +5,12 @@ import { copyFile, mkdir, readdir, readFile, rm, writeFile, mkdtemp } from 'node
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zipSync } from 'fflate';
+import { readBuildInfo } from '../../../scripts/version.mjs';
 
 const root = resolve(process.env.ORCA_REPO_ROOT ?? fileURLToPath(new URL('../../..', import.meta.url)));
 const source = resolve(process.env.ORCA_PROFILES_DIR ?? join(root, 'packages/slicer-wasm/cpp/resources/profiles'));
 const output = resolve(process.env.ORCA_PROFILE_OUTPUT ?? join(root, 'packages/profile-resources/dist'));
+const buildInfo = readBuildInfo();
 
 async function files(dir) {
   const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
@@ -54,5 +56,5 @@ for (const vendor of vendors) {
   await zip(join(source, vendor.name), join(output, path), `${vendor.name}/`, extraEntries);
   packages.push({ id: vendor.name, kind: 'vendor', path });
 }
-await writeFile(join(output, 'manifest.json'), JSON.stringify({ version: 1, packages }, null, 2) + '\n');
+await writeFile(join(output, 'manifest.json'), JSON.stringify({ version: 1, buildInfo, packages }, null, 2) + '\n');
 console.log(`profile packages: ${packages.length} from ${source}`);

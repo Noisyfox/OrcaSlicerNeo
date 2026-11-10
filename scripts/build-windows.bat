@@ -110,7 +110,7 @@ echo             the renderer. Requires boost archives; fetches deps
 echo             automatically if missing.
 echo   full      deps + boost + build - the complete cold-start path.
 echo   quick     INCREMENTAL: ninja in .work\threaded\build and
-echo             .work\serial\build + stage the 3 artifacts to out\^<variant^>.
+echo             .work\serial\build + stage artifacts and build metadata to out\^<variant^>.
 echo             The fast loop for bridge/CMake changes - keeps cached settings,
 echo             reapplies build-time patches, seconds-to-minutes. Use
 echo             --variant to limit to one build tree.
@@ -311,7 +311,7 @@ if defined JOBS (
 if errorlevel 1 exit /b 1
 node "%VALIDATE_WASM%" "%QBUILD%\orca_slice.wasm"
 if errorlevel 1 exit /b 1
-for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do (
+for %%f in (orca_slice.js orca_slice.wasm orca_slice.data build-info.json) do (
   if not exist "%QBUILD%\%%f" (
     echo [winbuild] ERROR: Build did not produce %QBUILD%\%%f
     exit /b 1
@@ -323,7 +323,7 @@ REM existing Node smoke and Electron scripts; the dual entry point and Web
 REM host consume the explicit variant directories.
 if /i "%QV%"=="threaded" (
   if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
-  for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do copy /y "%QOUT%\%%f" "%OUT_DIR%\" >nul
+  for %%f in (orca_slice.js orca_slice.wasm orca_slice.data build-info.json) do copy /y "%QOUT%\%%f" "%OUT_DIR%\" >nul
 )
 echo [winbuild] Staged %QV% to %QOUT%:
 dir "%QOUT%"

@@ -52,6 +52,11 @@ export interface InitResult {
   error?: string;
 }
 
+export interface BuildInfo {
+  neoVersion: string;
+  coreRevision: string;
+}
+
 /** A single headless editing plate owned by the WASM session. */
 export interface PlateSessionPlate {
   /** Opaque identity; never derive or persist this value. */
@@ -1732,6 +1737,7 @@ export interface FilesystemEntry {
 }
 
 export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPresetMethods, NozzleMappingMethods {
+  getBuildInfo(): Promise<BuildInfo>;
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(activation: ProfileActivation | null): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */

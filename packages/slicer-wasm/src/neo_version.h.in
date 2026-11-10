@@ -1,0 +1,3 @@
+#pragma once
+#define NEO_VERSION "@NEO_VERSION@"
+#define NEO_CORE_REVISION "@NEO_CORE_REVISION@"

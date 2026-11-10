@@ -6,8 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { loadBambuNative } from '../dist/index.js';
+import { readBuildInfo } from '../../../scripts/version.mjs';
 const addon = fileURLToPath(new URL('../build/Release/bambu.node', import.meta.url));
 const fixture = fileURLToPath(new URL(`../build/Release/fixture_plugin.${process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so'}`, import.meta.url));
+
+test('addon embeds the Neo release and pinned core identity', () => {
+  assert.deepEqual(createRequire(import.meta.url)(addon).buildInfo, readBuildInfo());
+});
 
 async function session(work) {
   const directory = await mkdtemp(join(tmpdir(), 'neo-bambu-native-'));

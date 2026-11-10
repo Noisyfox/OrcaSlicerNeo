@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { NEO_VERSION } from '../../../packages/slicer-runtime/src/version';
+import type { ElectronBridge } from '../src/shared/ipc';
 
 test('utility owns the runtime and reload replaces its session without a renderer Worker', async () => {
   const env = { ...process.env, ORCA_E2E: '1',
@@ -12,6 +14,8 @@ test('utility owns the runtime and reload replaces its session without a rendere
   const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
   try {
     const page = await app.firstWindow();
+    expect(await app.evaluate(({ app }) => app.getVersion())).toBe(NEO_VERSION);
+    await expect.poll(() => page.evaluate(() => (window as Window & { orca?: ElectronBridge }).orca?.version)).toBe(NEO_VERSION);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     const runtimePids = () => app.evaluate(({ app }) => app.getAppMetrics()
       .filter((metric) => metric.name === 'Orca Slicer Runtime').map((metric) => metric.pid));

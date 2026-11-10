@@ -49,7 +49,7 @@ export function manageVersions(command, version, root = repositoryRoot) {
   const target = command === 'set' ? validateVersion(version) : readNeoVersion(root);
   const files = versionFiles(root, target);
   if (command === 'check') {
-    const mismatches = files.filter(file => readFileSync(join(root, file.path), 'utf8') !== file.content);
+    const mismatches = files.filter(file => readFileSync(join(root, file.path), 'utf8').replaceAll('\r\n', '\n') !== file.content.replaceAll('\r\n', '\n'));
     if (mismatches.length) throw new Error(`Neo version drift in ${mismatches.map(file => file.path).join(', ')}. Run pnpm version:sync.`);
     return target;
   }
@@ -67,6 +67,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const [command = 'check', version] = process.argv.slice(2);
     if (command === 'info') console.log(JSON.stringify(readBuildInfo()));
+    else if (command === 'core') console.log(readBuildInfo().coreRevision);
     else if (command === 'version') console.log(readNeoVersion());
     else console.log(`Neo ${manageVersions(command, version)}`);
   } catch (error) {

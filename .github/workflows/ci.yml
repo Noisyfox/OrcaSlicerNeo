@@ -88,7 +88,7 @@ jobs:
           # Hash native build inputs only; tests, fixtures, JS dependencies and
           # workflow test steps do not invalidate production artifacts. The
           # submodule is identified by its recorded gitlink, never file hashes.
-          WASM_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*') }}
+          WASM_INPUT_HASH: ${{ hashFiles('version.json', 'scripts/version.mjs', 'scripts/artifact-version.mjs', 'scripts/download-dependency.mjs', 'packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/src/**/*.in', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*') }}
         run: |
           orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
           echo "key=${{ runner.os }}-${{ runner.arch }}-wasm64-tested-v2-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
@@ -240,6 +240,7 @@ jobs:
             packages/slicer-wasm/out/orca_slice.js
             packages/slicer-wasm/out/orca_slice.wasm
             packages/slicer-wasm/out/orca_slice.data
+            packages/slicer-wasm/out/build-info.json
           retention-days: 7
       - name: Upload threaded Web WASM artifact
         uses: actions/upload-artifact@v7
@@ -381,7 +382,7 @@ jobs:
       - name: Select tested wasm32 artifact cache key
         id: build-key
         env:
-          WASM_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*', 'scripts/build-wasm32.mjs') }}
+          WASM_INPUT_HASH: ${{ hashFiles('version.json', 'scripts/version.mjs', 'scripts/artifact-version.mjs', 'scripts/download-dependency.mjs', 'packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/src/**/*.in', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*', 'scripts/build-wasm32.mjs') }}
         run: |
           orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
           echo "key=${{ runner.os }}-${{ runner.arch }}-wasm32-tested-v1-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
@@ -511,7 +512,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libglib2.0-dev pkg-config dbus
       - run: pnpm version:check
-      - run: node --test scripts/version.test.mjs
+      - run: node --test scripts/version.test.mjs scripts/artifact-version.test.mjs
       - run: pnpm -r test
       - run: pnpm -r typecheck
       - name: Verify wasm32 build scaffold and host/Pages artifact boundaries

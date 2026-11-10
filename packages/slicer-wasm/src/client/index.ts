@@ -79,6 +79,7 @@ export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, P
 export { createMockModule, MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
 export { NEO_VERSION } from './version';
+export type { BuildInfo } from './types';
 
 export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSessionOpenRequest,
   PaintingSessionRequest, PaintingTargetRequest, PaintingPartMetadata, PaintingSessionMetadata,
