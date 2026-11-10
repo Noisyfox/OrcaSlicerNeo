@@ -7,6 +7,50 @@ import { installSliceReceiptObserver, readSliceReceipts } from '../../desktop/e2
 import { readZipEntries } from '../../../packages/slicer-wasm/harness/native-3mf-parser.mjs';
 import { extrudingTools } from '../../../packages/slicer-wasm/harness/nozzle-mapping-gcode.mjs';
 
+test('remembered U1 starts and creates new projects in Manual without reselecting the Printer', async ({ page, context }) => {
+  test.setTimeout(180_000);
+  const variant = process.env.ORCA_WEB_NO_ISOLATION === '1' ? 'serial' : 'threaded';
+  let servedHash: string | undefined;
+  await context.route('**/wasm/*/orca_slice.wasm', async route => {
+    const response = await route.fetch();
+    expect(new URL(route.request().url()).pathname).toContain(`/wasm/${variant}/`);
+    const body = await response.body();
+    servedHash = createHash('sha256').update(body).digest('hex');
+    await route.fulfill({ response, body });
+  });
+  await page.addInitScript(profileActivation => {
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ version: 1, profileActivation,
+      selectedProfiles: { printer: 'Snapmaker U1 (0.4 nozzle)' }, ui: { sidebarWidth: 340 } }));
+  }, configuredActivation);
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  const native = await readFile(resolve(import.meta.dirname, '../../../packages/slicer-wasm/out', variant, 'orca_slice.wasm'));
+  expect(servedHash).toBe(createHash('sha256').update(native).digest('hex'));
+  await page.locator('#app-tab-prepare').click();
+  for (const phase of ['startup', 'New Project']) {
+    if (phase === 'New Project') {
+      await page.locator('#app-tab-home').click();
+      await page.getByTestId('home-new-project').click();
+      await page.getByTestId('project-dirty-dont-save').click();
+      await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    }
+    await expect(page.getByTestId('preset-select')).toHaveAttribute('title', 'Snapmaker U1 (0.4 nozzle)');
+    await page.getByTestId('config-mode-plates').click();
+    await page.getByTestId('plate-properties-mapping').click();
+    await expect(page.getByTestId('mapping-mode-2'), phase).toHaveAttribute('aria-pressed', 'true');
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    await canvas.click({ position: { x: 80, y: 80 }, button: 'right' });
+    await page.getByTestId('btn-add-primitive').click();
+    await page.getByTestId('btn-add-cube').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await page.getByTestId('btn-slice').click();
+    const dialog = page.getByTestId('mapping-confirmation');
+    await expect(dialog.getByTestId('mapping-mode-2')).toHaveAttribute('aria-pressed', 'true');
+    await dialog.getByTestId('mapping-confirm').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+  }
+});
+
 test('real Web mapping survives browser project download/reopen and slices the confirmed nozzle', async ({ page, context }) => {
   test.setTimeout(180_000);
   test.skip(!process.env.ORCA_E2E_MAPPING_PROJECT, 'requires the native nozzle-mapping persistence fixture');

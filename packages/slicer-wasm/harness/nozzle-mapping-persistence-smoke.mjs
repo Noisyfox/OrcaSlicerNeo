@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createNozzleMappingFixture } from './nozzle-mapping-fixtures.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
+import { fixtureProfileOptions } from './profile-installer.mjs';
 const { Module, call, command, ok, context, projection, configure } = await createNozzleMappingFixture(process.argv[2]);
 const printer = 'Bambu Lab H2D 0.4 nozzle';
 const configureMemory = (memory, initializeNewProject = false) => command('orc_configure_nozzle_capacity_memory', { memory, initializeNewProject });
@@ -96,7 +97,9 @@ for (const mode of [null, 4, 0, 1, 2, 3]) {
       .replace(/\s*<metadata key="filament_(?:maps|volume_maps)" value="[^"]*"\s*\/>/g, '');
     return { ...e, content: new TextEncoder().encode(xml) };
   });
+  ok(call('orc_select_preset', ['string', 'string'], ['printer', 'Snapmaker U1 (0.4 nozzle)']));
   load(writeStoredZip(replacement));
+  assert.equal(ok(call('orc_get_preset_snapshot')).printer.name, printer, 'mode defaults use the incoming H2D, not the previous U1');
   const saved = ok(projection(plates()[0])).saved;
   assert.equal(saved.mode, mode === null || mode === 4 ? 0 : mode);
   assert.equal(saved.filamentMap, null, 'import must not expand global fallback into Plate');
@@ -117,5 +120,72 @@ const retained = ok(projection(second)).saved;
 ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'], [sliceSettings, second, ok(projection(second)).revision, 'null']));
 load(save());
 assert.deepEqual(ok(projection(plates()[1])).saved, retained, 'automatic result does not replace manual intent in archive');
+
+// Both fixed-material and SEMM single-head printers are outside the multi-head
+// mapping feature. U1 defaults must not leak through restoration or import.
+const u1 = 'Snapmaker U1 (0.4 nozzle)';
+for (const [singlePrinter, semm] of [
+  ['Prusa CORE One HF 0.4 nozzle', false],
+  ['Bambu Lab P1P 0.4 nozzle', true],
+]) {
+  console.log(`Single-head mapping lifecycle: ${singlePrinter}`);
+  const singleMapping = expectedMode => {
+    const mapping = ok(projection(current()));
+    assert.equal(mapping.eligible, false, singlePrinter);
+    assert.equal(mapping.nozzles.length, 1);
+    assert.equal(mapping.effective.mode, expectedMode);
+    assert.ok(mapping.modes.every(mode => !mode.available), 'single-head printers do not expose multi-head mapping modes');
+    return mapping;
+  };
+  const sliceSingleHead = async () => {
+    const mapping = singleMapping(0);
+    const sliced = ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+      [sliceSettings, current(), mapping.revision, 'null']));
+    const result = ok(getSliceResult(call, sliced.receipt));
+    assert.ok(result.layers > 0 && result.toolpath.segment_count > 0, 'single-head slicing produces a non-empty toolpath');
+  };
+  for (const phase of ['startup', 'same-printer New Project', 'New Project from U1']) {
+    if (phase === 'New Project from U1') switchTo(u1);
+    ok(call('orc_close_project'));
+    if (phase === 'startup') ok(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
+    // Same low-level Printer restoration used by bootstrap and New Project.
+    ok(call('orc_select_preset', ['string', 'string'], ['printer', singlePrinter]));
+    singleMapping(0);
+    ok(call('orc_add_shape', ['string', 'string'], ['Cube', phase]));
+    await sliceSingleHead();
+  }
+  const singleArchive = readZipEntries(save());
+  const project = JSON.parse(new TextDecoder().decode(singleArchive.find(entry => entry.name === 'Metadata/project_settings.config').content));
+  assert.equal(project.nozzle_diameter.length, 1, 'fixture has one physical head');
+  assert.equal(Number(project.single_extruder_multi_material), Number(semm), 'cover single-head printers with and without SEMM');
+  ok(call('orc_add_plate'));
+  singleMapping(0);
+  for (const mode of [null, 'Default', 'Auto For Flush', 'Auto For Match', 'Manual', 'Nozzle Manual']) {
+    const replacement = singleArchive.map(entry => {
+      if (entry.name === 'Metadata/project_settings.config') {
+        const config = JSON.parse(new TextDecoder().decode(entry.content));
+        config.filament_map_mode = 'Manual';
+        return { ...entry, content: new TextEncoder().encode(JSON.stringify(config)) };
+      }
+      if (entry.name !== 'Metadata/model_settings.config') return entry;
+      const xml = new TextDecoder().decode(entry.content)
+        .replace(/\s*<metadata key="filament_map_mode" value="[^"]*"\s*\/>/g,
+          mode === null ? '' : `\n    <metadata key="filament_map_mode" value="${mode}"/>`)
+        .replace(/\s*<metadata key="filament_(?:maps|volume_maps)" value="[^"]*"\s*\/>/g, '');
+      return { ...entry, content: new TextEncoder().encode(xml) };
+    });
+    switchTo(u1);
+    load(writeStoredZip(replacement));
+    assert.equal(ok(call('orc_get_preset_snapshot')).printer.name, singlePrinter);
+    const expectedMode = mode === null || mode === 'Default' ? 0
+      : ['Auto For Flush', 'Auto For Match', 'Manual', 'Nozzle Manual'].indexOf(mode);
+    const mapping = singleMapping(expectedMode);
+    assert.equal(mapping.saved.mode, expectedMode, `single-head import: ${mode}`);
+    assert.equal(mapping.saved.filamentMap, null, 'import keeps project maps sparse');
+    assert.equal(mapping.saved.volumeMap, null);
+    if (mode === null || mode === 'Default') await sliceSingleHead();
+  }
+}
+console.log('PASS single-head mapping: fixed-material/SEMM startup, New Project, new Plates, import defaults, explicit modes and real slicing');
 console.log('PASS native mapping persistence: standard fields, local maps, modes, capacity precedence, preset memory, Undo, published/geometry exclusions and reslicing');
 Module.PThread?.terminateAllThreads?.();

@@ -282,13 +282,20 @@ void validate_slice(const std::string& plate_id)
         if (diagnostic["severity"] == "error") throw std::invalid_argument(diagnostic["message"].get<std::string>());
 }
 
+FilamentMapMode default_mode(const DynamicPrintConfig& printer, const bool is_bbl_vendor)
+{
+    const auto* diameters = printer.opt<ConfigOptionFloats>("nozzle_diameter");
+    const bool eligible = diameters && diameters->size() > 1 && Filament::State::supports_independent_materials(printer);
+    const bool automatic = eligible && diameters->size() == 2 && is_bbl_vendor;
+    return eligible && !automatic ? fmmManual : fmmAutoForFlush;
+}
+
 void initialize_plate(DynamicPrintConfig& settings)
 {
     const auto printer = PresetDrafts::effective_printer_config();
     const auto* diameters = printer.opt<ConfigOptionFloats>("nozzle_diameter");
     if (!diameters || diameters->size() < 2 || !Filament::State::supports_independent_materials(printer)) return;
-    const bool automatic = diameters->size() == 2 && state().presets.is_bbl_vendor();
-    settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(automatic ? fmmAutoForFlush : fmmManual));
+    settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(default_mode(printer, state().presets.is_bbl_vendor())));
 }
 
 json projection(const std::string& plate_id)
