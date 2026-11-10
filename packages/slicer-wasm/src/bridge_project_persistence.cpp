@@ -564,7 +564,8 @@ std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
     const std::vector<PlateData*>& native_data,
     const std::vector<ImportedPlateRecord>& raw_records,
     std::uint64_t sequence,
-    std::string& current_plate_id);
+    std::string& current_plate_id,
+    FilamentMapMode default_mapping_mode);
 
 bool is_native_plate_metadata_key(const std::string& key)
 {
@@ -609,6 +610,10 @@ std::vector<ImportedPlateRecord> parse_plate_records(const std::string& xml)
                 } else if (*key == "plater_name") record.name = *value;
                 else if (*key == "lock") {
                     record.locked = *value == "true" || *value == "1";
+                } else if (*key == "filament_map_mode") {
+                    // Orca's enum string table omits Default, so its reader
+                    // otherwise collapses this explicit default to Auto.
+                    record.default_filament_map_mode = *value == "Default";
                 } else if (*key == "filament_volume_maps") {
                     // Preserve the native concrete enum values: the GUI reader
                     // currently clamps all values above High Flow to Standard.
@@ -750,7 +755,8 @@ void initialize_plate_session_from_records(const std::vector<PlateData*>& native
     auto& s = state();
     const auto sequence = next_plate_session_sequence();
     s.plate_session_plates = build_plate_session_from_records(native_data, raw_records,
-                                                               sequence, s.current_plate_id);
+        sequence, s.current_plate_id,
+        NozzleMapping::default_mode(PresetDrafts::effective_printer_config(), s.presets.is_bbl_vendor()));
     s.instance_plate_ids.clear();
     s.plate_out_of_bounds_ids.clear();
     s.parked_instance_ids.clear();
@@ -764,7 +770,8 @@ std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
     const std::vector<PlateData*>& native_data,
     const std::vector<ImportedPlateRecord>& raw_records,
     const std::uint64_t sequence,
-    std::string& current_plate_id)
+    std::string& current_plate_id,
+    const FilamentMapMode default_mapping_mode)
 {
     std::vector<BridgeState::PlateSessionPlate> result;
     const size_t count = std::max<size_t>(1, raw_records.empty() ? native_data.size() : raw_records.size());
@@ -787,11 +794,11 @@ std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
         if (native) plate.settings = native->config;
         if (raw && raw->filament_volume_maps)
             plate.settings.set_key_value("filament_volume_map", new ConfigOptionInts(*raw->filament_volume_maps));
-        // Import policy is distinct from new-Plate defaults. Do not expand
-        // project fallback maps into this Plate while normalizing its mode.
+        // Only absent/Default modes use the selected Printer's new-Plate
+        // policy. Keep explicit modes and sparse project fallback maps intact.
         const auto* mode = plate.settings.option("filament_map_mode");
-        if (!mode || mode->getInt() == int(FilamentMapMode::fmmDefault))
-            plate.settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmAutoForFlush));
+        if (!mode || mode->getInt() == int(FilamentMapMode::fmmDefault) || (raw && raw->default_filament_map_mode))
+            plate.settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(default_mapping_mode));
         plate.settings_metadata = config_metadata_json(plate.settings);
         if (raw) plate.opaque_metadata = raw->opaque_metadata;
         result.push_back(std::move(plate));
@@ -1126,15 +1133,16 @@ static const char* orc_load_project_impl(const char* data, int len,
             // isolated.  Plate settings are part of filament validation, so
             // validating against an empty list would incorrectly accept an
             // out-of-range plate assignment or tool-change reference.
+            const auto printer = PresetDrafts::effective_preset_config(candidate, staged_preset_drafts, Preset::TYPE_PRINTER,
+                candidate.printers.get_selected_preset_name());
             staged_plates = build_plate_session_from_records(
                 plate_data, raw_records,
                 current_plate_session_sequence() + 1,
-                staged_current_plate_id);
+                staged_current_plate_id,
+                NozzleMapping::default_mode(printer, candidate.is_bbl_vendor()));
             Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(staged_plates);
             extend_imported_plate_filament_maps(staged_plates,
                                                 requested_filament_slots.size(), candidate);
-            const auto printer = PresetDrafts::effective_preset_config(candidate, staged_preset_drafts, Preset::TYPE_PRINTER,
-                candidate.printers.get_selected_preset_name());
             NozzleMapping::normalize_capacities(candidate.project_config, printer.opt<ConfigOptionFloats>("nozzle_diameter")->size());
             Neo::Bridge::PlateSession::normalize_coordinate_arrays(candidate.project_config, staged_plates.size());
         }

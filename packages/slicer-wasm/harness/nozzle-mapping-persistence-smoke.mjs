@@ -96,7 +96,9 @@ for (const mode of [null, 4, 0, 1, 2, 3]) {
       .replace(/\s*<metadata key="filament_(?:maps|volume_maps)" value="[^"]*"\s*\/>/g, '');
     return { ...e, content: new TextEncoder().encode(xml) };
   });
+  ok(call('orc_select_preset', ['string', 'string'], ['printer', 'Snapmaker U1 (0.4 nozzle)']));
   load(writeStoredZip(replacement));
+  assert.equal(ok(call('orc_get_preset_snapshot')).printer.name, printer, 'mode defaults use the incoming H2D, not the previous U1');
   const saved = ok(projection(plates()[0])).saved;
   assert.equal(saved.mode, mode === null || mode === 4 ? 0 : mode);
   assert.equal(saved.filamentMap, null, 'import must not expand global fallback into Plate');

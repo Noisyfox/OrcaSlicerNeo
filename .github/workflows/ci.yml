@@ -216,6 +216,11 @@ jobs:
       - name: Bridge smoke — Electron NODEFS temporary files
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/nodefs-bridge-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
+      - name: Filament mapping — startup, New Project, import modes and slicing
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: |
+          node packages/slicer-wasm/harness/u1-material-mapping-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
+          node packages/slicer-wasm/harness/nozzle-mapping-persistence-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
       - name: Arrangement — atomic history, cancellation, concurrent slicing
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/orca_slice.js

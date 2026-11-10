@@ -16,6 +16,7 @@ void restore_remembered_capacities();
 nlohmann::json configure_memory(const nlohmann::json& request);
 DynamicPrintConfig full_config(const std::string& plate_id, bool apply_extruder = true);
 void validate_slice(const std::string& plate_id);
+FilamentMapMode default_mode(const DynamicPrintConfig& printer, bool is_bbl_vendor);
 void initialize_plate(DynamicPrintConfig& settings);
 nlohmann::json mutate(const nlohmann::json& request);
 nlohmann::json projection(const std::string& plate_id);

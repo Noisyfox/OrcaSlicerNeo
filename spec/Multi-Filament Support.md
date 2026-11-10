@@ -1174,13 +1174,20 @@ Printer transition as ordinary selection; physical acceptance remains separate.
 
 A newly created Plate defaults to Auto For Flush when the existing native
 capability supports it. Otherwise it starts in Manual with the native default
-mapping. This new-Plate policy is distinct from importing saved Plate modes.
+mapping. Startup restoration and New Project must establish this mapping for
+the final selected Printer, even when the first Plate was created before the
+remembered Printer was restored. In particular, U1 must start in Manual
+without requiring another interactive Printer selection.
 
 On ordinary project import, a missing Plate mode or an explicit Default mode
-is normalized to `fmmAutoForFlush`. Preserve other saved modes and existing
-mapping fields. Do not resolve the project mode and expand project fallback
-maps into explicit Plate values as an import normalization step. An unavailable
-Auto For Flush mode follows section 14.1.2; Auto For Match follows the rule below.
+uses the same capability-based initialization: Auto For Flush for supported
+automatic topologies, Manual for mapping-capable printers without automatic
+grouping (including U1). Printers outside the mapping feature retain the native
+Auto For Flush default. Preserve every other explicitly saved mode, including
+unavailable automatic modes, and existing mapping fields. Do not expand project
+fallback maps into explicit Plate values as an import normalization step. An
+unavailable Auto For Flush mode follows section 14.1.2; Auto For Match follows
+the rule below.
 
 Preserve an imported `fmmAutoForMatch` mode and its mapping data. Its availability
 follows section 14.7's native-topology and selected-device rules. While the mode
@@ -1617,9 +1624,9 @@ history. Retain the native published/geometry-only import boundaries.
 **Acceptance:** Save a project with different Plate mappings, reopen it and use
 step 3 to reproduce the expected tool assignments. Check standard archive fields
 and a native Orca read/save comparison for effective capacities, without requiring
-feeder-decomposition preservation. Imported missing/Default modes normalize to
-Auto For Flush; other modes and mapping data follow section 14.1.4. Switching
-presets restores the target's memory/default; opening a saved project overrides
+feeder-decomposition preservation. Imported missing/Default modes initialize
+according to Printer capabilities; other modes and mapping data follow section
+14.1.4. Switching presets restores the target's memory/default; opening a saved project overrides
 memory; Undo restores the prior project capacities with the preset transition.
 No Neo-private 3MF mapping member is introduced. Automatic slicing followed by
 save/reopen retains manual input intent. Geometry-only and published import
@@ -2074,11 +2081,16 @@ Send-time defaults and manually acknowledged differences are owned by the
 The bridge centralizes this capability in `Filament::State::supports_independent_materials`
 and identifies U1 by the preset's `printer_model` value `Snapmaker U1`. Slot
 commands, profile transitions, history restoration and mapping eligibility use
-the same predicate. U1 initializes manual mapping and preserves filament variants
+the same predicate. U1 initializes manual mapping on startup restoration, New
+Project and new Plates, and for imported missing/Default Plate modes. Explicit
+archive modes remain unchanged under section 14.1.4. It preserves filament variants
 until native Print resolves the plate map. No SEMM flag or libslic3r G-code
-algorithm is changed. `u1-material-mapping-smoke.mjs` checks the 1–64 range,
-manual mapping, logical T5 with different physical heads, retained slice tool
-metadata and 3MF roundtrip against real WASM.
+algorithm is changed. `u1-material-mapping-smoke.mjs` checks startup restoration,
+New Project from U1 and another Printer, new Plates, the 1–64 range, manual
+mapping, logical T5 with different physical heads, retained slice tool metadata
+and 3MF roundtrip against real WASM. Import coverage distinguishes missing and
+Default modes from every explicit mode, retaining unavailable automatic modes
+and sparse project fallback maps.
 
 These software checks are separate from real U1 printing and send-time protocol
 boundary validation.

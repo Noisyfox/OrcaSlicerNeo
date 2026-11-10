@@ -2006,6 +2006,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
                 state().presets.update_compatible(PresetSelectCompatibleType::Always);
                 state().presets.update_multi_material_filament_presets();
                 Profiles::normalize_bed_types(true);
+                // Bootstrap and New Project restore Printer through this path,
+                // after the first Plate was created for the initial Printer.
+                Filament::Commands::repair_nozzle_mapping_targets(PresetDrafts::effective_printer_config());
                 Profiles::repair_project_flows(Profiles::base_printer_name(state().presets.printers.get_selected_preset()) !=
                     before.base_printer);
             } else if (kind == "print") {
