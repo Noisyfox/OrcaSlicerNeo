@@ -15,6 +15,7 @@ import {
   type PrinterTransportProgress,
 } from '../shared/ipc';
 import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
+import { NEO_VERSION } from '../../../../packages/slicer-runtime/src/version';
 
 // The renderer's only window to native features (design §Electron App).
 // All IO goes through main; no node builtins leak into the renderer.
@@ -25,7 +26,7 @@ const bridge: ElectronBridge = {
     cancel: (id) => ipcRenderer.invoke(Ipc.screenColorCancel, id),
   },
   connectSlicerRuntime: () => ipcRenderer.send(Ipc.slicerConnect),
-  version: '0.0.0-m2-shell',
+  version: NEO_VERSION,
 
   openFileDialog: (filters: FileDialogFilter[]) =>
     ipcRenderer.invoke(Ipc.openFileDialog, filters) as Promise<{ canceled: boolean; path: string | null }>,

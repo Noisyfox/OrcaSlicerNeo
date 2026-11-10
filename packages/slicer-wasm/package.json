@@ -1,6 +1,6 @@
 {
   "name": "@orca/slicer-wasm",
-  "version": "0.0.0",
+  "version": "1.0.0-dev",
   "private": true,
   "type": "module",
   "description": "WASM libslic3r module: Emscripten build scaffold + bridge + typed JS client",

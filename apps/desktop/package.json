@@ -1,7 +1,7 @@
 {
   "name": "@orca/desktop",
   "productName": "OrcaSlicerNeo",
-  "version": "0.0.0",
+  "version": "1.0.0-dev",
   "private": true,
   "description": "OrcaSlicerNeo desktop app (Electron)",
   "author": "OrcaSlicerNeo contributors",

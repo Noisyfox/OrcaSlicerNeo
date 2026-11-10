@@ -1,6 +1,6 @@
 {
   "name": "orca-slicer-neo",
-  "version": "0.0.0",
+  "version": "1.0.0-dev",
   "private": true,
   "description": "Next-generation OrcaSlicer GUI: Electron + React + WASM libslic3r",
   "license": "AGPL-3.0",
@@ -9,8 +9,11 @@
     "node": ">=24"
   },
   "scripts": {
+    "version:set": "node scripts/version.mjs set",
+    "version:sync": "node scripts/version.mjs sync",
+    "version:check": "node scripts/version.mjs check",
     "dev": "pnpm --filter @orca/desktop dev",
-    "test": "pnpm -r test",
+    "test": "pnpm version:check && node --test scripts/version.test.mjs && pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "build:wasm": "bash packages/slicer-wasm/build.sh",
     "build:wasm:dual": "bash scripts/build-wasm-dual.sh",
