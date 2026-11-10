@@ -44,6 +44,19 @@ maintenance follows the [documentation policy](project_structure_and_guidelines.
 Test frequency and focused-versus-release routing are defined by the
 [testing guidelines](doc/testing_guidelines.md).
 
+## Neo version
+
+[version.json](version.json) is the authoritative Neo release version. Run
+`pnpm version:set 1.0.0-dev` to set it and synchronize every workspace manifest
+and the generated runtime constants. After editing the file directly, run
+`pnpm version:sync`. `pnpm version:check` detects drift without writing files.
+The synchronized files are committed together. The slicing core is identified
+by the superproject's submodule pin.
+After updating that pin, run `pnpm version:sync` to refresh the displayed
+OrcaSlicer version from the pinned `version.inc`.
+Rebuild profile packages and WASM artifacts for the new release before staging
+or packaging. Native addon staging rebuilds their release identity automatically.
+
 ## Building
 
 Web additionally requires wasm32 threaded/serial fallback artifacts. After

@@ -27,7 +27,7 @@
 #             if missing.
 #   full      deps + boost + build — the complete cold-start path.
 #   quick     INCREMENTAL: ninja in .work/threaded/build and
-#             .work/serial/build + stage the 3 artifacts to out/<variant>.
+#             .work/serial/build + stage artifacts and build metadata to out/<variant>.
 #             The fast loop for bridge/CMake changes — keeps cached settings,
 #             reapplies build-time patches, seconds-to-minutes. Use --variant
 #             to limit to one build tree.
@@ -182,7 +182,7 @@ quick_variant() {
   log "Incremental: emmake ninja -C $bd orca_slice ${NINJA_JOBS[*]+"${NINJA_JOBS[*]}"}"
   emmake ninja -C "$bd" orca_slice ${NINJA_JOBS[@]+"${NINJA_JOBS[@]}"}
   node "$VALIDATE_WASM" "$bd/orca_slice.wasm" || die "Link produced invalid WebAssembly at $bd/orca_slice.wasm"
-  for f in orca_slice.js orca_slice.wasm orca_slice.data; do
+  for f in orca_slice.js orca_slice.wasm orca_slice.data build-info.json; do
     [[ -f "$bd/$f" ]] || die "Build did not produce $bd/$f"
     cp -f "$bd/$f" "$outd/"
   done
@@ -191,7 +191,7 @@ quick_variant() {
   # explicit variant directories.
   if [[ "$v" == threaded && "$outd" != "$OUT_DIR" ]]; then
     mkdir -p "$OUT_DIR"
-    for f in orca_slice.js orca_slice.wasm orca_slice.data; do cp -f "$outd/$f" "$OUT_DIR/"; done
+    for f in orca_slice.js orca_slice.wasm orca_slice.data build-info.json; do cp -f "$outd/$f" "$OUT_DIR/"; done
   fi
   log "Staged $v to $outd:"
   ls -la "$outd"

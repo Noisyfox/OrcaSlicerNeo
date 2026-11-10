@@ -39,6 +39,8 @@ describe('profile package layout', () => {
     const output = await build(fixture);
     try {
       const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'));
+      const version = JSON.parse(await readFile(new URL('../../../version.json', import.meta.url), 'utf8')).version;
+      expect(manifest.buildInfo).toMatchObject({ neoVersion: version, coreRevision: expect.stringMatching(/^[0-9a-f]{40}$/) });
       expect(manifest.packages).toEqual([
         { id: 'core', kind: 'core', path: 'core.upstream.zip' },
         { id: 'Creality', kind: 'vendor', path: 'vendors/Creality.02.03.02.75.zip' },

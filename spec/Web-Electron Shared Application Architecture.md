@@ -574,7 +574,11 @@ building the full catalogue; failed vendors may retry on later openings.
 A shared startup screen remains visible until the WASM runtime and
 required attempted package installs complete, and shows a text label for the current
 startup step. Profile downloads include their current package count, such as
-`Downloading profiles N/Total`. The main application is not interactive
+`Downloading profiles N/Total`. Below the application name it displays
+`v<Neo version> base on OrcaSlicer <core version>`. Both values are available
+before WASM initialization. The core version is generated from `version.inc`
+at the recorded submodule pin.
+The main application is not interactive
 before that point, except that Help → File Manager can inspect whichever files
 are already mounted while startup continues. Its Refresh action re-reads the
 current directory as installation progresses. Mandatory first-use Setup Wizard
@@ -717,6 +721,20 @@ A visible source-code link satisfies the release's source-offer entry point;
 a fuller About surface remains deferred.
 
 ## 9. Release, Cache, and Versioning
+
+The root [version.json](../version.json) owns the Neo SemVer release identity.
+All Neo workspace packages and host/runtime artifacts share that version.
+Package manifests and the runtime constant are synchronized through the
+[version commands](../README.md#neo-version) and checked in CI. The slicing
+core's identity comes from the superproject's recorded submodule pin, with
+the core's own Orca/Bambu versions governing its existing format semantics.
+
+Native WASM and addon build information records `neoVersion` and `coreRevision`.
+Profile manifests carry the same build information. Staging verifies the
+release and core pin against the current source inputs, and WASM metadata
+binds the JS, WASM and data files to their SHA-256 hashes. The typed client
+validates the loaded native Neo release before initialization. Web's loader
+sanitization refreshes the corresponding JS hash in its derived artifact.
 
 The shared UI, WASM core, and system profile resource manifest are versioned as
 one compatibility set. Electron and Web are independently built and deployed;

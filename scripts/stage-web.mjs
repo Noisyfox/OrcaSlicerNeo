@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { assertValidWasm } from './validate-wasm.mjs';
+import { verifyWasm } from './artifact-version.mjs';
 
 const soft = process.argv.includes('--soft');
 const root = new URL('../', import.meta.url);
@@ -17,14 +18,16 @@ await mkdir(dst, { recursive: true });
 await cp(new URL('apps/desktop/src/renderer/public/', root), dst, { recursive: true });
 for (const variant of ['serial', 'wasm32/threaded', 'wasm32/serial']) {
   const src = new URL(`packages/slicer-wasm/out/${variant}/`, root);
-  const files = ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data'];
+  const files = ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data', 'build-info.json'];
   if (soft && files.some(file => !existsSync(new URL(file, src)))) {
     console.warn(`[stage-web] missing ${variant} artifact — skipping`);
     continue;
   }
   await assertValidWasm(new URL('orca_slice.wasm', src));
+  await verifyWasm(fileURLToPath(src));
   const target = new URL(`wasm/${variant}/`, dst);
   await mkdir(target, { recursive: true });
   for (const file of files) await cp(new URL(file, src), new URL(file, target));
+  await verifyWasm(fileURLToPath(target));
   console.log(`[stage-web] staged ${variant}`);
 }

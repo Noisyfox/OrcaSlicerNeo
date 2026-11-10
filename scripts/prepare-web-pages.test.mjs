@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const variants = ['serial', 'wasm32/serial'];
-const runtimeFiles = variants.flatMap(variant => ['js', 'wasm', 'data'].map(ext => `${variant}/orca_slice.${ext}`));
+const runtimeFiles = variants.flatMap(variant => ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data', 'build-info.json'].map(file => `${variant}/${file}`));
 const script = fileURLToPath(new URL('./prepare-web-pages.mjs', import.meta.url));
 
 async function fixture(t) {
@@ -33,7 +33,7 @@ test('Pages preserves both serial runtimes and removes threaded and debug assets
   await put('profiles/vendor.zip', 'profile bytes');
   const result = run();
   assert.equal(result.status, 0, result.stderr + result.stdout);
-  assert.deepEqual((await readdir(join(root, 'wasm'), { recursive: true })).sort(),
+  assert.deepEqual((await readdir(join(root, 'wasm'), { recursive: true })).map(file => file.replaceAll('\\', '/')).sort(),
     [...runtimeFiles, 'serial', 'wasm32', 'wasm32/serial'].sort());
   for (const file of runtimeFiles) {
     assert.equal(await readFile(join(root, 'wasm', file), 'utf8'), file.endsWith('.data') ? '' : file);
@@ -52,7 +52,7 @@ test('Pages rejects an incomplete runtime set before pruning assets', async t =>
       await put('wasm/debug/keep-until-validated.txt');
       const result = run();
       assert.notEqual(result.status, 0);
-      assert.ok(result.stderr.includes(file), result.stderr);
+      assert.ok(result.stderr.replaceAll('\\', '/').includes(file), result.stderr);
       assert.equal(await readFile(join(root, 'wasm/debug/keep-until-validated.txt'), 'utf8'),
         'wasm/debug/keep-until-validated.txt');
     });

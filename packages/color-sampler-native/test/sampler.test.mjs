@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createNativeScreenColorSampler, loadNativeScreenColorSampler } from '../dist/index.js';
+import { readBuildInfo } from '../../../scripts/version.mjs';
 
 const require = createRequire(import.meta.url);
 const fixture = require('../build/Release/screen_color_fixture.node');
@@ -13,6 +14,7 @@ const signal = () => new AbortController().signal;
 test('production addon loads without opening native UI and contains no fixture entrypoint', async () => {
   const path = resolve('build/Release/screen_color.node');
   const binding = require(path);
+  assert.deepEqual(binding.buildInfo, readBuildInfo());
   assert.equal(binding.apiVersion, 1);
   assert.equal(typeof binding.available, 'boolean');
   assert.equal(binding.completeFixture, undefined);

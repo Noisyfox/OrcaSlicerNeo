@@ -294,7 +294,7 @@ REM ---------------- Collect artifacts ----------------
 REM Fail loudly: a missing artifact is a build defect, not a warning. The .data
 REM is the --preload-file info bundle - emcc emits it at link
 REM time, so absence here means the link step regressed.
-for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do (
+for %%f in (orca_slice.js orca_slice.wasm orca_slice.data build-info.json) do (
   if not exist "%BUILD_DIR%\%%f" (
     echo [wasm] ERROR: Build did not produce %BUILD_DIR%\%%f - check the link step above.
     exit /b 1
@@ -306,7 +306,7 @@ REM Electron scripts when the default threaded build is run directly. The dual
 REM entry point and Web host consume the explicit variant directories.
 if /i not "%OUT_DIR%"=="%PKG_DIR%\out" if /i "%ARTIFACT_VARIANT%"=="threaded" (
   if not exist "%PKG_DIR%\out" mkdir "%PKG_DIR%\out"
-  for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do copy /y "%OUT_DIR%\%%f" "%PKG_DIR%\out\" >nul
+  for %%f in (orca_slice.js orca_slice.wasm orca_slice.data build-info.json) do copy /y "%OUT_DIR%\%%f" "%PKG_DIR%\out\" >nul
 )
 dir "%OUT_DIR%"
 echo [wasm] Done. Artifacts in %OUT_DIR%\

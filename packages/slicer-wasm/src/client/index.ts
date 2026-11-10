@@ -78,7 +78,8 @@ export type {
 export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 export { createMockModule, MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
-export const CLIENT_VERSION = '0.1.0-m2';
+export { NEO_VERSION, ORCA_VERSION } from './version';
+export type { BuildInfo } from './types';
 
 export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSessionOpenRequest,
   PaintingSessionRequest, PaintingTargetRequest, PaintingPartMetadata, PaintingSessionMetadata,

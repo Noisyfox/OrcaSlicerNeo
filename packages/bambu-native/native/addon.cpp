@@ -209,5 +209,11 @@ void CallWorker::OnOK() { owner_->Complete(printing_); deferred_.Resolve(output_
 void CallWorker::OnError(const Napi::Error& error) { owner_->Complete(printing_); deferred_.Reject(error.Value()); }
 Napi::Object InitCamera(Napi::Env env, Napi::Object exports);
 Napi::Object InitControlStream(Napi::Env env, Napi::Object exports);
-static Napi::Object Init(Napi::Env env, Napi::Object exports) { return InitControlStream(env, InitCamera(env, AgentWrap::Init(env, exports))); }
+static Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    auto build_info = Napi::Object::New(env);
+    build_info.Set("neoVersion", NEO_VERSION);
+    build_info.Set("coreRevision", NEO_CORE_REVISION);
+    exports.Set("buildInfo", build_info);
+    return InitControlStream(env, InitCamera(env, AgentWrap::Init(env, exports)));
+}
 NODE_API_MODULE(bambu, Init)

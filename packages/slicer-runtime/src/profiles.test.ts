@@ -1,4 +1,5 @@
 import { zipSync } from 'fflate';
+import { NEO_VERSION } from './version';
 import { describe, expect, it, vi } from 'vitest';
 import { createProfileInstaller, readHotendProfileAsset, resolveDeploymentBase, resolveProfileBaseUrl, type ProfileSource } from './profiles';
 
@@ -14,10 +15,17 @@ function source(files: Record<string, Uint8Array>): ProfileSource {
   return { fetch: async (path) => { const value = files[path]; if (!value) throw new Error(`missing ${path}`); return value; } };
 }
 function manifest(packages: Array<{ id: string; kind: 'core' | 'vendor'; path: string }>) {
-  return new TextEncoder().encode(JSON.stringify({ version: 1, packages }));
+  return new TextEncoder().encode(JSON.stringify({ version: 1, buildInfo: { neoVersion: NEO_VERSION, coreRevision: 'a'.repeat(40) }, packages }));
 }
 
 describe('runtime profile installation session', () => {
+  it.each([null, { neoVersion: '0.0.0', coreRevision: 'a'.repeat(40) },
+    { neoVersion: NEO_VERSION, coreRevision: 'invalid' }])('rejects a foreign or missing build identity before installation (%j)', async buildInfo => {
+    const fetch = vi.fn(async () => new TextEncoder().encode(JSON.stringify({ version: 1, buildInfo, packages: [] })));
+    const installer = createProfileInstaller({ FS: { mkdir() {}, writeFile() {}, readFile: () => new Uint8Array() } }, { fetch });
+    await expect(installer.installStartup(null)).rejects.toThrow('Profile manifest build identity');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   const packages = ['core', 'OrcaFilamentLibrary', 'Custom', 'Alpha', 'Beta'].map(id => ({ id,
     kind: id === 'core' ? 'core' as const : 'vendor' as const, path: `${id}.zip` }));
   function fixture() {

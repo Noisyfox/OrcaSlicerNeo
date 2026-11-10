@@ -11,6 +11,7 @@ import { argv } from 'node:process';
 import { awaitAsyncTask, exportGcode, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory, validateGcode } from './run-slice.mjs';
+import { readBuildInfo } from '../../../scripts/version.mjs';
 
 const [moduleArg, stlArg, profileRootArg] = argv.slice(2);
 if (!moduleArg || !stlArg) {
@@ -25,6 +26,7 @@ const stlPath = resolve(stlArg);
 const boxStlPath = resolve(dirname(stlPath), 'floating-box.stl');
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const profileRoot = resolve(profileRootArg ?? `${repoRoot}/packages/profile-resources/dist`);
+const expectedBuildInfo = readBuildInfo(repoRoot);
 const factory = await loadModuleFactory(moduleArg);
 const Module = await factory({ noInitialRun: true, print: console.error, printErr: console.error });
 // The bridge has no built-in profile payload: production hosts install the
@@ -54,6 +56,10 @@ function check(label, cond, detail = '') {
 }
 
 // 1. init (full preset bundle; fresh config = all installed)
+const buildInfo = callJson('orc_get_build_info', [], []);
+check('Neo build identity matches version and pinned core',
+  buildInfo.neoVersion === expectedBuildInfo.neoVersion && buildInfo.coreRevision === expectedBuildInfo.coreRevision,
+  JSON.stringify(buildInfo));
 // wasm64: every C param needs a value — orc_init's app_config_json arg
 // gets an empty string (null-ish → fresh config), never zero args
 // (undefined → BigInt conversion TypeError in the wasm64 wrapper).

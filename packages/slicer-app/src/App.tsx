@@ -39,7 +39,7 @@ import {
   ProjectProgressDialog,
 } from './components/project/ProjectDialogs';
 import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs, type ProjectLoadReceipt } from './projectActions';
-import { errorText } from '@orca/slicer-runtime';
+import { errorText, NEO_VERSION, ORCA_VERSION } from '@orca/slicer-runtime';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
@@ -691,8 +691,13 @@ function AppContent() {
         <div className="flex h-full flex-col bg-background" data-testid="startup-screen">
           {titleBar}
           <main className="flex flex-1 items-center justify-center">
-            <section className="w-full max-w-lg space-y-3 rounded-md border bg-card p-8 shadow-sm">
-              <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
+            <section className="flex w-full max-w-lg flex-col gap-3 rounded-md border bg-card p-8 shadow-sm">
+              <header className="flex flex-col gap-px">
+                <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
+                <p className="text-xs text-muted-foreground" data-testid="startup-version">
+                  v{NEO_VERSION} base on OrcaSlicer {ORCA_VERSION}
+                </p>
+              </header>
               {boot === 'failed' ? (
                 <>
                   <h2 className="text-destructive">Startup failed</h2>

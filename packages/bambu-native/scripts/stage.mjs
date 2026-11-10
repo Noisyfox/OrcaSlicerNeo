@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { acquire, manifest } from './acquire.mjs';
+import { verifyNativeAddon } from '../../../scripts/artifact-version.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
@@ -51,6 +52,7 @@ export async function prepareRuntime(target = `${process.platform}-${process.arc
   // host addon beside a different architecture's downloaded Electron/plugin.
   if (target !== `${process.platform}-${process.arch}`) throw new Error(`Build Bambu resources on a ${target} host`);
   buildAddon();
+  verifyNativeAddon(join(packageRoot, 'build/Release/bambu.node'));
   const plugin = await acquire(target);
   return stageRuntime({
     target, addonPath: join(packageRoot, 'build/Release/bambu.node'),

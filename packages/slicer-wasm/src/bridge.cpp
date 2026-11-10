@@ -37,6 +37,7 @@
 #include "wasm_log.hpp"
 
 #include "nlohmann/json.hpp"
+#include "neo_version.h"
 
 using nlohmann::json;
 
@@ -90,6 +91,11 @@ void validate_filament_candidate(PresetBundle& bundle, Model& model,
 
 } // namespace Slic3r::Neo::Bridge::ProjectPersistence
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_build_info() {
+    return Slic3r::Neo::Bridge::Profiles::duplicate_json(
+        json{{"neoVersion", NEO_VERSION}, {"coreRevision", NEO_CORE_REVISION}}.dump());
+}
 
 EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
     try {

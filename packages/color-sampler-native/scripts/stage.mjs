@@ -4,6 +4,7 @@ import { cp, mkdir, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { verifyNativeAddon } from '../../../scripts/artifact-version.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
@@ -17,6 +18,7 @@ export function buildAddon() {
   run([join(dirname(require.resolve('typescript/package.json')), require('typescript/package.json').bin.tsc), '-p', 'tsconfig.json']);
 }
 export async function stageRuntime() {
+  verifyNativeAddon(join(root, 'build/Release/screen_color.node'));
   const destination = join(root, 'out/runtime');
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });

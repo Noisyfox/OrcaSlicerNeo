@@ -2,6 +2,7 @@ import { readZipEntries } from '../../../packages/slicer-wasm/harness/native-3mf
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import { selectGcodeOutput, expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-controls.helpers';
 import { test, expect, configuredActivation } from './browser-fixture';
+import { readNeoVersion, readPinnedOrcaVersion } from '../../../scripts/version.mjs';
 
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -571,7 +572,8 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
   await expect(page.getByTestId('file-manager-path')).toHaveText('/');
 });
 
-test('Web Help keeps File Manager available after profile startup fails', async ({ page }) => {
+test('Web Help keeps File Manager available after profile startup fails', async ({ page }, testInfo) => {
+  const versionLabel = `v${readNeoVersion()} base on OrcaSlicer ${readPinnedOrcaVersion()}`;
   let failManifest!: () => void;
   const manifestGate = new Promise<void>((resolve) => { failManifest = resolve; });
   let manifestRequestStarted!: () => void;
@@ -588,6 +590,9 @@ test('Web Help keeps File Manager available after profile startup fails', async 
     await page.goto('/');
     await manifestStarted;
     await expect(page.getByTestId('startup-screen')).toBeVisible();
+    const header = page.getByRole('heading', { name: 'OrcaSlicerNeo', exact: true }).locator('..');
+    await expect(header.getByTestId('startup-version')).toHaveText(versionLabel);
+    await page.screenshot({ path: testInfo.outputPath('startup-version.png') });
     if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
       await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
       await page.getByTestId('titlebar-menu-trigger').click();
@@ -613,6 +618,7 @@ test('Web Help keeps File Manager available after profile startup fails', async 
   }
 
   await expect(page.getByTestId('startup-error')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('startup-version')).toHaveText(versionLabel);
   await expect(manager).toBeVisible();
   await page.getByTestId('file-manager-close').click();
   if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {

@@ -92,6 +92,27 @@ endforeach()
 
 set(LIBSLIC3R_ROOT "${ORCA_SRC}/src/libslic3r")
 
+# Neo owns its release identity; the pinned core owns Orca/Bambu versions.
+get_filename_component(NEO_REPO_ROOT "${ORCA_SRC}/../../.." ABSOLUTE)
+find_program(NEO_NODE node REQUIRED)
+execute_process(COMMAND git -C "${NEO_REPO_ROOT}" rev-parse --git-path index
+  OUTPUT_VARIABLE NEO_GIT_INDEX OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY)
+get_filename_component(NEO_GIT_INDEX "${NEO_GIT_INDEX}" ABSOLUTE BASE_DIR "${NEO_REPO_ROOT}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${NEO_REPO_ROOT}/version.json" "${NEO_REPO_ROOT}/scripts/version.mjs" "${NEO_GIT_INDEX}")
+execute_process(COMMAND "${NEO_NODE}" "${NEO_REPO_ROOT}/scripts/version.mjs" info
+  OUTPUT_VARIABLE NEO_BUILD_INFO OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE NEO_VERSION_RESULT)
+if(NOT NEO_VERSION_RESULT EQUAL 0)
+  message(FATAL_ERROR "Cannot read Neo build identity")
+endif()
+string(JSON NEO_VERSION GET "${NEO_BUILD_INFO}" neoVersion)
+string(JSON NEO_CORE_REVISION GET "${NEO_BUILD_INFO}" coreRevision)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/neo_version.h.in"
+  "${GEN_INCLUDE}/neo_version.h" @ONLY)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/neo-build-info.json" "${NEO_BUILD_INFO}\n")
+
 # Use Orca's distinct slicer and Bambu compatibility versions. Generating this
 # at configure time also keeps incremental builds in sync with version.inc.
 include("${ORCA_SRC}/version.inc")
@@ -637,6 +658,13 @@ foreach(_pf IN LISTS PRELOAD_FILES)
     target_link_options(orca_slice PRIVATE "--preload-file=${_pf}")
   endif()
 endforeach()
+
+set_property(TARGET orca_slice APPEND PROPERTY LINK_DEPENDS
+  "${NEO_REPO_ROOT}/scripts/artifact-version.mjs")
+add_custom_command(TARGET orca_slice POST_BUILD
+  COMMAND "${NEO_NODE}" "${NEO_REPO_ROOT}/scripts/artifact-version.mjs" stamp
+    "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/neo-build-info.json"
+  VERBATIM)
 
 # A real algorithm/linkage probe, separate from the product ABI. Building the
 # scaffold's default target includes this executable; it can also be selected

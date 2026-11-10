@@ -252,7 +252,7 @@ node "$VALIDATE_WASM" "$BUILD_DIR/orca_slice.wasm" || die "Link produced invalid
 # is the --preload-file info bundle — emcc emits it at link
 # time, so absence here means the link step regressed. The listing below is
 # evidence in the CI log (size tells the curated vs full-bundle case apart).
-for f in orca_slice.js orca_slice.wasm orca_slice.data; do
+for f in orca_slice.js orca_slice.wasm orca_slice.data build-info.json; do
   [[ -f "$BUILD_DIR/$f" ]] || die "Build did not produce $BUILD_DIR/$f — check the link step above"
   cp -f "$BUILD_DIR/$f" "$OUT_DIR/"
 done
@@ -261,7 +261,7 @@ done
 # entry point and Web host consume the explicit variant directories.
 if [[ "$ARTIFACT_VARIANT" == "threaded" && "$OUT_DIR" != "$PKG_DIR/out" ]]; then
   mkdir -p "$PKG_DIR/out"
-  for f in orca_slice.js orca_slice.wasm orca_slice.data; do cp -f "$OUT_DIR/$f" "$PKG_DIR/out/"; done
+  for f in orca_slice.js orca_slice.wasm orca_slice.data build-info.json; do cp -f "$OUT_DIR/$f" "$PKG_DIR/out/"; done
 fi
 ls -la "$OUT_DIR"
 log "Done. Artifacts in $OUT_DIR/"

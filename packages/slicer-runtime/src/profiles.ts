@@ -1,9 +1,9 @@
 import { unzipSync } from 'fflate';
-import type { OrcaModule, ProfileActivation } from '@slicer/client';
-import { installProfileArchive, safeProfilePath } from '@slicer/client';
+import type { BuildInfo, OrcaModule, ProfileActivation } from '@slicer/client';
+import { NEO_VERSION, installProfileArchive, safeProfilePath } from '@slicer/client';
 
 export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: string; }
-export interface ProfileManifest { version: 1; packages: ProfilePackage[]; }
+export interface ProfileManifest { version: 1; buildInfo: BuildInfo; packages: ProfilePackage[]; }
 export interface ProfileSource { fetch(relativePath: string): Promise<Uint8Array | ReadableStream<Uint8Array>>; }
 
 export interface HotendPrinter { vendor_id: string; model: string; }
@@ -48,6 +48,9 @@ function manifestPackage(manifest: ProfileManifest, kind: ProfilePackage['kind']
 async function readProfileManifest(source: ProfileSource): Promise<ProfileManifest> {
   const value = JSON.parse(new TextDecoder().decode(await readBytes(await source.fetch('manifest.json')))) as ProfileManifest;
   if (!value || value.version !== 1 || !Array.isArray(value.packages)) throw new Error('unsupported profile manifest');
+  if (value.buildInfo?.neoVersion !== NEO_VERSION || !/^[0-9a-f]{40}$/.test(value.buildInfo?.coreRevision ?? '')) {
+    throw new Error('Profile manifest build identity does not match Neo');
+  }
   return value;
 }
 

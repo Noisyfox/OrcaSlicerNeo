@@ -74,7 +74,9 @@
       },
       "defines": [
         "NAPI_VERSION=8",
-        "NAPI_CPP_EXCEPTIONS"
+        "NAPI_CPP_EXCEPTIONS",
+        "NEO_VERSION=\"<!(node ../../scripts/version.mjs version)\"",
+        "NEO_CORE_REVISION=\"<!(node ../../scripts/version.mjs core)\""
       ]
     },
     {
@@ -86,7 +88,9 @@
       "defines": [
         "NAPI_VERSION=8",
         "NAPI_CPP_EXCEPTIONS",
-        "SCREEN_COLOR_FIXTURE"
+        "SCREEN_COLOR_FIXTURE",
+        "NEO_VERSION=\"<!(node ../../scripts/version.mjs version)\"",
+        "NEO_CORE_REVISION=\"<!(node ../../scripts/version.mjs core)\""
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")"
