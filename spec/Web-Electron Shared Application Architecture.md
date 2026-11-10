@@ -574,7 +574,11 @@ building the full catalogue; failed vendors may retry on later openings.
 A shared startup screen remains visible until the WASM runtime and
 required attempted package installs complete, and shows a text label for the current
 startup step. Profile downloads include their current package count, such as
-`Downloading profiles N/Total`. The main application is not interactive
+`Downloading profiles N/Total`. Below the application name it displays
+`v<Neo version> base on OrcaSlicer <core version>`. Both values are available
+before WASM initialization. The core version is generated from `version.inc`
+at the recorded submodule pin.
+The main application is not interactive
 before that point, except that Help → File Manager can inspect whichever files
 are already mounted while startup continues. Its Refresh action re-reads the
 current directory as installation progresses. Mandatory first-use Setup Wizard

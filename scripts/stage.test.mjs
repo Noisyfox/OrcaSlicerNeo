@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { manageVersions, readBuildInfo } from './version.mjs';
@@ -26,17 +26,26 @@ test('Electron stages threaded alone, removes stale fallbacks, and Web adds its 
   await put('packages/slicer-app/resources/handy-models.json', '[]');
   await mkdir(join(root, 'packages/slicer-wasm/cpp/resources/handy_models'), { recursive: true });
   const buildInfo = readBuildInfo();
+  const core = join(root, 'packages/slicer-wasm/cpp');
+  await put('packages/slicer-wasm/cpp/version.inc', 'set(SoftFever_VERSION "2.5.0")\n');
+  await mkdir(join(root, 'empty-hooks'));
+  for (const args of [['init', '-q', core], ['-C', core, '-c', 'core.autocrlf=false', 'add', 'version.inc'],
+    ['-C', core, '-c', 'user.name=Stage Test', '-c', 'user.email=stage@example.invalid',
+      '-c', 'commit.gpgsign=false', '-c', `core.hooksPath=${join(root, 'empty-hooks')}`, 'commit', '-qm', 'Fixture core']]) {
+    execFileSync('git', args, { cwd: root });
+  }
+  buildInfo.coreRevision = execFileSync('git', ['-C', core, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   await put('version.json', JSON.stringify({ version: buildInfo.neoVersion }));
   for (const path of ['package.json', 'apps/desktop/package.json', 'apps/web/package.json',
     'packages/slicer-app/package.json', 'packages/slicer-wasm/package.json', 'packages/profile-resources/package.json']) {
     await put(path, '{"version":"0.0.0"}');
   }
   await mkdir(join(root, 'packages/slicer-wasm/src/client'), { recursive: true });
-  manageVersions('sync', undefined, root);
   for (const args of [['init'], ['update-index', '--add', '--cacheinfo', `160000,${buildInfo.coreRevision},packages/slicer-wasm/cpp`]]) {
     const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
   }
+  manageVersions('sync', undefined, root);
   await put('packages/profile-resources/dist/manifest.json', JSON.stringify({ version: 1, buildInfo, packages: [] }));
   await put('configured-info.json', JSON.stringify(buildInfo));
   const wasm = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]);
