@@ -94,18 +94,25 @@ set(LIBSLIC3R_ROOT "${ORCA_SRC}/src/libslic3r")
 
 # Neo owns its release identity; the pinned core owns Orca/Bambu versions.
 get_filename_component(NEO_REPO_ROOT "${ORCA_SRC}/../../.." ABSOLUTE)
-find_program(NEO_NODE node REQUIRED)
+# find_program keeps cached paths even after an executable has been removed
+# (for example, when switching from Homebrew Node to pnpm's managed Node).
+# Share one host Node across identity generation and dependency verification.
+if(DEFINED NEO_NODE_EXECUTABLE AND NOT EXISTS "${NEO_NODE_EXECUTABLE}")
+  unset(NEO_NODE_EXECUTABLE CACHE)
+  unset(NEO_NODE_EXECUTABLE)
+endif()
+find_program(NEO_NODE_EXECUTABLE NAMES node REQUIRED)
 execute_process(COMMAND git -C "${NEO_REPO_ROOT}" rev-parse --git-path index
   OUTPUT_VARIABLE NEO_GIT_INDEX OUTPUT_STRIP_TRAILING_WHITESPACE
   COMMAND_ERROR_IS_FATAL ANY)
 get_filename_component(NEO_GIT_INDEX "${NEO_GIT_INDEX}" ABSOLUTE BASE_DIR "${NEO_REPO_ROOT}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${NEO_REPO_ROOT}/version.json" "${NEO_REPO_ROOT}/scripts/version.mjs" "${NEO_GIT_INDEX}")
-execute_process(COMMAND "${NEO_NODE}" "${NEO_REPO_ROOT}/scripts/version.mjs" info
+execute_process(COMMAND "${NEO_NODE_EXECUTABLE}" "${NEO_REPO_ROOT}/scripts/version.mjs" info
   OUTPUT_VARIABLE NEO_BUILD_INFO OUTPUT_STRIP_TRAILING_WHITESPACE
-  RESULT_VARIABLE NEO_VERSION_RESULT)
+  RESULT_VARIABLE NEO_VERSION_RESULT ERROR_VARIABLE NEO_VERSION_ERROR)
 if(NOT NEO_VERSION_RESULT EQUAL 0)
-  message(FATAL_ERROR "Cannot read Neo build identity")
+  message(FATAL_ERROR "Cannot read Neo build identity using ${NEO_NODE_EXECUTABLE} (result: ${NEO_VERSION_RESULT}): ${NEO_VERSION_ERROR}")
 endif()
 string(JSON NEO_VERSION GET "${NEO_BUILD_INFO}" neoVersion)
 string(JSON NEO_CORE_REVISION GET "${NEO_BUILD_INFO}" coreRevision)
@@ -662,7 +669,7 @@ endforeach()
 set_property(TARGET orca_slice APPEND PROPERTY LINK_DEPENDS
   "${NEO_REPO_ROOT}/scripts/artifact-version.mjs")
 add_custom_command(TARGET orca_slice POST_BUILD
-  COMMAND "${NEO_NODE}" "${NEO_REPO_ROOT}/scripts/artifact-version.mjs" stamp
+  COMMAND "${NEO_NODE_EXECUTABLE}" "${NEO_REPO_ROOT}/scripts/artifact-version.mjs" stamp
     "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/neo-build-info.json"
   VERBATIM)
 
