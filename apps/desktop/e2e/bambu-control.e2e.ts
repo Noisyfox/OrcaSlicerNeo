@@ -155,6 +155,8 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     const leftToolBounds = await panel.getByRole('button', { name: 'Hotend menu for Left extruder', exact: true }).boundingBox();
     const rightToolBounds = await panel.getByRole('button', { name: 'Hotend menu for Right extruder', exact: true }).boundingBox();
     expect(leftToolBounds!.x).toBeLessThan(rightToolBounds!.x);
+    expect(leftToolBounds!.width).toBeLessThanOrEqual(160);
+    expect(rightToolBounds!.width).toBeLessThanOrEqual(160);
     const tabAboveCards = await panel.evaluate(element => {
       const tab = [...element.querySelectorAll('[role="tab"]')].find(tab => tab.textContent === 'Hotend')!;
       const card = element.querySelector('[aria-label="Hotend menu for Left extruder"]')!;

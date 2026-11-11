@@ -52,7 +52,7 @@
 .printer-material-tabs { flex-direction: column; }
 .printer-material-tabs > [role='tablist'] { align-self: flex-start; min-height: 32px; }
 .printer-material-tabs [role='tab'][aria-selected='true'] { color: var(--color-primary); border-bottom-color: var(--color-primary); }
-.printer-hotend-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
+.printer-hotend-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 100px), 160px)); gap: 8px; }
 .printer-hotend-card { min-width: 0; padding: 4px; border-radius: 4px; background: var(--color-secondary); }
 .printer-hotend-trigger { display: flex; flex-direction: column; gap: 7px; width: 100%; height: auto; padding: 8px; white-space: normal; font-size: 11px; text-align: center; }
 .printer-hotend-heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
