@@ -31,7 +31,7 @@
 .printer-environment-controls label { font-size: 11px; }
 .printer-motion-controls { min-width: 0; display: grid; grid-template-columns: minmax(185px, 1fr) minmax(120px, .65fr); }
 .printer-motion-controls[data-has-axes='false'] { grid-template-columns: 1fr; }
-.printer-motion-controls[data-has-axes='false'] .printer-tool-controls { border-left: 0; padding-left: 0; }
+.printer-motion-controls[data-has-axes='false'] .printer-tool-controls { border-left: 0; }
 .printer-motion-controls h4 { font-size: 11px; color: var(--color-muted-foreground); font-weight: 500; }
 .printer-axis-controls { min-width: 0; padding: 0 12px; text-align: center; }
 .printer-axis-group { margin: 12px 0; }
