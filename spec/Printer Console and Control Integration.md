@@ -1047,14 +1047,18 @@ Hardware IDs are opaque; tool/nozzle labels use descriptor names. For a reported
 Bambu dual 0/1 pair, the provider follows Orca's main-extruder convention: 0 is
 Right nozzle/Right extruder and 1 is Left nozzle/Left extruder. The provider
 orders this pair left first, right second, independently of report order; the
-vertical temperature and tool lists show left above right, and hardware details
-list left before right. Temperature,
+vertical temperature list shows left above right, Hotend cards show left before
+right, and hardware details list left before right. Temperature,
 tool-selection and material-path controls share those names while retaining
 the original command IDs. Single-tool and unknown layouts keep neutral names.
 Movement choices
 use advertised step IDs without silently substituting another step for an axis.
 Extrusion presets use reported range and granularity; unknown bounds or increments
-do not establish a preset. The provider still evaluates every command.
+do not establish a preset. The Extruders panel has one Retract and one Extrude
+button, targeting the unique, freshly reported current tool. Missing, stale,
+ambiguous or empty active-tool readings disable both buttons. A submitted
+selection does not change that target until a device observation reports it.
+The provider revalidates the active extruder before dispatch.
 
 [Observation ownership](../packages/slicer-app/src/components/device/usePrinterObservation.ts)
 splits consumed topics by delivery: `push` or `poll` topics use the service's watch,
@@ -1079,10 +1083,18 @@ as specified in the
 The Monitor follows the reference's two-column desktop composition: the camera
 card above printing progress on the left, with the current-task thumbnail to the
 left of the progress information inside the same card; temperature,
-lighting/fans, a directional XY pad with homing and Z controls, and individually
-addressed extruders on the right. The Print speed mode selector, with its
-visible label, sits below Fans and lighting. Material units form a grid beneath the controls, with compact
-reported slots and explicit tool paths; external holders remain distinct.
+lighting/fans, a directional XY pad with homing and Z controls, and the current
+extruder on the right. The Print speed mode selector, with its visible label,
+sits below Fans and lighting. Material system beneath the controls has Filament
+and Hotend tabs shared by U1, H2D and other reported topologies. Filament is the
+default and retains the material-unit grid, compact slots and explicit tool
+paths; external holders remain distinct. Hotend shows cards in descriptor
+order with each tool's name, temperature, nozzle diameter, flow and mount state.
+Opening a card opens its menu without a device command. Take selects that
+physical tool; Place appears for the mounted tool only when the provider
+advertises parking. A movement confirmation precedes Take and Place. Supported
+temperature editing and nozzle details remain available from the card menu.
+The active mount state follows observations independently of menu focus.
 Fan controls, lighting controls and nozzle hardware details are independently
 collapsed by default and can expand within their sections.
 No calibration, print-options, RFID or material-editing entry is implied by the
@@ -1090,6 +1102,18 @@ reference image. The explicit printer selector, current-device header and
 freshness feedback remain visible. Narrow content areas stack the sections
 without horizontal overflow; mobile support remains deferred. Selection
 persistence is defined under Console selection and behavior below.
+
+The U1 provider discovers tool selection, parking and manual extrusion per
+firmware command and reported hardware. It bypasses the retained print mapping
+when selecting a physical head and reads the physical mount sensors to confirm
+selection or parking. A logical active-extruder name alone does not establish a
+mounted head. Unknown or conflicting mount readings remain unknown. Manual
+extrusion requires the current mounted, warm tool and a reported sufficient
+distance limit; it preserves and restores the firmware G-code state, including
+after an explicit move failure. These operations require fresh idle state,
+exclude local tool/material operations and print submission, and never replay
+a command after an unknown outcome. Protocol and automated fixture checks do
+not establish physical U1 qualification.
 
 The original Bambu control increment's accepted feature envelope is:
 

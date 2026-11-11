@@ -6,7 +6,7 @@ const contentTopics: D.StateTopic[] = ['preferences', 'status', 'sensors', 'ther
 /** Select only topics consumed by this screen. A metadata capability alone never starts device access. */
 export function monitorTopics(capabilities: D.PrinterCapabilities) {
   const topics = contentTopics.filter(topic => capabilities.observations[topic].kind === 'supported');
-  const topologyCommands: (keyof D.CommandCapabilities)[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'motion.home', 'motion.jog', 'extrusion.move', 'tools.select', 'hardware.refreshNozzles'];
+  const topologyCommands: (keyof D.CommandCapabilities)[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'motion.home', 'motion.jog', 'extrusion.move', 'tools.select', 'tools.park', 'hardware.refreshNozzles'];
   if (['thermal', 'motion', 'actuators', 'materials', 'cameras'].some(topic => topics.includes(topic as D.StateTopic)) || topologyCommands.some(type => capabilities.commands[type].kind === 'supported')) {
     if (capabilities.observations.descriptor.kind === 'supported') topics.unshift('descriptor');
   }
