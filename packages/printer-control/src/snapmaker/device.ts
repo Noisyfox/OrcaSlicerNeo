@@ -9,6 +9,8 @@ const id = <K extends string>(value: string) => value as D.Id<K>;
 const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
 const heads = [0, 1, 2, 3];
+const axes = ['x', 'y', 'z'] as const;
+const jogSteps = [{ id: '10', label: '10 mm', distanceMm: 10 }, { id: '1', label: '1 mm', distanceMm: 1 }, { id: '0.1', label: '0.1 mm', distanceMm: 0.1 }] as const;
 const extruder = (i: number) => i ? `extruder${i}` : 'extruder';
 const heaterId = (name: string) => id<'heater'>(`snapmaker-heater:${name}`);
 const fanId = (name: string) => id<'fan'>(`snapmaker-fan:${name}`);
@@ -46,6 +48,23 @@ export function u1ActiveToolIds(snapshot: U1DeviceSnapshot): readonly D.Id<'tool
   if (first[1] !== 0) return undefined;
   const index = installed.find(i => extruder(i) === first[0]);
   return index === undefined ? undefined : [u1ToolId(index)];
+}
+
+export function u1HomedAxes(snapshot: U1DeviceSnapshot): readonly D.Axis[] | undefined {
+  const homed = record(snapshot.status.toolhead).homed_axes;
+  return typeof homed === 'string' && /^[xyz]*$/.test(homed) ? axes.filter(axis => homed.includes(axis)) : undefined;
+}
+function coordinate(snapshot: U1DeviceSnapshot, field: string, axis: D.Axis): number | null {
+  const value = record(snapshot.status.toolhead)[field];
+  return Array.isArray(value) ? finite(value[axes.indexOf(axis)]) : null;
+}
+function jogLimits(snapshot: U1DeviceSnapshot, axis: D.Axis) {
+  const minimum = coordinate(snapshot, 'axis_minimum', axis), maximum = coordinate(snapshot, 'axis_maximum', axis);
+  const velocity = finite(record(snapshot.status.toolhead).max_velocity);
+  const zVelocity = finite(record(record(record(snapshot.status.configfile).settings).printer).max_z_velocity);
+  const limit = axis === 'z' ? zVelocity : velocity;
+  if (minimum === null || maximum === null || minimum >= maximum || velocity === null || velocity <= 0 || limit === null || limit <= 0) return undefined;
+  return { minimum, maximum, speed: Math.min(axis === 'z' ? 30 : 60, limit, velocity) };
 }
 
 // Snapmaker u1-klipper machine_state_manager.py main states and action codes.
@@ -118,19 +137,36 @@ export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarg
   const values: Partial<D.PrinterObservationMap> = { preferences: u1Preferences(snapshot, target), descriptor, sensors, thermal: heaters.map(name => ({ heaterId: heaterId(name), targetC: number(record(status[name]).target) })),
     actuators: { fans: fans(snapshot).map(f => ({ fanId: fanId(f.object), speedFraction: number(f.object.startsWith('purifier:') ? record(record(status.purifier)[`${f.object.split(':')[1]}_fan`]).speed : record(status[f.object]).speed) })),
       lights: topology.lights.map(l => ({ lightId: l.id, on: white === null ? unknown : known(white > 0) })) } };
+  if (snapshot.objects.includes('toolhead')) {
+    const position: Partial<Record<D.Axis, number>> = {};
+    for (const axis of axes) {
+      const value = coordinate(snapshot, 'position', axis);
+      if (value !== null) position[axis] = value;
+    }
+    const homed = u1HomedAxes(snapshot);
+    values.motion = [{ motionGroupId: id('snapmaker-motion'), positionMm: Object.keys(position).length ? known(position) : unknown,
+      homedAxes: homed === undefined ? unknown : known(homed) }];
+  }
   if (snapshot.objects.includes('print_task_config')) { values.materials = u1MaterialInventory(status, target, revision); topology.materials = values.materials.topology; }
   return values;
 }
 /** Capability support is independent of idle/printing/paused and the top cover's presence. */
 export function u1DeviceCapabilities(snapshot?: U1DeviceSnapshot): Partial<D.CommandCapabilities> {
   const result: Partial<D.CommandCapabilities> = { 'preferences.set': u1PreferenceCapability(snapshot) };
-  const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.writeMetadata', 'materials.configure', 'tools.select', 'tools.park', 'extrusion.move'];
+  const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.writeMetadata', 'materials.configure', 'tools.select', 'tools.park', 'extrusion.move', 'motion.home', 'motion.jog'];
   for (const name of names) Object.assign(result, { [name]: snapshot ? { kind: 'unsupported', layer: 'device', reason: 'Required firmware command or object is not reported' } : { kind: 'unknown', reason: 'Device capabilities have not been read' } });
   if (!snapshot) return result;
   const has = (command: string) => snapshot.commands.includes(command);
   const supported = <T extends object>(constraints: T) => ({ kind: 'supported' as const, constraints });
   const heaters = [...heads.map(extruder), 'heater_bed'].filter(name => snapshot.objects.includes(name));
   const installed = heads.filter(i => snapshot.objects.includes(extruder(i)));
+  if (snapshot.objects.includes('toolhead') && has('G28') && has('M400'))
+    result['motion.home'] = supported([{ motionGroupId: id<'motion'>('snapmaker-motion'), axes }]);
+  if (snapshot.objects.includes('toolhead') && ['SAVE_GCODE_STATE', 'RESTORE_GCODE_STATE', 'G91', 'M220', 'G1', 'M400'].every(has)) {
+    const movable = axes.filter(axis => jogLimits(snapshot, axis));
+    if (movable.length) result['motion.jog'] = supported(movable.map(axis => ({ motionGroupId: id<'motion'>('snapmaker-motion'), axis,
+      kind: 'step' as const, steps: jogSteps.map(({ id, label }) => ({ id, label })) })) as unknown as D.PrinterCommandSpecs['motion.jog']['constraints']);
+  }
   const selectable = installed.filter(i => has(`T${i}`)).map(u1ToolId);
   if (selectable.length) result['tools.select'] = supported({ toolIds: selectable as unknown as D.NonEmptyReadonlyArray<D.Id<'tool'>> });
   const parkable = installed.filter(i => has(`PARK_${extruder(i).toUpperCase()}`)).map(u1ToolId);
@@ -179,11 +215,32 @@ export function u1DeviceCommand(snapshot: U1DeviceSnapshot, command: D.PrinterCo
   const cap = u1DeviceCapabilities(snapshot)[command.type];
   if (!cap || cap.kind !== 'supported') fail('unsupported', 'Device command is unavailable');
   switch (command.type) {
-    case 'tools.select': case 'tools.park': case 'extrusion.move': {
+    case 'tools.select': case 'tools.park': case 'extrusion.move': case 'motion.home': case 'motion.jog': {
       const state = record(snapshot.status.machine_state_manager);
       if (!['standby', 'complete', 'cancelled'].includes(String(record(snapshot.status.print_stats).state)) || state.main_state !== 0 || state.action_code !== 0)
-        fail('busy', 'Wait until the printer is idle before changing tools or extruding.');
+        fail('busy', 'Wait until the printer is idle before moving or changing tools.');
       if (heads.some(i => record(snapshot.status[extruder(i)]).activating_move === true)) fail('busy', 'A tool change is already running.');
+      if (command.type === 'motion.home') {
+        const p = command.params;
+        if (p.motionGroupId !== 'snapmaker-motion' || !Array.isArray(p.axes) || !p.axes.length || p.axes.some(axis => !axes.includes(axis)) || new Set(p.axes).size !== p.axes.length)
+          fail('invalid-target', 'Select the reported motion group and axes.');
+        if (p.axes.includes('z') && !p.axes.includes('x') && !p.axes.includes('y') && !['x', 'y'].every(axis => u1HomedAxes(snapshot)?.includes(axis as D.Axis)))
+          fail('precondition-failed', 'Home X and Y before homing Z alone.');
+        return `G28 ${axes.filter(axis => p.axes.includes(axis)).map(axis => axis.toUpperCase()).join(' ')}\nM400`;
+      }
+      if (command.type === 'motion.jog') {
+        const p = command.params;
+        if (p.motionGroupId !== 'snapmaker-motion' || !axes.includes(p.axis) || p.kind !== 'step' || !['positive', 'negative'].includes(p.direction))
+          fail('invalid-request', 'Select a reported motion step and direction.');
+        const step = jogSteps.find(step => step.id === p.stepId), limits = jogLimits(snapshot, p.axis);
+        if (!step || !limits) fail('out-of-range', 'Select a supported motion step.');
+        if (!u1HomedAxes(snapshot)?.includes(p.axis)) fail('precondition-failed', 'Home the requested axis before moving.');
+        const position = coordinate(snapshot, 'position', p.axis);
+        if (position === null) fail('precondition-failed', 'The current axis position is unknown.');
+        const distance = step.distanceMm * (p.direction === 'positive' ? 1 : -1), target = position + distance;
+        if (target < limits.minimum || target > limits.maximum) fail('out-of-range', 'The requested move exceeds the reported axis travel.');
+        return `G91\nM220 S100\nG1 ${p.axis.toUpperCase()}${distance} F${limits.speed * 60}\nM400`;
+      }
       if (command.type === 'tools.select' || command.type === 'tools.park') {
         const i = head(command.params.toolId, 'tool');
         if (!(cap.constraints as { toolIds: readonly D.Id<'tool'>[] }).toolIds.includes(command.params.toolId)) fail('invalid-target', 'Unknown physical toolhead');

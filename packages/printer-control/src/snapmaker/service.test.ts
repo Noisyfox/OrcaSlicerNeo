@@ -10,8 +10,12 @@ import type { PrinterTransportRequest, PrinterTransportResponse } from '../trans
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
 
-it('switches and parks physical U1 tools once, confirms sensors, and restores extrusion state after failure', async () => {
+it('serializes U1 motion and tool controls, confirms sensors, and restores G-code state after failure', async () => {
   let active = 0, failExtrusion = false;
+  let homed = '';
+  const position = [50, 60, 20, 0];
+  let jogBarrier: Promise<void> | undefined;
+  let jogStarted = () => {};
   const scripts: string[] = [];
   const configuration = { load: async () => normalizePrinterConfigurationDocument({ version: 1, printers: [
     { id: 'u1', driverId: 'snapmaker', displayName: 'U1', apiBaseUrl: 'http://fixture/', apiKey: '', consoleUrl: '' },
@@ -23,17 +27,19 @@ it('switches and parks physical U1 tools once, confirms sensors, and restores ex
       scripts.push(script);
       if (script === 'T1 A0') active = 1;
       if (script === 'PARK_EXTRUDER1') active = -1;
-      if (failExtrusion && script.startsWith('M83')) return { status: 400, json: async () => ({}), bytes: async () => new Uint8Array() };
+      if (script === 'G28 X Y Z\nM400') homed = 'xyz';
+      if (script.startsWith('G91')) { jogStarted(); await jogBarrier; position[0] += 10; }
+      if (failExtrusion && (script.startsWith('M83') || script.startsWith('G91'))) return { status: 400, json: async () => ({}), bytes: async () => new Uint8Array() };
       result = 'ok';
     } else if (request.url.endsWith('/objects/list')) result = { objects: ['gcode', 'toolhead', 'print_stats', 'machine_state_manager', 'configfile', 'extruder', 'extruder1'] };
     else {
       const real = [active === 1 ? 'extruder1' : 'extruder', active < 0 ? 1 : 0];
-      result = { status: { gcode: { commands: Object.fromEntries(['T0', 'T1', 'PARK_EXTRUDER1', 'SAVE_GCODE_STATE', 'RESTORE_GCODE_STATE', 'M83', 'M220', 'M221', 'G1', 'M400'].map(command => [command, {}])) },
+      result = { status: { gcode: { commands: Object.fromEntries(['T0', 'T1', 'PARK_EXTRUDER1', 'SAVE_GCODE_STATE', 'RESTORE_GCODE_STATE', 'M83', 'M220', 'M221', 'G1', 'M400', 'G28', 'G91'].map(command => [command, {}])) },
         print_stats: { state: 'standby' }, machine_state_manager: { main_state: 0, action_code: 0 },
-        toolhead: { extruder: active === 1 ? 'extruder1' : 'extruder' },
+        toolhead: { extruder: active === 1 ? 'extruder1' : 'extruder', homed_axes: homed, position, axis_minimum: [0, 0, 0, 0], axis_maximum: [271, 271, 270, 0], max_velocity: 500 },
         extruder: { real_extruder_stats: real, activating_move: false, can_extrude: true },
         extruder1: { real_extruder_stats: real, activating_move: false, can_extrude: true },
-        configfile: { settings: { extruder1: { max_extrude_only_distance: 50 } } } } };
+        configfile: { settings: { extruder1: { max_extrude_only_distance: 50 }, printer: { max_z_velocity: 30 } } } } };
     }
     return { status: 200, json: async () => ({ result }), bytes: async () => new Uint8Array() };
   } };
@@ -45,12 +51,32 @@ it('switches and parks physical U1 tools once, confirms sensors, and restores ex
     for await (const next of service.operations.watch(submission.operation)) result = next;
     return result;
   };
+  expect(await service.observations.read({ target, source: 'device', topics: ['motion'] })).toMatchObject({ ok: true, value: { values: { motion: { value: [{ homedAxes: { value: [] } }] } } } });
+  const jog = { target, requestId: id<'request'>('jog'), command: { type: 'motion.jog' as const, params: { motionGroupId: id<'motion'>('snapmaker-motion'), axis: 'x' as const, kind: 'step' as const, stepId: '10', direction: 'positive' as const } } };
+  expect(await service.controls.submit(jog)).toMatchObject({ kind: 'rejected', error: { code: 'precondition-failed' } });
+  expect(scripts).toHaveLength(0);
+  expect((await finish(await service.controls.submit({ target, requestId: id('home'), command: { type: 'motion.home', params: { motionGroupId: id('snapmaker-motion'), axes: ['x', 'y', 'z'] } } })))?.phase.kind).toBe('completed');
+  expect((await finish(await service.controls.submit(jog)))?.phase.kind).toBe('acknowledged');
+  await service.controls.submit(jog);
+  expect(scripts.slice(-3)).toEqual(['SAVE_GCODE_STATE NAME=orca_device_jog', 'G91\nM220 S100\nG1 X10 F3600\nM400', 'RESTORE_GCODE_STATE NAME=orca_device_jog']);
+  expect(await service.observations.read({ target, source: 'device', topics: ['motion'] })).toMatchObject({ ok: true, value: { values: { motion: { value: [{ positionMm: { value: { x: 60, y: 60, z: 20 } }, homedAxes: { value: ['x', 'y', 'z'] } }] } } } });
+  let releaseJog = () => {};
+  jogBarrier = new Promise<void>(resolve => { releaseJog = resolve; });
+  const started = new Promise<void>(resolve => { jogStarted = resolve; });
+  const pendingJog = await service.controls.submit({ ...jog, requestId: id('pending-jog') });
+  await started;
+  expect(await service.controls.submit({ target, requestId: id('concurrent-home'), command: { type: 'motion.home', params: { motionGroupId: id('snapmaker-motion'), axes: ['x', 'y', 'z'] } } }))
+    .toMatchObject({ kind: 'rejected', error: { code: 'busy' } });
+  releaseJog();
+  await finish(pendingJog);
   const request = { target, requestId: id<'request'>('switch'), command: { type: 'tools.select' as const, params: { toolId: id<'tool'>('snapmaker-tool:1') } } };
   expect((await finish(await service.controls.submit(request)))?.phase.kind).toBe('completed');
   await service.controls.submit(request);
-  expect(scripts).toEqual(['T1 A0']);
+  expect(scripts.filter(script => script === 'T1 A0')).toHaveLength(1);
   expect(await service.observations.read({ target, topics: ['status'], source: 'device' })).toMatchObject({ ok: true, value: { values: { status: { value: { activeToolIds: { value: ['snapmaker-tool:1'] } } } } } });
   failExtrusion = true;
+  expect((await finish(await service.controls.submit({ ...jog, requestId: id('failed-jog') })))?.phase.kind).toBe('failed');
+  expect(scripts.at(-1)).toBe('RESTORE_GCODE_STATE NAME=orca_device_jog');
   const extrusion = await service.controls.submit({ target, requestId: id('extrude'), command: { type: 'extrusion.move', params: { extruderId: id('snapmaker-extruder:1'), distanceMm: 10, speed: { kind: 'specified', mmPerSecond: 5 } } } });
   expect((await finish(extrusion))?.phase.kind).toBe('failed');
   expect(scripts.slice(-3)).toEqual(['SAVE_GCODE_STATE NAME=orca_device_extrusion', 'M83\nM220 S100\nM221 S100\nG1 E10 F300\nM400', 'RESTORE_GCODE_STATE NAME=orca_device_extrusion']);

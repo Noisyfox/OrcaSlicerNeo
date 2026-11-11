@@ -1103,9 +1103,18 @@ freshness feedback remain visible. Narrow content areas stack the sections
 without horizontal overflow; mobile support remains deferred. Selection
 persistence is defined under Console selection and behavior below.
 
-The U1 provider discovers tool selection, parking and manual extrusion per
-firmware command and reported hardware. It bypasses the retained print mapping
-when selecting a physical head and reads the physical mount sensors to confirm
+The U1 provider discovers homing, XYZ jogging, tool selection, parking and manual
+extrusion per firmware command and reported hardware. Motion uses the shared
+directional pad, Home axes button and 10, 1 and 0.1 mm step choices. Jogging
+requires the requested axis to be reported homed, its current coordinate and
+travel limits, and a reported velocity limit. Reject a step outside the reported
+travel instead of clamping it or silently homing. XY speed is capped at 60 mm/s,
+Z at 30 mm/s, and both respect lower reported limits. Homing remains the firmware's
+operation, with fresh homed-axis feedback required before reporting completion.
+Jogging preserves G-code coordinate and speed state, including after an explicit
+move failure; a command acknowledgement alone does not claim physical completion.
+Physical tool selection bypasses the retained print mapping
+and reads the physical mount sensors to confirm
 selection or parking. A logical active-extruder name alone does not establish a
 mounted head. Unknown or conflicting mount readings remain unknown. Manual
 extrusion requires the current mounted, warm tool and a reported sufficient

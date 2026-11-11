@@ -11,13 +11,15 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
   const scripts: string[] = []; let queries = 0, autoRefill = false;
   let listReads = 0, usbPresent = true;
   let idle = false, activeTool = 0;
+  const position = [50, 60, 20, 0];
+  let homedAxes = '';
   const deleted: string[] = [], downloads: { name: string; key?: string }[] = [];
   let timelapsePresent = true;
   let cameraFrame: Buffer | undefined, cameraFailed = false, cameraRequests = 0;
   const filamentColors = ['FF0000FF', '00FF00FF', '0000FFFF', 'FFFFFFFF'];
   const objects = ['gcode', 'toolhead', 'machine_state_manager', 'print_task_config', 'print_stats', 'virtual_sdcard', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'configfile', 'filament_feed left', 'filament_feed right'];
   const commands = ['SET_PRINT_PREFERENCES', 'SET_PRINT_EXTRUDER_MAP', 'SET_PRINT_USED_EXTRUDERS', 'SET_PRINT_FILAMENT_CONFIG', 'FEED_AUTO', 'SET_HEATER_TEMPERATURE', 'SET_PURIFIER',
-    'T0', 'T1', 'T2', 'T3', 'PARK_EXTRUDER', 'PARK_EXTRUDER1', 'PARK_EXTRUDER2', 'PARK_EXTRUDER3', 'SAVE_GCODE_STATE', 'RESTORE_GCODE_STATE', 'M83', 'M220', 'M221', 'G1', 'M400'];
+    'T0', 'T1', 'T2', 'T3', 'PARK_EXTRUDER', 'PARK_EXTRUDER1', 'PARK_EXTRUDER2', 'PARK_EXTRUDER3', 'SAVE_GCODE_STATE', 'RESTORE_GCODE_STATE', 'M83', 'M220', 'M221', 'G1', 'M400', 'G28', 'G91'];
   const server = createServer(async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*'); response.setHeader('Access-Control-Allow-Headers', 'content-type,x-api-key'); response.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
@@ -38,14 +40,15 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
     else if (path === '/printer/objects/query') {
       queries++;
       value = { result: { status: { gcode: { commands: Object.fromEntries(commands.map(c => [c, {}])) }, print_stats: { state: idle ? 'standby' : 'printing', filename: 'external.gcode' }, virtual_sdcard: { progress: .4 },
-        toolhead: { extruder: activeTool > 0 ? `extruder${activeTool}` : 'extruder' }, machine_state_manager: { main_state: idle ? 0 : 1, action_code: 0 },
+        toolhead: { extruder: activeTool > 0 ? `extruder${activeTool}` : 'extruder', homed_axes: homedAxes, position, axis_minimum: [0, 0, 0, 0], axis_maximum: [271, 271, 270, 0], max_velocity: 500 },
+        machine_state_manager: { main_state: idle ? 0 : 1, action_code: 0 },
         print_task_config: { filament_exist: [true, true, true, true], filament_type: filament ? Array(4).fill(filament.type) : ['PLA', 'PLA', 'PETG', 'ABS'],
           filament_vendor: filament ? Array(4).fill(filament.vendor) : undefined, filament_sub_type: filament ? Array(4).fill(filament.subtype) : undefined,
           filament_color_rgba: filamentColors, auto_replenish_filament: autoRefill, replenish_ignore_color: false, end_led_turn_off: false },
         ...Object.fromEntries([0, 1, 2, 3].map(i => [i ? `extruder${i}` : 'extruder', { nozzle_diameter: .4, nozzle_volume_type: 'standard', temperature: 210 + queries / 10, target: 215,
           activating_move: false, can_extrude: true, real_extruder_stats: [activeTool > 0 ? `extruder${activeTool}` : 'extruder', activeTool < 0 ? 1 : 0] }])),
         heater_bed: { temperature: 60, target: 60 }, purifier: { power_detected: true, mode: 1, inner_fan: { speed: .2 }, exhaust_fan: { speed: .4 } },
-        configfile: { settings: { ...Object.fromEntries(['extruder', 'extruder1', 'extruder2', 'extruder3'].map(name => [name, { max_temp: 300, max_extrude_only_distance: 50 }])), heater_bed: { max_temp: 100 } } },
+        configfile: { settings: { ...Object.fromEntries(['extruder', 'extruder1', 'extruder2', 'extruder3'].map(name => [name, { max_temp: 300, max_extrude_only_distance: 50 }])), heater_bed: { max_temp: 100 }, printer: { max_z_velocity: 30 } } },
       } } };
     } else if (path === '/server/files/list' && url.searchParams.get('root') === 'gcodes') {
       listReads++;
@@ -75,6 +78,9 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
       const script = JSON.parse(Buffer.concat(parts).toString()).script as string; scripts.push(script);
       if (/^T[0-3] A0$/.test(script)) activeTool = Number(script[1]);
       if (/^PARK_EXTRUDER[1-3]?$/.test(script)) activeTool = -1;
+      if (script.startsWith('G28 ')) homedAxes = 'xyz';
+      const move = /G1 ([XYZ])(-?[0-9.]+) F/.exec(script);
+      if (move) position['XYZ'.indexOf(move[1])] += Number(move[2]);
       if (script.includes('AUTO_REPLENISH_FILAMENT=1')) autoRefill = true;
       value = { result: 'ok' };
     } else if (path === '/server/info') value = { result: { moonraker_version: 'fixture' } };

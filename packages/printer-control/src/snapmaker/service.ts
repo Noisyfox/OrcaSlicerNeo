@@ -6,7 +6,7 @@ import { fail, MoonrakerFailure } from '../moonraker-http';
 import { copy, newId } from '../operations';
 import { U1ObservationHub } from './monitor';
 import { u1PreferenceScripts, verifyU1Preferences } from './preferences';
-import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, u1ActiveToolIds, type U1DeviceSnapshot } from './device';
+import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, u1ActiveToolIds, u1HomedAxes, type U1DeviceSnapshot } from './device';
 import { U1PrintTask } from './task';
 import { U1Submissions } from './submissions';
 import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './preparation';
@@ -31,7 +31,7 @@ interface U1State {
 }
 const generations = new WeakMap<ConfigurationEntry, U1State>();
 const submissions = new WeakMap<HttpServiceOptions['configuration'], U1Submissions>();
-const toolCommand = (command: D.PrinterCommand) => ['tools.select', 'tools.park', 'extrusion.move'].includes(command.type);
+const mechanicalCommand = (command: D.PrinterCommand) => ['tools.select', 'tools.park', 'extrusion.move', 'motion.home', 'motion.jog'].includes(command.type);
 function deviceState(entry: ConfigurationEntry): U1State {
   let state = generations.get(entry);
   if (!state) { state = {}; generations.set(entry, state); }
@@ -70,6 +70,9 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
     result.commands = { ...result.commands, 'jobs.start': unsupported, ...u1DeviceCapabilities(entry ? deviceState(entry).device : undefined), 'files.delete': u1DeleteCapability };
     for (const topic of ['preferences', 'descriptor', 'status', 'thermal', 'actuators', 'materials', 'sensors'] as const)
       result.observations[topic] = supported({ delivery: ['poll', 'on-demand'] });
+    const snapshot = entry ? deviceState(entry).device : undefined;
+    result.observations.motion = !snapshot ? { kind: 'unknown', reason: 'Motion objects have not been read.' }
+      : snapshot.objects.includes('toolhead') ? supported({ delivery: ['poll', 'on-demand'] }) : unsupported;
     return result;
   }
   function hub(printer: PrinterConfiguration, entry: ConfigurationEntry) {
@@ -102,8 +105,9 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
       const state = deviceState(entry);
       const observed: ConfigurationEntry['cache'] = {};
       if (request.source === 'device') {
-        if (request.topics.some(topic => capabilities().observations[topic].kind !== 'supported')) fail('unsupported', unsupported.reason);
+        if (request.topics.some(topic => capabilities(entry).observations[topic].kind === 'unsupported')) fail('unsupported', unsupported.reason);
         await hub(printer, entry).refresh();
+        if (request.topics.some(topic => capabilities(entry).observations[topic].kind !== 'supported')) fail('unsupported', unsupported.reason);
         Object.assign(observed, entry.cache);
         // Explicit reads return current values even when there is no ongoing consumer.
         const values = u1DeviceValues(state.device!, request.target, entry.revision, descriptor(printer, entry, entry.cache.firmware ?? unknown), printer.printerModel);
@@ -178,7 +182,7 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
       if (command.type === 'files.delete') {
         storage.validateDeletion({ printer, entry }, command.params.target);
       } else if (!command.type.startsWith('jobs.')) {
-        if (toolCommand(command)) {
+        if (mechanicalCommand(command)) {
           const state = deviceState(entry);
           if (state.materialOperationActive || state.submissionActive) fail('busy', 'A tool, material or print submission is still running.');
           await hub(printer, entry).refresh();
@@ -189,7 +193,7 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
     retainOperation: ({ printer, entry }, command) => {
       if (command?.type === 'files.delete') return () => {};
       const state = deviceState(entry);
-      const materialOperation = command !== undefined && (command.type === 'materials.load' || command.type === 'materials.unload' || toolCommand(command));
+      const materialOperation = command !== undefined && (command.type === 'materials.load' || command.type === 'materials.unload' || mechanicalCommand(command));
       if (materialOperation && state.materialOperationActive) fail('busy', 'Another individual material operation is still running');
       if (materialOperation && state.submissionActive) fail('busy', 'A print submission is still running.');
       if (materialOperation) state.materialOperationActive = true;
@@ -202,32 +206,36 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
         return 'completed';
       }
       const state = deviceState(entry);
-      if (toolCommand(command)) {
+      if (mechanicalCommand(command)) {
         state.device = await readU1Device(http, printer);
         await resolve({ ...targetFor(printer.id), expectedConfigurationRevision: entry.revision });
         const script = u1DeviceCommand(state.device, command);
-        if (command.type === 'extrusion.move') {
-          const saved = 'orca_device_extrusion';
+        if (command.type === 'extrusion.move' || command.type === 'motion.jog') {
+          const saved = command.type === 'extrusion.move' ? 'orca_device_extrusion' : 'orca_device_jog';
           await http.post(printer, '/printer/gcode/script', { script: `SAVE_GCODE_STATE NAME=${saved}` });
           try { await http.post(printer, '/printer/gcode/script', { script }); }
           finally {
             try { await http.post(printer, '/printer/gcode/script', { script: `RESTORE_GCODE_STATE NAME=${saved}` }); }
-            catch { throw new MoonrakerFailure({ code: 'device-failed', message: 'Extrusion state restoration was not confirmed. Check the printer before another operation.' }, true); }
+            catch { throw new MoonrakerFailure({ code: 'device-failed', message: 'G-code state restoration was not confirmed. Check the printer before another operation.' }, true); }
           }
         } else {
           await http.post(printer, '/printer/gcode/script', { script });
           try {
-            const after = await readU1Device(http, printer), active = u1ActiveToolIds(after);
-            const expected = command.type === 'tools.select' ? [command.params.toolId] : [];
-            if (active === undefined || JSON.stringify(active) !== JSON.stringify(expected)) throw new Error('Unconfirmed physical state');
+            const after = await readU1Device(http, printer);
+            if (command.type === 'motion.home') {
+              if (!command.params.axes.every(axis => u1HomedAxes(after)?.includes(axis))) throw new Error('Unconfirmed homing state');
+            } else {
+              const active = u1ActiveToolIds(after), expected = command.type === 'tools.select' ? [command.params.toolId] : [];
+              if (active === undefined || JSON.stringify(active) !== JSON.stringify(expected)) throw new Error('Unconfirmed physical state');
+            }
             state.device = after;
           } catch {
-            throw new MoonrakerFailure({ code: 'device-failed', message: 'Tool change was acknowledged but its physical outcome is unconfirmed.' }, true);
+            throw new MoonrakerFailure({ code: 'device-failed', message: 'Printer motion was acknowledged but its physical outcome is unconfirmed.' }, true);
           }
         }
         // A monitor read failure marks its readings stale without discarding the command's established evidence.
         await hub(printer, entry).refresh().catch(() => {});
-        if (command.type !== 'extrusion.move') return 'completed';
+        if (command.type !== 'extrusion.move' && command.type !== 'motion.jog') return 'completed';
       } else if (command.type === 'preferences.set') {
         state.device = await readU1Device(http, printer);
         for (const script of u1PreferenceScripts(state.device, command.params.changes)) await http.post(printer, '/printer/gcode/script', { script });
