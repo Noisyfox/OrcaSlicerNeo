@@ -155,6 +155,8 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
     case 'extrusion.move': {
       const v = command.params, tool = topology.tools.find(tool => tool.extruderId === v.extruderId);
       if (!tool) return reject('invalid-target', 'The extruder is no longer available.');
+      const active = known(state.status.activeToolIds);
+      if (active?.length !== 1 || active[0] !== tool.id) return reject('stale-context', 'The active tool changed. Review the current tool before extruding.');
       if (v.speed.kind !== 'device-controlled' || ![-10, 10].includes(v.distanceMm)) return reject('out-of-range', 'Use a 10 mm extrusion or retraction at the device-controlled speed.');
       const material = state.materials.state.tools.find(value => value.toolId === tool.id);
       const tray = trayFor(p, material ? known(material.loadedPathId) ?? known(material.selectedPathId) : undefined);

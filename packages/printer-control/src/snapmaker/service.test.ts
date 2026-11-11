@@ -10,6 +10,58 @@ import type { PrinterTransportRequest, PrinterTransportResponse } from '../trans
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
 
+it('switches and parks physical U1 tools once, confirms sensors, and restores extrusion state after failure', async () => {
+  let active = 0, failExtrusion = false;
+  const scripts: string[] = [];
+  const configuration = { load: async () => normalizePrinterConfigurationDocument({ version: 1, printers: [
+    { id: 'u1', driverId: 'snapmaker', displayName: 'U1', apiBaseUrl: 'http://fixture/', apiKey: '', consoleUrl: '' },
+  ] }), save: async () => {} };
+  const transport = { request: async (request: PrinterTransportRequest): Promise<PrinterTransportResponse> => {
+    let result: unknown;
+    if (request.method === 'POST') {
+      const script = JSON.parse(request.body?.kind === 'json' ? request.body.json : '{}').script as string;
+      scripts.push(script);
+      if (script === 'T1 A0') active = 1;
+      if (script === 'PARK_EXTRUDER1') active = -1;
+      if (failExtrusion && script.startsWith('M83')) return { status: 400, json: async () => ({}), bytes: async () => new Uint8Array() };
+      result = 'ok';
+    } else if (request.url.endsWith('/objects/list')) result = { objects: ['gcode', 'toolhead', 'print_stats', 'machine_state_manager', 'configfile', 'extruder', 'extruder1'] };
+    else {
+      const real = [active === 1 ? 'extruder1' : 'extruder', active < 0 ? 1 : 0];
+      result = { status: { gcode: { commands: Object.fromEntries(['T0', 'T1', 'PARK_EXTRUDER1', 'SAVE_GCODE_STATE', 'RESTORE_GCODE_STATE', 'M83', 'M220', 'M221', 'G1', 'M400'].map(command => [command, {}])) },
+        print_stats: { state: 'standby' }, machine_state_manager: { main_state: 0, action_code: 0 },
+        toolhead: { extruder: active === 1 ? 'extruder1' : 'extruder' },
+        extruder: { real_extruder_stats: real, activating_move: false, can_extrude: true },
+        extruder1: { real_extruder_stats: real, activating_move: false, can_extrude: true },
+        configfile: { settings: { extruder1: { max_extrude_only_distance: 50 } } } } };
+    }
+    return { status: 200, json: async () => ({ result }), bytes: async () => new Uint8Array() };
+  } };
+  const service = createSnapmakerService({ configuration, transport, host: { id: id('test'), name: 'Test', execution: 'browser' } });
+  const target = { printerId: id<'printer'>('u1'), routeId: id<'route'>('snapmaker:u1') };
+  const finish = async (submission: D.Submission) => {
+    if (submission.kind !== 'recorded') throw new Error(submission.kind);
+    let result: D.PrinterOperation | undefined;
+    for await (const next of service.operations.watch(submission.operation)) result = next;
+    return result;
+  };
+  const request = { target, requestId: id<'request'>('switch'), command: { type: 'tools.select' as const, params: { toolId: id<'tool'>('snapmaker-tool:1') } } };
+  expect((await finish(await service.controls.submit(request)))?.phase.kind).toBe('completed');
+  await service.controls.submit(request);
+  expect(scripts).toEqual(['T1 A0']);
+  expect(await service.observations.read({ target, topics: ['status'], source: 'device' })).toMatchObject({ ok: true, value: { values: { status: { value: { activeToolIds: { value: ['snapmaker-tool:1'] } } } } } });
+  failExtrusion = true;
+  const extrusion = await service.controls.submit({ target, requestId: id('extrude'), command: { type: 'extrusion.move', params: { extruderId: id('snapmaker-extruder:1'), distanceMm: 10, speed: { kind: 'specified', mmPerSecond: 5 } } } });
+  expect((await finish(extrusion))?.phase.kind).toBe('failed');
+  expect(scripts.slice(-3)).toEqual(['SAVE_GCODE_STATE NAME=orca_device_extrusion', 'M83\nM220 S100\nM221 S100\nG1 E10 F300\nM400', 'RESTORE_GCODE_STATE NAME=orca_device_extrusion']);
+  const unconfirmed = { target, requestId: id<'request'>('unconfirmed'), command: { type: 'tools.select' as const, params: { toolId: id<'tool'>('snapmaker-tool:0') } } };
+  expect((await finish(await service.controls.submit(unconfirmed)))?.phase.kind).toBe('outcome-unknown');
+  await service.controls.submit(unconfirmed);
+  expect(scripts.filter(script => script === 'T0 A0')).toHaveLength(1);
+  expect((await finish(await service.controls.submit({ target, requestId: id('park'), command: { type: 'tools.park', params: { toolId: id('snapmaker-tool:1') } } })))?.phase.kind).toBe('completed');
+  expect(await service.observations.read({ target, topics: ['status'], source: 'device' })).toMatchObject({ ok: true, value: { values: { status: { value: { activeToolIds: { value: [] } } } } } });
+});
+
 it('advertises host-bound camera support without probing or changing other agents', async () => {
   const f = fixture(), create = vi.fn(() => { throw new Error('Unexpected socket'); });
   let owner: U1CameraMedia | undefined;

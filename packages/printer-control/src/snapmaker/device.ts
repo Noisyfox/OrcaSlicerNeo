@@ -27,11 +27,25 @@ export async function readU1Device(http: MoonrakerHttp, printer: PrinterConfigur
   if (!Array.isArray(list.objects) || !list.objects.every(x => typeof x === 'string')) fail('device-failed', 'Invalid device object list');
   const objects: string[] = list.objects;
   // gcode/help omits registered commands without descriptions (including U1 commands).
-  const names = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'machine_state_manager', 'defect_detection', 'configfile', 'purifier', 'heater_bed', 'fan', 'led cavity_led', 'filament_feed left', 'filament_feed right',
+  const names = ['gcode', 'toolhead', 'print_task_config', 'print_stats', 'virtual_sdcard', 'machine_state_manager', 'defect_detection', 'configfile', 'purifier', 'heater_bed', 'fan', 'led cavity_led', 'filament_feed left', 'filament_feed right',
     ...heads.flatMap(i => [extruder(i), `fan_generic e${i}_fan`, `filament_motion_sensor e${i}_filament`]), 'fan_generic cavity_fan'];
   const query = names.filter(name => objects.includes(name));
   const result = query.length ? await http.get(printer, `/printer/objects/query?${query.map(encodeURIComponent).join('&')}`, signal) : { status: {} };
   return { printerModel: printer.printerModel, objects, commands: Object.keys(record(record(record(result.status).gcode).commands)), status: record(result.status), receivedAtMs: Date.now() };
+}
+
+/** Firmware codes are physical sensor evidence. A logical active extruder can remain set when all heads are parked. */
+export function u1ActiveToolIds(snapshot: U1DeviceSnapshot): readonly D.Id<'tool'>[] | undefined {
+  const installed = heads.filter(i => snapshot.objects.includes(extruder(i)));
+  const readings = installed.map(i => record(snapshot.status[extruder(i)]).real_extruder_stats);
+  if (!readings.length || readings.some(value => !Array.isArray(value) || value.length !== 2)) return undefined;
+  const first = readings[0] as unknown[];
+  if (readings.some(value => JSON.stringify(value) !== JSON.stringify(first))) return undefined;
+  if (installed.some(i => record(snapshot.status[extruder(i)]).activating_move !== false)) return undefined;
+  if (first[1] === 1) return [];
+  if (first[1] !== 0) return undefined;
+  const index = installed.find(i => extruder(i) === first[0]);
+  return index === undefined ? undefined : [u1ToolId(index)];
 }
 
 // Snapmaker u1-klipper machine_state_manager.py main states and action codes.
@@ -110,12 +124,23 @@ export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarg
 /** Capability support is independent of idle/printing/paused and the top cover's presence. */
 export function u1DeviceCapabilities(snapshot?: U1DeviceSnapshot): Partial<D.CommandCapabilities> {
   const result: Partial<D.CommandCapabilities> = { 'preferences.set': u1PreferenceCapability(snapshot) };
-  const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.writeMetadata', 'materials.configure'];
+  const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.writeMetadata', 'materials.configure', 'tools.select', 'tools.park', 'extrusion.move'];
   for (const name of names) Object.assign(result, { [name]: snapshot ? { kind: 'unsupported', layer: 'device', reason: 'Required firmware command or object is not reported' } : { kind: 'unknown', reason: 'Device capabilities have not been read' } });
   if (!snapshot) return result;
   const has = (command: string) => snapshot.commands.includes(command);
   const supported = <T extends object>(constraints: T) => ({ kind: 'supported' as const, constraints });
   const heaters = [...heads.map(extruder), 'heater_bed'].filter(name => snapshot.objects.includes(name));
+  const installed = heads.filter(i => snapshot.objects.includes(extruder(i)));
+  const selectable = installed.filter(i => has(`T${i}`)).map(u1ToolId);
+  if (selectable.length) result['tools.select'] = supported({ toolIds: selectable as unknown as D.NonEmptyReadonlyArray<D.Id<'tool'>> });
+  const parkable = installed.filter(i => has(`PARK_${extruder(i).toUpperCase()}`)).map(u1ToolId);
+  if (parkable.length) result['tools.park'] = supported({ toolIds: parkable as unknown as D.NonEmptyReadonlyArray<D.Id<'tool'>> });
+  if (['SAVE_GCODE_STATE', 'RESTORE_GCODE_STATE', 'M83', 'M220', 'M221', 'G1', 'M400'].every(has)) {
+    const settings = record(record(snapshot.status.configfile).settings);
+    const drives = installed.filter(i => (finite(record(settings[extruder(i)]).max_extrude_only_distance) ?? 0) >= 10);
+    if (drives.length) result['extrusion.move'] = supported(drives.map(i => ({ extruderId: id<'extruder'>(`snapmaker-extruder:${i}`),
+      distanceMm: { min: -10, max: 10, step: 10 }, speed: { kind: 'specified' as const, mmPerSecond: { min: 5, max: 5, step: 1 } } })) as unknown as D.PrinterCommandSpecs['extrusion.move']['constraints']);
+  }
   if (has('SET_HEATER_TEMPERATURE') && heaters.length) result['thermal.setTarget'] = supported(heaters.map(name => {
     const config = record(record(record(snapshot.status.configfile).settings)[name]);
     return { heaterId: heaterId(name), targetC: { min: 0, max: finite(config.max_temp), step: null } };
@@ -154,6 +179,27 @@ export function u1DeviceCommand(snapshot: U1DeviceSnapshot, command: D.PrinterCo
   const cap = u1DeviceCapabilities(snapshot)[command.type];
   if (!cap || cap.kind !== 'supported') fail('unsupported', 'Device command is unavailable');
   switch (command.type) {
+    case 'tools.select': case 'tools.park': case 'extrusion.move': {
+      const state = record(snapshot.status.machine_state_manager);
+      if (!['standby', 'complete', 'cancelled'].includes(String(record(snapshot.status.print_stats).state)) || state.main_state !== 0 || state.action_code !== 0)
+        fail('busy', 'Wait until the printer is idle before changing tools or extruding.');
+      if (heads.some(i => record(snapshot.status[extruder(i)]).activating_move === true)) fail('busy', 'A tool change is already running.');
+      if (command.type === 'tools.select' || command.type === 'tools.park') {
+        const i = head(command.params.toolId, 'tool');
+        if (!(cap.constraints as { toolIds: readonly D.Id<'tool'>[] }).toolIds.includes(command.params.toolId)) fail('invalid-target', 'Unknown physical toolhead');
+        if (command.type === 'tools.park' && !u1ActiveToolIds(snapshot)?.includes(command.params.toolId)) fail('stale-context', 'Only the currently mounted tool can be parked.');
+        return command.type === 'tools.select' ? `T${i} A0` : `PARK_${extruder(i).toUpperCase()}`;
+      }
+      const i = head(command.params.extruderId, 'extruder'), p = command.params;
+      if (u1ActiveToolIds(snapshot)?.[0] !== u1ToolId(i) || record(snapshot.status.toolhead).extruder !== extruder(i))
+        fail('stale-context', 'The active tool changed. Review the current tool before extruding.');
+      if (record(snapshot.status[extruder(i)]).can_extrude !== true) fail('precondition-failed', 'Heat the mounted nozzle before extruding.');
+      if (![-10, 10].includes(p.distanceMm) || p.speed.kind !== 'specified' || p.speed.mmPerSecond !== 5)
+        fail('out-of-range', 'Use a 10 mm move at 5 mm/s.');
+      if (!(cap.constraints as D.PrinterCommandSpecs['extrusion.move']['constraints']).some(item => item.extruderId === p.extruderId))
+        fail('invalid-target', 'Unknown extruder');
+      return `M83\nM220 S100\nM221 S100\nG1 E${p.distanceMm} F300\nM400`;
+    }
     case 'preferences.set': return u1PreferenceScripts(snapshot, command.params.changes).join('\n');
     case 'materials.load': case 'materials.unload': {
       const i = command.type === 'materials.load' ? head(command.params.pathId, 'path') : head(command.params.toolId, 'tool');

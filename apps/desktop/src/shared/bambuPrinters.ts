@@ -10,7 +10,7 @@ export function bambuCapabilities(): D.PrinterCapabilities {
     commands: {
       'jobs.start': { kind: 'unknown', reason: 'Inspect a device file to prepare a supported print target.' }, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
       'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported, 'motion.home': unsupported,
-      'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
+      'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported, 'tools.park': unsupported,
       'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
       'materials.writeMetadata': unsupported, 'materials.configure': unsupported, 'materials.refreshTag': unsupported, 'drying.start': unsupported, 'drying.stop': unsupported,
       'camera.setEnabled': unsupported, 'camera.setDeviceTimelapse': unsupported, 'preferences.set': unsupported, 'files.delete': { kind: 'unknown', reason: 'Open Storage to discover available file actions.' },

@@ -3,7 +3,7 @@ import type * as D from '../domain';
 import { MoonrakerHttp } from '../moonraker-http';
 import { normalizePrinterConfigurationDocument } from '../configuration';
 import { u1MaterialInventory, u1FilamentType, matchU1Materials } from './observation';
-import { readU1Device, u1DeviceCapabilities, u1DeviceCommand, u1DeviceValues, type U1DeviceSnapshot } from './device';
+import { readU1Device, u1DeviceCapabilities, u1DeviceCommand, u1DeviceValues, u1ActiveToolIds, type U1DeviceSnapshot } from './device';
 const id = <K extends string>(s: string) => s as D.Id<K>;
 const snapshot: U1DeviceSnapshot = { receivedAtMs: 123, objects: ['print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'led cavity_led', 'filament_feed left', 'filament_feed right'],
   commands: ['SET_HEATER_TEMPERATURE', 'SET_PURIFIER', 'SET_LED', 'FEED_AUTO', 'SET_PRINT_FILAMENT_CONFIG'], status: {
@@ -13,6 +13,42 @@ const snapshot: U1DeviceSnapshot = { receivedAtMs: 123, objects: ['print_task_co
     'filament_feed left': { extruder0: { channel_state: 'load_heating' }, extruder1: { channel_state: 'unload_fail' } },
   } };
 describe('U1 physical Device controls', () => {
+  function physical(active: unknown[] = ['extruder1', 0]): U1DeviceSnapshot {
+    return { receivedAtMs: Date.now(), objects: ['extruder', 'extruder1', 'toolhead'], commands: ['T0', 'T1', 'PARK_EXTRUDER', 'PARK_EXTRUDER1', 'SAVE_GCODE_STATE', 'RESTORE_GCODE_STATE', 'M83', 'M220', 'M221', 'G1', 'M400'],
+      status: { print_stats: { state: 'standby' }, machine_state_manager: { main_state: 0, action_code: 0 }, toolhead: { extruder: 'extruder1' },
+        extruder: { real_extruder_stats: active, activating_move: false }, extruder1: { real_extruder_stats: active, activating_move: false, can_extrude: true },
+        print_task_config: { extruder_map: [3, 2, 1, 0] }, configfile: { settings: { extruder1: { max_extrude_only_distance: 50 } } } } };
+  }
+  it('addresses physical tools independently of the retained print mapping', () => {
+    const value = physical();
+    expect(u1DeviceCommand(value, { type: 'tools.select', params: { toolId: id('snapmaker-tool:1') } })).toBe('T1 A0');
+    expect(u1DeviceCommand(value, { type: 'tools.park', params: { toolId: id('snapmaker-tool:1') } })).toBe('PARK_EXTRUDER1');
+    expect(() => u1DeviceCommand(value, { type: 'tools.park', params: { toolId: id('snapmaker-tool:0') } })).toThrow('currently mounted');
+    expect(u1DeviceCapabilities(value)['tools.select']).toMatchObject({ constraints: { toolIds: ['snapmaker-tool:0', 'snapmaker-tool:1'] } });
+    expect(() => u1DeviceCommand(value, { type: 'tools.select', params: { toolId: id('snapmaker-tool:3') } })).toThrow();
+    value.status.machine_state_manager = { main_state: 0, action_code: 1 };
+    expect(() => u1DeviceCommand(value, { type: 'tools.select', params: { toolId: id('snapmaker-tool:0') } })).toThrow('idle');
+  });
+  it('distinguishes a physically mounted head from parked, moving, conflicting and missing readings', () => {
+    expect(u1ActiveToolIds(physical())).toEqual(['snapmaker-tool:1']);
+    expect(u1ActiveToolIds(physical(['extruder1', 1]))).toEqual([]);
+    expect(u1ActiveToolIds(physical(['unknown extruder', 2]))).toBeUndefined();
+    const moving = physical();
+    (moving.status.extruder1 as Record<string, unknown>).activating_move = true;
+    expect(u1ActiveToolIds(moving)).toBeUndefined();
+    const conflict = physical();
+    (conflict.status.extruder1 as Record<string, unknown>).real_extruder_stats = ['extruder', 0];
+    expect(u1ActiveToolIds(conflict)).toBeUndefined();
+    delete (conflict.status.extruder1 as Record<string, unknown>).real_extruder_stats;
+    expect(u1ActiveToolIds(conflict)).toBeUndefined();
+  });
+  it('extrudes only the current warm physical tool within its reported distance limit', () => {
+    const value = physical(), command: D.PrinterCommand = { type: 'extrusion.move', params: { extruderId: id('snapmaker-extruder:1'), distanceMm: 10, speed: { kind: 'specified', mmPerSecond: 5 } } };
+    expect(u1DeviceCommand(value, command)).toBe('M83\nM220 S100\nM221 S100\nG1 E10 F300\nM400');
+    (value.status.extruder1 as Record<string, unknown>).can_extrude = false;
+    expect(() => u1DeviceCommand(value, command)).toThrow('Heat');
+    expect(() => u1DeviceCommand(physical(['extruder1', 1]), command)).toThrow('active tool changed');
+  });
   it('keeps material revisions stable across telemetry polls and new observation timestamps', () => {
     const target = { printerId: id<'printer'>('p'), routeId: id<'route'>('r') };
     const clock = vi.spyOn(Date, 'now').mockReturnValueOnce(100).mockReturnValueOnce(200);
