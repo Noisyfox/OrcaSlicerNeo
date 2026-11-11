@@ -1,6 +1,5 @@
 # One identity check covers recipe/compiler/width/threading for each compiled
 # import dependency. Never pair old in-tree headers with the staged archives.
-find_program(NEO_NODE_EXECUTABLE NAMES node REQUIRED)
 file(GLOB_RECURSE external_recipe_files CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/dependencies/external/*"
   "${CMAKE_CURRENT_SOURCE_DIR}/patches/occt/*"

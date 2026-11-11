@@ -10,7 +10,6 @@ endforeach()
 file(GLOB_RECURSE numerical_recipe_files CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/dependencies/cgal/*")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${numerical_recipe_files}
   "${ORCA_SRC}/deps/GMP/0001-GMP_GCC15.patch" "${CGAL_ROOT}/manifest.json")
-find_program(NEO_NODE_EXECUTABLE NAMES node REQUIRED)
 execute_process(COMMAND "${NEO_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/dependencies/cgal/build.mjs"
   verify --target "${WASM_TARGET}" --variant "${_DEPS_DEFAULT_VARIANT}" --stage "${CGAL_ROOT}"
   RESULT_VARIABLE numerical_verify_result ERROR_VARIABLE numerical_verify_error)
