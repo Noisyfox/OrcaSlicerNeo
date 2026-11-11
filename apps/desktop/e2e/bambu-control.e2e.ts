@@ -155,8 +155,12 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     const leftToolBounds = await panel.getByRole('button', { name: 'Hotend menu for Left extruder', exact: true }).boundingBox();
     const rightToolBounds = await panel.getByRole('button', { name: 'Hotend menu for Right extruder', exact: true }).boundingBox();
     expect(leftToolBounds!.x).toBeLessThan(rightToolBounds!.x);
-    const hotendTabBounds = await panel.getByRole('tab', { name: 'Hotend', exact: true }).boundingBox();
-    expect(hotendTabBounds!.y + hotendTabBounds!.height).toBeLessThanOrEqual(leftToolBounds!.y);
+    const tabAboveCards = await panel.evaluate(element => {
+      const tab = [...element.querySelectorAll('[role="tab"]')].find(tab => tab.textContent === 'Hotend')!;
+      const card = element.querySelector('[aria-label="Hotend menu for Left extruder"]')!;
+      return tab.getBoundingClientRect().bottom <= card.getBoundingClientRect().top;
+    });
+    expect(tabAboveCards).toBe(true);
     await expect(panel.locator('.printer-extrusion-controls button')).toHaveCount(2);
     expect(await commands()).toHaveLength(0);
     await panel.getByRole('tab', { name: 'Filament', exact: true }).click();
