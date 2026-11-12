@@ -14,7 +14,8 @@ function run(args) {
   if (result.status !== 0) throw new Error('Screen color addon build failed');
 }
 export function buildAddon() {
-  run([require.resolve('node-gyp/bin/node-gyp.js'), 'rebuild']);
+  run([require.resolve('node-gyp/bin/node-gyp.js'), 'configure']);
+  run([require.resolve('node-gyp/bin/node-gyp.js'), 'build']);
   run([join(dirname(require.resolve('typescript/package.json')), require('typescript/package.json').bin.tsc), '-p', 'tsconfig.json']);
 }
 export async function stageRuntime() {
