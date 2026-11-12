@@ -30,6 +30,8 @@
 .printer-temperature-row .printer-temperature-input { width: 60px; height: 28px; padding: 4px 6px; font-size: 12px; }
 .printer-environment-controls label { font-size: 11px; }
 .printer-motion-controls { min-width: 0; display: grid; grid-template-columns: minmax(185px, 1fr) minmax(120px, .65fr); }
+.printer-motion-controls[data-has-axes='false'] { grid-template-columns: 1fr; }
+.printer-motion-controls[data-has-axes='false'] .printer-tool-controls { border-left: 0; }
 .printer-motion-controls h4 { font-size: 11px; color: var(--color-muted-foreground); font-weight: 500; }
 .printer-axis-controls { min-width: 0; padding: 0 12px; text-align: center; }
 .printer-axis-group { margin: 12px 0; }
@@ -47,6 +49,18 @@
 .printer-tool { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; font-size: 11px; }
 .printer-tool[data-active='true'] > strong { color: var(--color-primary); }
 .printer-tool button { font-size: 10px; padding: 4px 6px; height: 28px; }
+.printer-material-tabs { flex-direction: column; }
+.printer-material-tabs > [role='tablist'] { align-self: flex-start; min-height: 32px; }
+.printer-material-tabs [role='tab'][aria-selected='true'] { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+.printer-hotend-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 100px), 160px)); gap: 8px; }
+.printer-hotend-card { min-width: 0; padding: 4px; border-radius: 4px; background: var(--color-secondary); }
+.printer-hotend-trigger { display: flex; flex-direction: column; gap: 7px; width: 100%; height: auto; padding: 8px; white-space: normal; font-size: 11px; text-align: center; }
+.printer-hotend-heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
+.printer-hotend-heading strong { overflow-wrap: anywhere; }
+.printer-hotend-temperature { overflow-wrap: anywhere; }
+.printer-hotend-state { font-size: 10px; color: var(--color-muted-foreground); }
+.printer-hotend-card[data-active='true'] .printer-hotend-state { color: var(--color-primary); font-weight: 600; }
+.printer-hotend-card .printer-temperature-row { padding: 6px; }
 .printer-extrusion-controls { display: flex; flex-direction: column; gap: 4px; }
 .printer-extrusion-controls button { justify-content: flex-start; }
 .printer-material-units { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

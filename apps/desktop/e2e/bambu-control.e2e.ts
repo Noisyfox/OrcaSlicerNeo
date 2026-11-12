@@ -151,9 +151,21 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     const leftBounds = await panel.getByRole('spinbutton', { name: 'Left nozzle target', exact: true }).boundingBox();
     const rightBounds = await temperature.boundingBox();
     expect(leftBounds!.y).toBeLessThan(rightBounds!.y);
-    const leftToolBounds = await panel.getByRole('button', { name: 'Select Left extruder', exact: true }).boundingBox();
-    const rightToolBounds = await panel.getByRole('button', { name: 'Select Right extruder', exact: true }).boundingBox();
-    expect(leftToolBounds!.y).toBeLessThan(rightToolBounds!.y);
+    await panel.getByRole('tab', { name: 'Hotend', exact: true }).click();
+    const leftToolBounds = await panel.getByRole('button', { name: 'Hotend menu for Left extruder', exact: true }).boundingBox();
+    const rightToolBounds = await panel.getByRole('button', { name: 'Hotend menu for Right extruder', exact: true }).boundingBox();
+    expect(leftToolBounds!.x).toBeLessThan(rightToolBounds!.x);
+    expect(leftToolBounds!.width).toBeLessThanOrEqual(160);
+    expect(rightToolBounds!.width).toBeLessThanOrEqual(160);
+    const tabAboveCards = await panel.evaluate(element => {
+      const tab = [...element.querySelectorAll('[role="tab"]')].find(tab => tab.textContent === 'Hotend')!;
+      const card = element.querySelector('[aria-label="Hotend menu for Left extruder"]')!;
+      return tab.getBoundingClientRect().bottom <= card.getBoundingClientRect().top;
+    });
+    expect(tabAboveCards).toBe(true);
+    await expect(panel.locator('.printer-extrusion-controls button')).toHaveCount(2);
+    expect(await commands()).toHaveLength(0);
+    await panel.getByRole('tab', { name: 'Filament', exact: true }).click();
     await temperature.fill('235'); await temperature.press('Enter');
     await expect.poll(commands).toHaveLength(1);
     expect((await commands())[0]).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'thermal.setTarget', params: { heaterId: 'nozzle:0', targetC: 235 } } });

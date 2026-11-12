@@ -120,6 +120,7 @@ export interface PrinterCommandSpecs {
   }, {
     toolIds: NonEmptyReadonlyArray<Id<'tool'>>;
   }>;
+  'tools.park': CommandSpec<{ toolId: Id<'tool'> }, { toolIds: NonEmptyReadonlyArray<Id<'tool'>> }>;
   'materials.load': CommandSpec<{
     pathId: Id<'path'>;
   }, {

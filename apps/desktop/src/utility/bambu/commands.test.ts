@@ -45,6 +45,7 @@ it('blocks motion before dispatch when unhomed, busy, cold, stale, or in a non-F
   const f = fixture(); f.telemetry.invalidate(); expect(prepareStep(f.context(), jog)).toMatchObject({ ok: false, error: { code: 'offline' } });
   const extrusion: D.PrinterCommand = { type: 'extrusion.move', params: { extruderId: 'extruder:0' as never, distanceMm: 10, speed: { kind: 'device-controlled' } } };
   expect(prepareStep(fixture().context(), extrusion)).toMatchObject({ ok: true, value: { fields: { command: 'set_extrusion_length', extruder_index: 0, length: 10 } } });
+  expect(prepareStep(fixture().context(), { ...extrusion, params: { ...extrusion.params, extruderId: 'extruder:1' as never } })).toMatchObject({ ok: false, error: { code: 'stale-context' } });
   const cold = fixture(); cold.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, device: { extruder: { info: [{ id: 0, temp: 100, snow: 0, stat: 0 }] } } } }));
   expect(prepareStep(cold.context(), extrusion)).toMatchObject({ ok: false, error: { message: expect.stringContaining('190') } });
 });

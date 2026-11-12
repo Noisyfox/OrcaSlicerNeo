@@ -437,7 +437,7 @@ const unknown = { kind: 'unknown', reason: 'Not established by this type or devi
 const unknownCommands = {
   'jobs.start': unknown, 'jobs.pause': unknown, 'jobs.resume': unknown, 'jobs.cancel': unknown, 'jobs.setSpeed': unknown, 'jobs.skipObjects': unknown, 'hardware.refreshNozzles': unknown, 'actions.invoke': unknown,
   'thermal.setTarget': unknown, 'fans.setSpeed': unknown, 'lights.set': unknown,
-  'motion.home': unknown, 'motion.jog': unknown, 'extrusion.move': unknown, 'tools.select': unknown,
+  'motion.home': unknown, 'motion.jog': unknown, 'extrusion.move': unknown, 'tools.select': unknown, 'tools.park': unknown,
   'materials.load': unknown, 'materials.unload': unknown, 'materials.switch': unknown,
   'materials.writeMetadata': unknown, 'materials.configure': unknown, 'materials.refreshTag': unknown,
   'drying.start': unknown, 'drying.stop': unknown,

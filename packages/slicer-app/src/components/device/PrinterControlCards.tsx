@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 export function valueOf<T>(reading: D.Reading<T> | undefined): T | undefined { return reading?.kind === 'known' ? reading.value : undefined; }
 export function display<T>(reading: D.Reading<T> | undefined, format: (value: T) => string = String) { return reading?.kind === 'known' ? `${format(reading.value)}${reading.freshness === 'stale' ? ' (stale)' : ''}` : 'Not reported'; }
 export function ControlCard({ title, children }: { title: string; children: ReactNode }) { return <section className="printer-control-card"><h3 className="text-sm font-semibold">{title}</h3>{children}</section>; }
@@ -104,10 +105,18 @@ function extrusionDistances(range: D.Range | undefined): number[] {
 }
 export function MotionCard({ capabilities, snapshot, disabled, send }: CardControls) {
   const stepFieldId = useId();
-  const [selectedStep, setStep] = useState<string | null>(null); const home = capabilities.commands['motion.home'], jog = capabilities.commands['motion.jog'], extrusion = capabilities.commands['extrusion.move'], tools = capabilities.commands['tools.select'];
+  const [selectedStep, setStep] = useState<string | null>(null); const home = capabilities.commands['motion.home'], jog = capabilities.commands['motion.jog'], extrusion = capabilities.commands['extrusion.move'];
   const topology = valueOf(snapshot?.values.descriptor)?.topology;
-  const active = valueOf(valueOf(snapshot?.values.status)?.activeToolIds) ?? [];
+  const activeReading = valueOf(snapshot?.values.status)?.activeToolIds;
+  const active = activeReading?.kind === 'known' && activeReading.freshness === 'fresh' ? activeReading.value : undefined;
+  const tool = active?.length === 1 ? topology?.tools.find(item => item.id === active[0]) : undefined;
+  const limit = tool && extrusion.kind === 'supported' ? extrusion.constraints.find(item => item.extruderId === tool.extruderId) : undefined;
+  const distances = extrusionDistances(limit?.distanceMm);
+  const speed: D.PrinterCommandSpecs['extrusion.move']['params']['speed'] | undefined = limit?.speed.kind === 'device-controlled'
+    ? { kind: 'device-controlled' } : limit?.speed.kind === 'specified' && limit.speed.mmPerSecond.min !== null
+      ? { kind: 'specified', mmPerSecond: limit.speed.mmPerSecond.min } : undefined;
   const groups = topology?.motionGroups ?? [];
+  const hasAxes = home.kind === 'supported' || jog.kind === 'supported' || capabilities.observations.motion.kind === 'supported';
   const steps = jog.kind === 'supported' ? [...new Map(jog.constraints.flatMap(item => item.kind === 'step' ? item.steps.map(step => [step.id, step] as const) : [])).values()] : [];
   const step = steps.some(item => item.id === selectedStep) ? selectedStep! : steps[0]?.id;
   function move(group: D.Id<'motion'>, axis: D.Axis, direction: 'negative' | 'positive') {
@@ -117,8 +126,8 @@ export function MotionCard({ capabilities, snapshot, disabled, send }: CardContr
     const supportsStep = limit.steps.some(item => item.id === step);
     return <Button className={`printer-jog printer-jog-${axis}-${direction}`} size="sm" variant="ghost" disabled={disabled || !supportsStep} title={supportsStep ? undefined : 'Selected step is unavailable for this axis'} aria-label={`Move ${axis.toUpperCase()} ${direction}`} onClick={() => send({ type: 'motion.jog', params: { kind: 'step', motionGroupId: group, axis, stepId: step, direction } })}>{direction === 'negative' ? '−' : '+'}{axis.toUpperCase()}</Button>;
   }
-  return <div className="printer-motion-controls">
-    <section className="printer-axis-controls" aria-label="Motion">
+  return <div className="printer-motion-controls" data-has-axes={hasAxes}>
+    {hasAxes && <section className="printer-axis-controls" aria-label="Motion">
       <h4>Motion</h4>
       {groups.map(group => <div key={group.id} className="printer-axis-group">
         <div className="printer-jog-wheel">
@@ -128,20 +137,29 @@ export function MotionCard({ capabilities, snapshot, disabled, send }: CardContr
         <div className="printer-z-controls"><span>Z axis</span>{move(group.id, 'z', 'negative')}{move(group.id, 'z', 'positive')}</div>
       </div>)}
       {!!steps.length && <Field>
-        <FieldLabel htmlFor={stepFieldId}>Movement step</FieldLabel>
-        <Select items={steps.map(item => ({ value: item.id, label: item.label }))} value={step ?? null} onValueChange={setStep}>
-          <SelectTrigger id={stepFieldId} aria-label="Movement step"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectGroup>{steps.map(item => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</SelectGroup></SelectContent>
-        </Select>
+        <FieldLabel id={stepFieldId}>Movement step</FieldLabel>
+        <Tabs value={step} onValueChange={value => setStep(String(value))}>
+          <TabsList variant="segmented" className="w-full" aria-labelledby={stepFieldId}>
+            {steps.map(item => <TabsTrigger key={item.id} value={item.id}>{item.label}</TabsTrigger>)}
+          </TabsList>
+        </Tabs>
       </Field>}
       {!groups.length && <p className="text-xs text-muted-foreground">Waiting for motion information.</p>}
-    </section>
+    </section>}
     <section className="printer-tool-controls" aria-label="Extruders"><h4>Extruders</h4>
-      {topology?.tools.map(tool => <div key={tool.id} className="printer-tool" data-active={active.includes(tool.id)}>
-        <strong>{tool.name}</strong>
-        {tools.kind === 'supported' && tools.constraints.toolIds.includes(tool.id) && <Button size="sm" variant="secondary" disabled={disabled} aria-pressed={active.includes(tool.id)} onClick={() => send({ type: 'tools.select', params: { toolId: tool.id } })}>Select {tool.name}</Button>}
-        {extrusion.kind === 'supported' && <div className="printer-extrusion-controls">{extrusionDistances(extrusion.constraints.find(item => item.extruderId === tool.extruderId && item.speed.kind === 'device-controlled')?.distanceMm).map(distanceMm => <Button size="sm" variant="outline" disabled={disabled} key={distanceMm} title={`${distanceMm > 0 ? 'Extrude' : 'Retract'} ${Math.abs(distanceMm)} mm`} aria-label={`${distanceMm > 0 ? 'Extrude' : 'Retract'} ${Math.abs(distanceMm)} mm with ${tool.name}`} onClick={() => send({ type: 'extrusion.move', params: { extruderId: tool.extruderId, distanceMm, speed: { kind: 'device-controlled' } } })}>{distanceMm > 0 ? <ArrowDown size={16} /> : <ArrowUp size={16} />}<span>{distanceMm > 0 ? 'Extrude' : 'Retract'}</span></Button>)}</div>}
-      </div>)}
+      <div className="printer-tool"><strong>{tool?.name ?? (active?.length === 0 ? 'No tool mounted' : 'Current tool not reported')}</strong>
+        {tool && <span className="text-muted-foreground">Current tool</span>}
+        <div className="printer-extrusion-controls">{[-1, 1].map(direction => {
+          const distanceMm = distances.find(value => Math.sign(value) === direction);
+          const label = direction > 0 ? 'Extrude' : 'Retract';
+          return <Button key={label} size="sm" variant="outline" disabled={disabled || !tool || !speed || distanceMm === undefined}
+            title={distanceMm === undefined ? 'No supported move reported for the current tool' : `${label} ${Math.abs(distanceMm)} mm`}
+            aria-label={tool && distanceMm !== undefined ? `${label} ${Math.abs(distanceMm)} mm with ${tool.name}` : label}
+            onClick={() => { if (tool && speed && distanceMm !== undefined) send({ type: 'extrusion.move', params: { extruderId: tool.extruderId, distanceMm, speed } }); }}>
+            {direction > 0 ? <ArrowDown size={16} /> : <ArrowUp size={16} />}<span>{label}</span>
+          </Button>;
+        })}</div>
+      </div>
     </section>
   </div>;
 }

@@ -105,7 +105,7 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
       {!hasThermal && !hasSensors && !hasActuators && !hasMotion && <p className="text-sm text-muted-foreground">Temperature and sensor readings are not available on this route.</p>}
     </div>{hasMotion && <MotionCard {...controls} />}</div></ControlCard>}
     materials={<>
-      {capabilities.observations.materials.kind === 'supported' && <MaterialControlCard {...controls} onEdit={(slot, material) => setEditor({ target, slot, material, printer: valueOf(snapshot?.values.descriptor)?.identity ?? printer.identity,
+      {(capabilities.observations.materials.kind === 'supported' || !!topology?.tools.length) && <MaterialControlCard key={`${target.printerId}:${target.routeId}:${target.expectedConfigurationRevision}`} {...controls} visible={visible} onEdit={(slot, material) => setEditor({ target, slot, material, printer: valueOf(snapshot?.values.descriptor)?.identity ?? printer.identity,
         slotLabel: [inventory?.topology.units.find(unit => unit.id === slot.unitId)?.name, slot.name, ...new Set(inventory?.topology.paths.filter(path => path.slotId === slot.id).map(path => topology?.tools.find(tool => tool.id === path.toolId)?.name))].filter(Boolean).join(' · ') })} />}
       {!!valueOf(snapshot?.values.preferences)?.fields.length && <DevicePreferencesCard key={`${target.printerId}:${target.routeId}:${target.expectedConfigurationRevision}`} service={service} target={target} preferences={valueOf(snapshot?.values.preferences)!} onSaved={() => void refresh()} />}
     </>}

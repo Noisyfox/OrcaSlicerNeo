@@ -53,7 +53,9 @@ async function fixture() {
       item.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
     });
   };
-  return { platform, service, printer, route, snapshot, known, material, element, render, update, click, choose, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
+  return { platform, service, printer, route, snapshot, known, material, element, render, update, click, choose, watch, submit, caps, topology,
+    setActive: (ids: readonly D.Id<'tool'>[] | undefined) => { status.activeToolIds = ids === undefined ? unknown : known(ids); },
+    fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('shares one icon-only pause/resume control beside progress and respects state and capabilities', async () => {
   const f = await fixture(); try {
@@ -195,6 +197,7 @@ it('keeps directional movement and extrusion bound to the reported group and too
     const group = 'gantry-7' as D.Id<'motion'>, tool = 'tool:7' as D.Id<'tool'>, extruder = 'extruder:7' as D.Id<'extruder'>;
     f.topology.motionGroups = [{ id: group, name: 'Gantry', axes: ['x', 'y', 'z'] }];
     f.topology.tools = [{ id: tool, name: 'Tool 7', extruderId: extruder, nozzleId: 'nozzle:7' as D.Id<'nozzle'>, motionGroupId: group }];
+    f.setActive([tool]);
     f.caps.commands['motion.jog'] = { kind: 'supported', constraints: [{ motionGroupId: group, axis: 'x', kind: 'step', steps: [{ id: 'small', label: 'Small step' }] }] };
     f.caps.commands['extrusion.move'] = { kind: 'supported', constraints: [{ extruderId: extruder, distanceMm: { min: -10, max: 10, step: 10 }, speed: { kind: 'device-controlled' } }] };
     await f.render();
@@ -206,6 +209,41 @@ it('keeps directional movement and extrusion bound to the reported group and too
     await f.update('Stale', 'task-1', 'stale');
     expect(f.element.querySelector<HTMLButtonElement>('[aria-label="Move X negative"]')!.disabled).toBe(true);
     expect(f.element.querySelector<HTMLButtonElement>('[aria-label="Extrude 10 mm with Tool 7"]')!.disabled).toBe(true);
+  } finally { await f.close(); }
+});
+
+it('moves tool selection into Hotend menus and keeps one extrusion pair bound to the live active tool', async () => {
+  const f = await fixture(); try {
+    const left = 'left' as D.Id<'tool'>, right = 'right' as D.Id<'tool'>;
+    f.topology.tools = [left, right].map(id => ({ id, name: id === left ? 'Left extruder' : 'Right extruder',
+      extruderId: `drive-${id}` as D.Id<'extruder'>, nozzleId: `tip-${id}` as D.Id<'nozzle'>, motionGroupId: 'gantry' as D.Id<'motion'> }));
+    f.caps.commands['tools.select'] = { kind: 'supported', constraints: { toolIds: [left, right] } };
+    f.caps.commands['extrusion.move'] = { kind: 'supported', constraints: f.topology.tools.map(tool => ({
+      extruderId: tool.extruderId, distanceMm: { min: -10, max: 10, step: 10 }, speed: { kind: 'device-controlled' as const },
+    })) as unknown as D.PrinterCommandSpecs['extrusion.move']['constraints'] };
+    f.setActive([right]);
+    await f.render();
+    expect(f.element.querySelectorAll('.printer-extrusion-controls button')).toHaveLength(2);
+    expect(f.element.querySelector('[aria-label="Extrude 10 mm with Right extruder"]')).not.toBeNull();
+    await f.click('Hotend');
+    await f.click('Hotend menu for Left extruder');
+    expect(f.submit).not.toHaveBeenCalled();
+    const take = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Take')!;
+    await act(async () => take.click());
+    expect(f.submit).not.toHaveBeenCalled();
+    const dialog = document.querySelector('[role="dialog"]')!;
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!.click());
+    expect(f.submit.mock.calls[0]).toMatchObject([{ command: { type: 'tools.select', params: { toolId: left } } }]);
+    // Command completion cannot substitute for the next device observation.
+    expect(f.element.querySelector('[aria-label="Extrude 10 mm with Right extruder"]')).not.toBeNull();
+    f.setActive([left]); await f.update('Idle', 'task-1', 'fresh', 'idle');
+    await f.click('Extrude 10 mm with Left extruder');
+    expect(f.submit.mock.calls[1]).toMatchObject([{ command: { type: 'extrusion.move', params: { extruderId: 'drive-left' } } }]);
+    f.setActive([]); await f.update('Idle', 'task-1', 'fresh', 'idle');
+    expect([...f.element.querySelectorAll<HTMLButtonElement>('.printer-extrusion-controls button')].every(button => button.disabled)).toBe(true);
+    f.setActive(undefined); await f.update('Idle', 'task-1', 'fresh', 'idle');
+    expect(f.element.textContent).toContain('Current tool not reported');
+    expect([...f.element.querySelectorAll<HTMLButtonElement>('.printer-extrusion-controls button')].every(button => button.disabled)).toBe(true);
   } finally { await f.close(); }
 });
 
@@ -310,9 +348,11 @@ it.each([
   const f = await fixture(); try {
     const extruder = 'opaque-drive' as D.Id<'extruder'>;
     f.topology.tools = [{ id: 'opaque-head' as D.Id<'tool'>, name: 'Side head', extruderId: extruder, nozzleId: 'opaque-tip' as D.Id<'nozzle'>, motionGroupId: 'opaque-gantry' as D.Id<'motion'> }];
+    f.setActive(['opaque-head' as D.Id<'tool'>]);
     f.caps.commands['extrusion.move'] = { kind: 'supported', constraints: [{ extruderId: extruder, distanceMm: range, speed: { kind: 'device-controlled' } }] };
     await f.render();
     const buttons = [...f.element.querySelectorAll<HTMLButtonElement>('[aria-label$="with Side head"]')];
+    expect(f.element.querySelectorAll('.printer-extrusion-controls button')).toHaveLength(2);
     expect(buttons).toHaveLength(expected.length);
     for (let index = 0; index < expected.length; index++) {
       expect(buttons[index].ariaLabel).toContain(`${Math.abs(expected[index])} mm`);
@@ -333,8 +373,8 @@ it('never substitutes a different movement step for an axis that lacks the selec
     await f.render();
     const x = f.element.querySelector<HTMLButtonElement>('[aria-label="Move X positive"]')!, y = f.element.querySelector<HTMLButtonElement>('[aria-label="Move Y positive"]')!;
     expect(x.disabled).toBe(false); expect(y.disabled).toBe(true);
-    expect(f.element.querySelector('[aria-label="Movement step"] [data-slot="select-value"]')?.textContent).toBe('Fine X');
-    await f.choose('Movement step', 'Fine Y');
+    expect(f.element.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Fine X');
+    await f.click('Fine Y');
     expect(x.disabled).toBe(true); expect(y.disabled).toBe(false);
     await act(async () => y.click());
     expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'motion.jog', params: { motionGroupId: group, axis: 'y', stepId: 'fine-y' } } });
