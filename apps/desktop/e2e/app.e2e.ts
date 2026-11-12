@@ -611,6 +611,81 @@ function selectionBoxWorldSegments(page: Page) {
   );
 }
 
+test('camera orbits the selection or current plate without reframing and retains damping', async () => {
+  test.skip(REAL, 'shared camera wiring uses deterministic mock instance geometry');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.getByTestId('btn-add-model').click();
+    await selectMockInstance(page, 0);
+    await selectMockInstance(page, 1, true);
+    const camera = () => page.evaluate(() => (window as any).__orcaE2e.cameraState() as {
+      position: number[]; quaternion: number[]; target: number[];
+    });
+    const project = (point: number[]) => page.evaluate(p =>
+      (window as any).__orcaE2e.projectWorldToScreen(p) as { x: number; y: number }, point);
+    const canvas = page.locator('canvas[data-engine^="three.js"]');
+    const box = (await canvas.boundingBox())!;
+    const start = { x: box.x + box.width * 0.6, y: box.y + 90 };
+    const settle = async () => {
+      let previous = '', repeats = 0;
+      await expect.poll(async () => {
+        const pose = JSON.stringify((await camera()).position.map(n => Math.round(n * 1000)));
+        repeats = pose === previous ? repeats + 1 : 0; previous = pose;
+        return repeats;
+      }, { intervals: [100], timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+    };
+    const orbit = async (pivot: number[]) => {
+      const before = await project(pivot), pose = await camera();
+      await page.mouse.move(start.x, start.y); await page.mouse.down();
+      await page.mouse.move(start.x + 55, start.y + 20, { steps: 4 });
+      await page.mouse.up();
+      const released = await camera();
+      const frames = await page.evaluate(async p => {
+        const values: Array<{ point: { x: number; y: number }; quaternion: number[] }> = [];
+        for (let i = 0; i < 8; ++i) {
+          await new Promise(requestAnimationFrame);
+          const probe = (window as any).__orcaE2e;
+          values.push({ point: probe.projectWorldToScreen(p), quaternion: probe.cameraState().quaternion });
+        }
+        return values;
+      }, pivot);
+      expect(released.quaternion).not.toEqual(pose.quaternion);
+      expect(frames.at(-1)!.quaternion).not.toEqual(released.quaternion);
+      await settle();
+      frames.push({ point: await project(pivot), quaternion: (await camera()).quaternion });
+      for (const frame of frames) {
+        expect(frame.point.x).toBeCloseTo(before.x, 2); expect(frame.point.y).toBeCloseTo(before.y, 2);
+      }
+    };
+    // Deliberately pan first: assigning selectionPivot to controls.target
+    // would recenter here and fail the projected-position assertion.
+    await page.mouse.move(start.x, start.y); await page.mouse.down({ button: 'right' });
+    await page.mouse.move(start.x + 70, start.y - 25, { steps: 4 }); await page.mouse.up({ button: 'right' }); await settle();
+    const selection = await page.evaluate(() => (window as any).__orcaE2e.selectionPivotWorld() as number[]);
+    await orbit(selection);
+    await page.getByTestId('viewport').focus(); await page.keyboard.press('Escape');
+    const beforePlate = await camera();
+    await clickPlateControl(page, 'add-plate'); await expectCurrentPlate(page, 'Plate 2', 2);
+    // OrbitControls may consume a subpixel damping tail on the extra frames
+    // caused by the plate UI. A plate change must not reframe the scene.
+    const afterPlate = await camera();
+    for (const key of ['position', 'target', 'quaternion'] as const) {
+      afterPlate[key].forEach((n, i) => expect(n).toBeCloseTo(beforePlate[key][i], key === 'quaternion' ? 4 : 2));
+    }
+    const plateCenter = await page.evaluate(() => {
+      const bed = (window as any).__orcaE2e.bedPlateStates().find((bed: any) => bed.current);
+      return [bed.position[0] + (bed.bounds.minX + bed.bounds.maxX) / 2,
+        bed.position[1] + (bed.bounds.minY + bed.bounds.maxY) / 2, 0];
+    });
+    await orbit(plateCenter);
+    // Retained Prepare selection must not pull Preview's orbit to another plate.
+    await selectMockInstance(page, 0);
+    await page.locator('#app-tab-preview').click(); await settle();
+    await orbit(plateCenter);
+  } finally { await app.close(); }
+});
+
 test('native G-code Save As receives generated suggestion and supports cancellation before saving', async () => {
   const { app, exportPath } = await launchApp({ nativeSaveDialog: true });
   try {
