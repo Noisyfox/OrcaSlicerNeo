@@ -1,13 +1,14 @@
 import { MeshBooleanPanel } from './gizmo/meshBoolean/MeshBooleanControls';
 import { useSetupWizardStore } from '@/stores/useSetupWizardStore';
 // packages/slicer-app/src/components/viewport/Viewport.tsx
-import { Component, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Canvas, events as createPointerEvents, useFrame, useThree, type RootState } from '@react-three/fiber';
-import { GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
+import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { BED_SIZE, getPrintableAreaBounds, normalizePrintableArea, type PrintableAreaBounds } from './BedPlate';
 import { Scene } from './Scene';
-import { CameraControls } from './CameraControls';
+import { cameraOrbitPivot, installCameraOrbitPivot } from './cameraNavigation';
 import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
 import { ArrangementPanel } from '../arrangement/ArrangementControls';
@@ -546,6 +547,35 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       </div>
     </div>
   );
+}
+
+function CameraControls(props: {
+  enabled: boolean;
+  mode: 'prepare' | 'preview';
+  sceneInteraction: SceneInteractionController;
+  bounds: PrintableAreaBounds;
+  plateSession: PlateSessionSnapshot | null | undefined;
+  onGestureActive: (active: boolean) => void;
+}) {
+  const canvas = useThree(state => state.gl.domElement);
+  const latest = useRef(props); latest.current = props;
+  const adapter = useRef<ReturnType<typeof installCameraOrbitPivot> | null>(null);
+  const bind = useCallback((controls: OrbitControlsImpl | null) => {
+    if (!controls) return;
+    const installed = installCameraOrbitPivot(controls, canvas, () => {
+      const { mode, sceneInteraction, bounds, plateSession } = latest.current;
+      return cameraOrbitPivot(mode, sceneInteraction, bounds, plateSession);
+    });
+    adapter.current = installed;
+    return () => { installed.dispose(); adapter.current = null; };
+  }, [canvas]);
+  // A mode/tool/framing handoff must never replay the previous gesture's
+  // inertia through another camera owner. Ordinary selection/plate changes
+  // only affect the next gesture and deliberately do not run this reset.
+  useLayoutEffect(() => { adapter.current?.stop(); }, [props.enabled, props.mode, props.bounds.width, props.bounds.depth, props.bounds.centerX, props.bounds.centerY]);
+  return <OrbitControls ref={bind} makeDefault enabled={props.enabled} enableDamping
+    mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }}
+    onStart={() => props.onGestureActive(true)} onEnd={() => props.onGestureActive(false)} />;
 }
 
 /** Initialize or resize framing around the current plate, retaining ordinary navigation. */
