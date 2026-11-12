@@ -10,6 +10,7 @@ import { createScreenColorIpc } from './screenColorIpc';
 import { createScreenColorFixture } from './testing/screenColorFixture';
 import { externalHttpsUrl } from '../../../../packages/platform-contract/src/externalLinks';
 import { BambuMediaIpc } from './bambuMediaIpc';
+import { MdnsHost } from './mdns';
 import { SnapmakerCameraIpc } from './snapmakerCameraIpc';
 import { SnapmakerCameraUtility } from './snapmakerCameraUtility';
 import { SnapmakerTimelapseHost } from './snapmakerTimelapses';
@@ -459,6 +460,17 @@ function registerIpc(): void {
   ipcMain.handle(Ipc.memorySample, async (event) => {
     if (!isCurrentRenderer(event.sender)) throw new Error('Unauthorized memory sample request');
     return summarizeElectronMemory(app.getAppMetrics());
+  });
+
+  const mdns = new MdnsHost();
+  app.once('will-quit', () => mdns.close());
+  for (const [channel, action] of [
+    [Ipc.mdnsStart, (sender: WebContents, id: unknown, type: unknown) => mdns.start(sender, id, type)],
+    [Ipc.mdnsSnapshot, (sender: WebContents, id: unknown) => mdns.snapshot(sender, id)],
+    [Ipc.mdnsStop, (sender: WebContents, id: unknown) => mdns.stop(sender, id)],
+  ] as const) ipcMain.handle(channel, (event, id: unknown, type: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('mDNS IPC request rejected');
+    return action(event.sender, id, type);
   });
 
   const storedMedia = new StoredMediaQueue(printerDownloads.queue, {

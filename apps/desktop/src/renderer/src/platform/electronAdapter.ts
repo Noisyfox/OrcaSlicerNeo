@@ -2,6 +2,7 @@ import { createElectronScreenColorSources } from './screenColor';
 import { createBambuProvider } from './bambuProvider';
 import { snapmakerCamera } from './snapmakerCamera';
 import { createPrinterService } from '@orca/printer-control';
+import { electronMdns } from './mdns';
 import { snapmakerTimelapses } from './snapmakerTimelapses';
 import {
   DEFAULT_USER_PREFERENCES,
@@ -269,6 +270,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
         inMemoryPreferences = normalized;
       },
     },
+    mdns: electronMdns(host.mdns),
     accounts: [bambu],
     printers: {
       downloads: host.printers.downloads,

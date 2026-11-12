@@ -19,6 +19,7 @@
   "dependencies": {
     "@orca/printer-control": "workspace:*",
     "react": "^19.2.8",
-    "@orca/service-provider": "workspace:*"
+    "@orca/service-provider": "workspace:*",
+    "@orca/network-discovery": "workspace:*"
   }
 }

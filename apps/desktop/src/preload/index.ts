@@ -20,6 +20,11 @@ import { NEO_VERSION } from '../../../../packages/slicer-runtime/src/version';
 // The renderer's only window to native features (design §Electron App).
 // All IO goes through main; no node builtins leak into the renderer.
 const bridge: ElectronBridge = {
+  mdns: {
+    start: (id, type) => ipcRenderer.invoke(Ipc.mdnsStart, id, type),
+    snapshot: id => ipcRenderer.invoke(Ipc.mdnsSnapshot, id),
+    stop: id => ipcRenderer.invoke(Ipc.mdnsStop, id),
+  },
   screenColor: {
     available: () => ipcRenderer.invoke(Ipc.screenColorAvailable),
     pick: (id) => ipcRenderer.invoke(Ipc.screenColorPick, id),

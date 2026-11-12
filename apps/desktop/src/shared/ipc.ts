@@ -13,6 +13,9 @@ import type { PrinterHttpMethod, PrinterTransportBody } from '../../../../packag
 export type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 
 export const Ipc = {
+  mdnsStart: 'mdns:start',
+  mdnsSnapshot: 'mdns:snapshot',
+  mdnsStop: 'mdns:stop',
   snapmakerCamera: 'snapmaker-camera:call',
   snapmakerTimelapse: 'snapmaker-timelapse:call',
   snapmakerCameraConnect: 'snapmaker-camera:connect',
@@ -93,6 +96,7 @@ export function isMenuCommandId(value: unknown): value is MenuCommandId {
 export type HostCommandId = 'quit' | 'open-configuration-folder';
 
 export interface ElectronBridge {
+  mdns: import('./mdns').MdnsBridge;
   screenColor: {
     available(): Promise<boolean>;
     pick(requestId: string): Promise<import('../../../../packages/platform-contract/src/screenColor').ScreenColorResult>;

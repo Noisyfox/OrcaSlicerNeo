@@ -36,6 +36,7 @@
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@orca/bambu-native": "workspace:*",
+    "@orca/color-sampler-native": "workspace:*",
     "@orca/platform-contract": "workspace:*",
     "@orca/printer-control": "workspace:*",
     "@orca/service-provider": "workspace:*",
@@ -46,6 +47,7 @@
     "class-variance-authority": "^0.7.1",
     "lucide-react": "^1.31.0",
     "mp4box": "2.4.1",
+    "multicast-dns": "7.2.5",
     "proper-lockfile": "4.1.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -53,11 +55,12 @@
     "three": "^0.185.1",
     "yauzl": "3.2.0",
     "zustand": "^5.0.15",
-    "@orca/color-sampler-native": "workspace:*"
+    "@orca/network-discovery": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/multicast-dns": "7.2.4",
     "@types/node": "^24.13.3",
     "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19.2.18",

@@ -158,6 +158,16 @@ interface PlatformCapabilities {
 
 - The Electron adapter uses native dialogs and main/preload IPC.
 - The Web adapter uses browser file selection and a normal Blob download.
+- `@orca/network-discovery` owns provider-neutral mDNS contracts. The optional
+  `mdns` host capability browses a DNS-SD service type and yields resolved
+  instance, SRV, address and TXT updates/removals. Electron implements multicast
+  I/O behind validated main-frame IPC; each explicit browse owns its socket,
+  TTL cache and cancellation lifetime. Closing the consumer, losing the renderer
+  or exiting the app releases it. Static Web does not provide this capability.
+  Agents receive it by injection and own vendor matching and endpoint mapping;
+  they do not import Electron/Node or branch on the platform. Listing local
+  capabilities/configuration does not start browsing. Mobile Web remains manual
+  configuration only; no browser multicast, gateway or new mobile UI is added.
 - Device Storage's selected design adds a provider-neutral host download service:
   an environment-independent task engine consumes provider file readers through
   host save adapters. Shared UI receives opaque task references and progress/results.

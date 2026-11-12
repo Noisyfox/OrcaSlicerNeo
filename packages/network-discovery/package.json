@@ -1,0 +1,9 @@
+{
+  "name": "@orca/network-discovery",
+  "version": "1.0.0-dev",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json", "test": "pnpm typecheck" },
+  "devDependencies": { "typescript": "^7.0.2" }
+}

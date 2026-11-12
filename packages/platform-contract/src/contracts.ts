@@ -454,6 +454,8 @@ export interface PlatformMemory {
 }
 
 export interface PlatformCapabilities {
+  /** Absent on hosts without multicast networking; agents receive this capability by injection. */
+  mdns?: import('@orca/network-discovery').MdnsDiscovery;
   screenColor: import('./screenColor').ScreenColorSources;
   /** Account capabilities available on this host; independent of printers. */
   accounts: readonly AccountProvider[];
