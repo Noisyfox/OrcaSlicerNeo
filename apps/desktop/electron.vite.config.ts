@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => {
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { externalizeDeps: { exclude: ['@orca/printer-control', 'yauzl', 'saxes', 'proper-lockfile', 'mp4box', '@orca/bambu-native', '@orca/color-sampler-native'] }, rollupOptions: { input: {
+      build: { externalizeDeps: { exclude: ['@orca/printer-control', 'multicast-dns', 'yauzl', 'saxes', 'proper-lockfile', 'mp4box', '@orca/bambu-native', '@orca/color-sampler-native'] }, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
         'bambu-host': resolve('src/utility/bambu-host.ts'),

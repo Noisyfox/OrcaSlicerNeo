@@ -26,6 +26,11 @@ export interface HttpServiceContext {
 
 export interface HttpServiceBehavior {
   capabilities(entry?: ConfigurationEntry): D.PrinterCapabilities;
+  discovery?: {
+    browse(options?: D.ReadOptions): AsyncIterable<D.DiscoveryEvent>;
+    /** Validate self-contained public data and derive canonical configuration locally. */
+    validate(candidate: D.DiscoveryCandidate): PrinterConfiguration;
+  };
   observations?: D.PrinterObservations;
   submissions?: D.PrinterSubmissions;
   files?: Pick<D.PrinterFiles, 'listStorages' | 'list' | 'listPreviews' | 'download'>;
@@ -103,7 +108,10 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
   }
   function saved({ printer, entry }: ResolvedConfiguration): D.SavedPrinter {
     return {
-      identity: { id: printer.id as D.Id<'printer'>, displayName: printer.displayName, manufacturer: null, model: null, serialNumber: null, externalRefs: [] },
+      identity: { id: printer.id as D.Id<'printer'>, displayName: printer.displayName,
+        manufacturer: printer.discoveredIdentity?.manufacturer ?? null, model: printer.discoveredIdentity?.model ?? null,
+        serialNumber: printer.discoveredIdentity?.serialNumber ?? null,
+        externalRefs: printer.discoveredIdentity ? [{ namespace: driver, value: printer.discoveredIdentity.serialNumber }] : [] },
       ...(printer.printerModel ? { configuredModel: { ...printer.printerModel } } : {}),
       routes: [{
         id: routeId(printer.id), printerId: printer.id as D.Id<'printer'>, providerId, label: name,
@@ -331,7 +339,8 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
     remotePrints: { inspect: async () => rejected(), prepare: async () => rejected(), release: async () => rejected() },
     operations: operations.api, controls, files, observations,
     media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: behavior.readCurrentPrintPreview ?? (async () => rejected()), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), interact: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected(), ...behavior.media },
-    listProviders: async () => ({ ok: true, value: [{ id: providerId, name, hosts: [{ ...options.host, discovery: unsupported }] }] }),
+    listProviders: async () => ({ ok: true, value: [{ id: providerId, name, hosts: [{ ...options.host,
+      discovery: behavior.discovery ? supported({ kinds: ['lan'] as const }) : unsupported }] }] }),
     configurations: {
       read: target => mutate(async snapshot => {
         const { printer } = resolveSnapshot(snapshot, target);
@@ -357,6 +366,7 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
         const printer = normalizePrinterConfiguration({ id: printerId, driverId: requestedDriver,
           displayName: request.displayName, apiBaseUrl: request.values.apiBaseUrl,
           consoleUrl: request.values.consoleUrl, apiKey: request.values.apiKey,
+          ...(previous?.driverId === requestedDriver && previous.discoveredIdentity ? { discoveredIdentity: previous.discoveredIdentity } : {}),
           ...(request.printerModel ? { printerModel: request.printerModel } : {}) });
         const document = snapshot.document;
         const printers = previous ? document.printers.map(value => value.id === printerId ? printer : value) : [...document.printers, printer];
@@ -411,8 +421,35 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
       await saveConfiguration({ ...snapshot.document, printers: snapshot.document.printers.filter(p => p.id !== printer.id) });
       return null;
     }),
-    discover: unsupportedStream,
-    adopt: async () => rejected(),
+    discover: async function* (id, scope, readOptions) {
+      if (!behavior.discovery || id !== providerId || scope.hostId !== options.host.id || scope.kind !== 'lan') {
+        yield { type: 'failed', error: { code: 'unsupported', message: 'This discovery scope is unavailable.' } }; return;
+      }
+      yield* behavior.discovery.browse(readOptions);
+    },
+    adopt: request => mutate(async snapshot => {
+      if (!behavior.discovery) fail('unsupported', 'Discovery is unavailable on this host');
+      const discovered = normalizePrinterConfiguration(behavior.discovery!.validate(request.candidate));
+      const serial = discovered.discoveredIdentity?.serialNumber;
+      const signature = requestSignature([discovered, request.existingPrinterId]);
+      const key = `${driver}:adopt:${request.requestId}`;
+      const repeated = state.additions.get(key);
+      if (repeated && repeated.signature !== signature) fail('invalid-request', 'Request identity was already used with different parameters');
+      const previous = snapshot.printers.find(({ printer }) => request.existingPrinterId ? printer.id === request.existingPrinterId
+        : repeated ? printer.id === repeated.printerId
+        : (serial && printer.discoveredIdentity?.serialNumber === serial) || (!printer.discoveredIdentity && printer.apiBaseUrl === discovered.apiBaseUrl));
+      if ((request.existingPrinterId || repeated) && !previous) fail('invalid-target', 'Previously configured printer was removed');
+      if (previous && (previous.printer.discoveredIdentity ? previous.printer.discoveredIdentity.serialNumber !== serial
+        : previous.printer.apiBaseUrl !== discovered.apiBaseUrl)) fail('invalid-target', 'The candidate is a different physical printer');
+      if (repeated && previous) return saved(previous);
+      const printer: PrinterConfiguration = { ...previous?.printer, ...discovered,
+        ...(previous ? { id: previous.printer.id, displayName: previous.printer.displayName, apiKey: previous.printer.apiKey,
+          consoleUrl: previous.printer.consoleUrl } : {}) };
+      const next = await saveConfiguration({ ...snapshot.document,
+        printers: previous ? snapshot.document.printers.map(p => p.id === printer.id ? printer : p) : [...snapshot.document.printers, printer] });
+      state.additions.set(key, { signature, printerId: printer.id });
+      return saved(resolveSnapshot(next, targetFor(printer.id)));
+    }),
     authorize: async () => rejected(),
   };
   return service;

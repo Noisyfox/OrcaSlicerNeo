@@ -16,6 +16,8 @@ export interface PrinterConfiguration {
   apiKey: string;
   /** Omitted means no user-configured model restriction. */
   printerModel?: ConfiguredPrinterModel;
+  /** Stable identity learned during explicit discovery/adoption; never a configured profile. */
+  discoveredIdentity?: { manufacturer: string; model: string; serialNumber: string };
 }
 
 export interface PrinterConfigurationDocument {
@@ -120,6 +122,15 @@ export function normalizePrinterConfigurationDocument(value: unknown): PrinterCo
       } else printerModel = { vendorId: model.vendorId.trim(), model: model.model.trim() };
     }
 
+    let discoveredIdentity: PrinterConfiguration['discoveredIdentity'];
+    if (raw.discoveredIdentity !== undefined) {
+      const identity = raw.discoveredIdentity;
+      if (!isRecord(identity) || ['manufacturer', 'model', 'serialNumber'].some(key =>
+        typeof identity[key] !== 'string' || !identity[key].trim() || identity[key].length > 256)) {
+        issues.push(`${prefix}.discoveredIdentity must contain manufacturer, model and serialNumber`);
+      } else discoveredIdentity = { manufacturer: (identity.manufacturer as string).trim(), model: (identity.model as string).trim(), serialNumber: (identity.serialNumber as string).trim() };
+    }
+
     if (id && displayName && BUILT_IN_PRINTER_DRIVER_IDS.includes(driverId as BuiltInPrinterDriverId)
       && apiBaseUrl && typeof raw.apiKey === 'string') {
       printers.push({
@@ -131,6 +142,7 @@ export function normalizePrinterConfigurationDocument(value: unknown): PrinterCo
         // Do not trim, truncate, or otherwise alter credentials.
         apiKey: raw.apiKey,
         ...(printerModel ? { printerModel } : {}),
+        ...(discoveredIdentity ? { discoveredIdentity } : {}),
       });
     }
   }

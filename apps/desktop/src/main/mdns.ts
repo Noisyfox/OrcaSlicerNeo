@@ -14,7 +14,7 @@ type SocketFactory = (receive: (packet: MdnsPacket) => void, failed: () => void)
 interface CachedRecord { name: string; type: RecordType; data: unknown; expiresAtMs: number }
 interface Browse {
   owner: WebContents; serviceType: string; socket: MdnsSocket; records: Map<string, CachedRecord>;
-  failed: boolean; lastRead: number; lastQuery: number; lastResolve: number;
+  failed: boolean; lastQuery: number; lastResolve: number;
 }
 const dnsName = (name: string) => `${name.replace(/\.$/, '').toLowerCase()}.`;
 const defaultSocket: SocketFactory = (receive, failed) => {
@@ -38,14 +38,21 @@ export class MdnsHost {
     if (this.browsers.has(id) || this.browsers.size >= 16 || [...this.browsers.values()].filter(b => b.owner === owner).length >= 4)
       throw new Error('Too many mDNS browse requests.');
     const browse: Browse = { owner, serviceType: dnsName(serviceType), records: new Map(), failed: false,
-      lastRead: this.now(), lastQuery: this.now(), lastResolve: -Infinity, socket: undefined as unknown as MdnsSocket };
+      lastQuery: this.now(), lastResolve: -Infinity, socket: undefined as unknown as MdnsSocket };
     try {
       browse.socket = this.socketFactory(packet => this.receive(browse, packet), () => { browse.failed = true; });
       this.browsers.set(id, browse);
       if (!this.owners.has(owner)) {
         const cleanup = () => { for (const [key, value] of this.browsers) if (value.owner === owner) this.stop(owner, key); };
-        this.owners.set(owner, cleanup);
+        const navigating = (_event: unknown, _url: string, _inPlace: boolean, mainFrame: boolean) => { if (mainFrame) cleanup(); };
+        this.owners.set(owner, () => {
+          owner.removeListener('destroyed', cleanup);
+          owner.removeListener('render-process-gone', cleanup);
+          owner.removeListener('did-start-navigation', navigating);
+        });
         owner.once('destroyed', cleanup);
+        owner.on('render-process-gone', cleanup);
+        owner.on('did-start-navigation', navigating);
       }
       browse.socket.query([{ name: browse.serviceType, type: 'PTR' }]);
       this.timer ??= setInterval(() => this.tick(), 1000);
@@ -57,7 +64,6 @@ export class MdnsHost {
   snapshot(owner: WebContents, id: unknown): MdnsService[] {
     const browse = typeof id === 'string' ? this.browsers.get(id) : undefined;
     if (!browse || browse.owner !== owner) throw new Error('Unknown mDNS browse request.');
-    browse.lastRead = this.now();
     if (browse.failed) throw new Error('mDNS discovery is unavailable. Check local network permissions.');
     this.expire(browse);
     const records = [...browse.records.values()];
@@ -84,8 +90,7 @@ export class MdnsHost {
     this.browsers.delete(id as string);
     browse.socket.destroy();
     if (![...this.browsers.values()].some(b => b.owner === owner)) {
-      const cleanup = this.owners.get(owner);
-      if (cleanup) owner.removeListener('destroyed', cleanup);
+      this.owners.get(owner)?.();
       this.owners.delete(owner);
     }
     if (!this.browsers.size) { clearInterval(this.timer); this.timer = undefined; }
@@ -95,9 +100,7 @@ export class MdnsHost {
     for (const [key, record] of browse.records) if (record.expiresAtMs <= this.now()) browse.records.delete(key);
   }
   private tick(): void {
-    for (const [id, browse] of this.browsers) {
-      // Release abandoned streams after renderer navigation/crash even without a stop IPC.
-      if (this.now() - browse.lastRead > 10_000) { this.stop(browse.owner, id); continue; }
+    for (const browse of this.browsers.values()) {
       this.expire(browse);
       if (!browse.failed && this.now() - browse.lastQuery >= 5000) {
         browse.lastQuery = this.now();

@@ -53,6 +53,8 @@ linux:
   artifactName: OrcaSlicerNeo-${version}-${os}-${arch}.${ext}
 mac:
   icon: build/icon.icns
+  extendInfo:
+    NSLocalNetworkUsageDescription: Discover and connect to printers on your local network.
   target:
     - target: dmg
   category: public.app-category.graphics-design

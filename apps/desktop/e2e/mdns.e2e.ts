@@ -2,26 +2,31 @@ import type { ElectronBridge } from '../src/shared/ipc';
 type HostWindow = Window & { orca: ElectronBridge };
 import multicastDns from 'multicast-dns';
 import { expect, test } from '@playwright/test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron, desktopLaunchOptions } from './electron-fixture';
 
-test('Electron resolves real multicast packets through the generic mDNS preload boundary', async () => {
+test('Electron resolves multicast through generic IPC and adopts U1 into the existing device list', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'neo-mdns-'));
   const configuration = join(directory, 'printers.json');
   writeFileSync(configuration, JSON.stringify({ version: 1, printers: [] }));
   const serviceType = `_neo-${Date.now()}._tcp.local.`;
   const fqdn = `Fixture.${serviceType}`;
   const host = `fixture-${Date.now()}.local`;
+  const serial = `fixture-${Date.now()}`;
+  const u1Name = `U1 ${serial}`;
   const socket = multicastDns({ reuseAddr: true });
   const errors: string[] = [];
   socket.on('error', error => errors.push(error.message));
   socket.on('query', packet => {
-    if (!packet.questions?.some(question => question.name.replace(/\.$/, '').toLowerCase() === serviceType.slice(0, -1))) return;
-    socket.respond({ answers: [{ name: serviceType, type: 'PTR', ttl: 120, data: fqdn }], additionals: [
-      { name: fqdn, type: 'SRV', ttl: 120, data: { target: host, port: 1884, priority: 0, weight: 0 } },
-      { name: fqdn, type: 'TXT', ttl: 120, data: [Buffer.from('model=fixture')] },
+    const u1 = packet.questions?.some(question => question.name.replace(/\.$/, '').toLowerCase() === '_snapmaker._tcp.local');
+    if (!u1 && !packet.questions?.some(question => question.name.replace(/\.$/, '').toLowerCase() === serviceType.slice(0, -1))) return;
+    const type = u1 ? '_snapmaker._tcp.local.' : serviceType;
+    const instance = u1 ? `Fixture.${type}` : fqdn;
+    socket.respond({ answers: [{ name: type, type: 'PTR', ttl: 120, data: instance }], additionals: [
+      { name: instance, type: 'SRV', ttl: 120, data: { target: host, port: 1884, priority: 0, weight: 0 } },
+      { name: instance, type: 'TXT', ttl: 120, data: (u1 ? ['machine_type=Snapmaker U1', `sn=${serial}`, `device_name=${u1Name}`, 'link_mode=wan'] : ['model=fixture']).map(text => Buffer.from(text)) },
       { name: host, type: 'A', ttl: 120, data: '127.0.0.1' },
     ] });
   });
@@ -40,6 +45,23 @@ test('Electron resolves real multicast packets through the generic mDNS preload 
     expect(await page.evaluate(async () => {
       try { await (window as unknown as HostWindow).orca!.mdns.snapshot('generic-mdns-e2e'); return false; } catch { return true; }
     })).toBe(true);
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.getByTestId('tab-device').click();
+    expect(JSON.parse(readFileSync(configuration, 'utf8')).printers).toEqual([]);
+    await page.getByTestId('device-discover').click();
+    const choice = page.getByTestId('printer-discovery-dialog').getByRole('button', { name: new RegExp(u1Name) });
+    await expect(choice).toBeVisible({ timeout: 20_000 });
+    expect(JSON.parse(readFileSync(configuration, 'utf8')).printers).toEqual([]);
+    await choice.click();
+    await expect(page.getByTestId('printer-access-code')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Add LAN connection' }).click();
+    await expect.poll(() => JSON.parse(readFileSync(configuration, 'utf8')).printers).toMatchObject([
+      { driverId: 'snapmaker', displayName: u1Name, apiBaseUrl: 'http://127.0.0.1:7125/',
+        discoveredIdentity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1', serialNumber: serial } },
+    ]);
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.getByTestId('device-printer-select').click();
+    await expect(page.getByTestId(`device-select-snapmaker:${serial}`)).toContainText(u1Name);
     expect(errors).toEqual([]);
   } finally {
     await app.close(); socket.destroy(); rmSync(directory, { recursive: true, force: true });

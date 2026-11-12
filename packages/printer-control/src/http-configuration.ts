@@ -42,7 +42,7 @@ export function httpConfiguration(repository: HttpConfigurationRepository, drive
   function bindConfiguration(doc: PrinterConfigurationDocument): ConfigurationSnapshot {
     for (const id of state.configurations.keys()) if (!doc.printers.some(p => p.id === id)) state.configurations.delete(id);
     const printers = doc.printers.filter(printer => printer.driverId === driver).map(printer => {
-      const signature = JSON.stringify([printer.driverId, printer.apiBaseUrl, printer.consoleUrl, printer.apiKey]);
+      const signature = JSON.stringify([printer.driverId, printer.apiBaseUrl, printer.consoleUrl, printer.apiKey, printer.discoveredIdentity]);
       let entry = state.configurations.get(printer.id);
       if (entry?.signature !== signature) {
         entry = { signature, revision: newId<'configuration'>(), cache: {} };

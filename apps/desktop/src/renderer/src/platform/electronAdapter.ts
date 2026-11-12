@@ -285,6 +285,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
       }, {
         id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
         printers: createSnapmakerService({
+          mdns: electronMdns(host.mdns),
           timelapses: snapmakerTimelapses(host.printers.timelapses),
           camera: resolve => snapmakerCamera(host.printers.camera, resolve),
           matchFilaments: materials => runtime.matchFilamentPresets(materials),

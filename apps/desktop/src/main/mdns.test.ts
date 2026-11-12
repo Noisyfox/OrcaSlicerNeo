@@ -46,14 +46,20 @@ it('refreshes unchanged records, replaces changed TXT/SRV and expires TTLs and g
   f.receive(packet(1)); vi.advanceTimersByTime(1100);
   expect(f.host.snapshot(f.owner, 'browse')).toEqual([]);
 });
-it('keeps browses owner-scoped and closes on cancel, destroyed renderer or abandoned heartbeat', () => {
+it('keeps browses owner-scoped and closes on renderer destruction, navigation or crash', () => {
   const f = fixture(), other = new EventEmitter() as WebContents;
   f.host.start(f.owner, 'browse', type);
   expect(() => f.host.snapshot(other, 'browse')).toThrow('Unknown');
   f.host.stop(other, 'browse'); expect(f.socket.destroy).not.toHaveBeenCalled();
   f.owner.emit('destroyed'); expect(f.socket.destroy).toHaveBeenCalledOnce();
   f.host.start(f.owner, 'next', type); vi.advanceTimersByTime(11_000);
+  expect(f.socket.destroy).toHaveBeenCalledOnce(); // Background timer throttling does not cancel a live browse.
+  f.owner.emit('did-start-navigation', {}, 'http://guest/', false, false);
+  expect(f.socket.destroy).toHaveBeenCalledOnce();
+  f.owner.emit('did-start-navigation', {}, 'http://app/', false, true);
   expect(f.socket.destroy).toHaveBeenCalledTimes(2);
+  f.host.start(f.owner, 'crash', type); f.owner.emit('render-process-gone');
+  expect(f.socket.destroy).toHaveBeenCalledTimes(3);
   expect(f.owner.listenerCount('destroyed')).toBe(0);
 });
 it('rejects invalid browse input, preserves socket failure and cleans up failed starts', () => {

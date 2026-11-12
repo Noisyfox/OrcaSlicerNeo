@@ -14,8 +14,11 @@ import { matchU1Materials, type FilamentMatcher } from './observation';
 import { U1_CAMERA_ID, u1CameraCapability } from './camera';
 import { U1Storage, u1DeleteCapability, u1StorageCapabilities } from './storage';
 import type { U1TimelapseTransport } from './timelapse';
+import type { MdnsDiscovery } from '@orca/network-discovery';
+import { u1Discovery } from './discovery';
 
 export interface SnapmakerServiceOptions extends HttpServiceOptions {
+  mdns?: MdnsDiscovery;
   /** Read-only native preset matcher; raw device controls need no catalogue. */
   matchFilaments?: FilamentMatcher;
   camera?: (resolve: (target: D.TargetRequest) => Promise<{ printer: Readonly<PrinterConfiguration>; revision: D.Revision }>) => Required<NonNullable<HttpServiceBehavior['media']>>;
@@ -159,6 +162,7 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
   }
   return {
     capabilities, observations, submissions: executor, files: storage.files,
+    discovery: options.mdns ? u1Discovery(options.mdns, options.host, capabilities) : undefined,
     media: {
       ...camera,
       open: (request, options) => request.source.kind === 'file-preview' ? storage.open(request, options)

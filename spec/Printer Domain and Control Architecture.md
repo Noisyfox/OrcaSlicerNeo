@@ -2093,10 +2093,38 @@ with the shared unfinished-send exit extension explicitly accepted above.
 Add a distinct `snapmaker` choice to the manual printer agent dropdown. Its
 selection chooses the Snapmaker protocol implementation. A configured printer
 model does not silently change the selected agent. Manual configuration reuses
-the existing API base URL, optional API key and optional console URL. Automatic
-LAN discovery is outside this delivery. Initial protocol implementation and
+the existing API base URL, optional API key and optional console URL. Electron
+also supports explicit U1 LAN discovery through the injected, provider-neutral
+[`mdns` host capability](Web-Electron%20Shared%20Application%20Architecture.md#4-platform-boundary).
+Static Web retains manual configuration without a multicast implementation.
+Initial protocol implementation and
 acceptance cover U1; the agent name leaves room for later models without
 claiming their support now.
+
+U1 discovery browses `_snapmaker._tcp.local.` and accepts TXT
+`machine_type=Snapmaker U1` with a non-empty `sn`. TXT `device_name` supplies
+the display name; `sn` supplies stable identity and deduplication across renamed
+instances. Both `lan` and `wan` link modes are discoverable. Resolved addresses
+take precedence over the redundant TXT `ip`. The advertised SRV port is LAN
+MQTT (1884); the existing HTTP agent uses the resolved IP at port 7125 instead.
+Do not infer nozzle configuration or a user-selected profile from an announcement.
+Protocol evidence is the official
+[U1 registrar](https://github.com/Snapmaker/u1-moonraker/blob/ed7b3752a9a938c87ee086f3b7b21a9352a2a0c9/moonraker/components/zeroconf.py#L153-L174).
+
+Browsing begins only when the shared discovery dialog requests it. Updates,
+goodbyes and TTL expiration update its candidates; closing the dialog cancels
+the browse. Finding a printer never saves it or selects a print target.
+Explicit Add LAN connection locally adopts the candidate into the existing
+Device catalogue without authentication, probing or control calls. This uses
+the existing Moonraker HTTP route, not a claim of MQTT/PIN authentication.
+Adoption validates expiry, host, identity and endpoint and derives capabilities
+locally. It persists stable reported identity separately from configured model
+association. Repeated adoption deduplicates by serial or an existing manual
+endpoint, preserving that entry's ID, name, credentials and configured model.
+Electron multicast/IPC/device-list fixtures and Web manual-configuration tests
+cover software behavior. Physical U1 discovery and other desktop platforms
+remain unqualified. No new mobile interaction is added; static/mobile Web
+retains manual connection subject to its existing networking limits.
 
 Model association remains optional, following the current Device configuration
 contract. A user can save a connection and access supported device information

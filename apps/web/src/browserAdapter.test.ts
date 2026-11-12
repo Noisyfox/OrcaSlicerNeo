@@ -14,6 +14,24 @@ vi.mock('@orca/slicer-runtime', async () => {
 describe('browser adapter', () => {
   beforeEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
+  it('keeps U1 manual IP configuration available without offering mDNS discovery', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const adapter = createBrowserAdapter({} as never), service = adapter.printers.service;
+    expect(adapter.mdns).toBeUndefined();
+    const providers = await service.listProviders(), types = await service.listTypes();
+    if (!providers.ok || !types.ok) throw new Error('Provider catalogue unavailable');
+    expect(providers.value.find(p => p.id === 'snapmaker')?.hosts[0]?.discovery.kind).toBe('unsupported');
+    const type = types.value.find(type => type.id === 'snapmaker')!;
+    if (type.manualConfiguration.kind !== 'supported') throw new Error('Manual configuration unavailable');
+    const result = await service.configurations.save({ requestId: 'manual-u1' as never, target: null, typeId: type.id,
+      hostId: type.manualConfiguration.constraints.hostId, displayName: 'U1 manual', printerModel: null,
+      values: { apiBaseUrl: 'http://192.168.1.20:7125', consoleUrl: '', apiKey: '' } });
+    expect(result.ok).toBe(true);
+    const saved = await createBrowserAdapter({} as never).printers.service.listSaved();
+    expect(saved.ok && saved.value[0]?.routes[0]?.configuration.address).toBe('http://192.168.1.20:7125/');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('round trips explicit vendor activation through a recreated browser adapter', async () => {
     const adapter = createBrowserAdapter({} as never);
     const activation = { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['PLA'] };
