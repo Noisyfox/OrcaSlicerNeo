@@ -1,6 +1,6 @@
 # Viewport Interaction
 
-**Updated:** 2026-10-11
+**Updated:** 2026-11-12
 **Status:** Delivered behavior
 **Scope:** Shared Electron/Web model selection, transforms, camera and rendering.
 
@@ -21,7 +21,17 @@ follow [Object List and Object Parts](ObjectList-and-Parts.md).
 
 Initial framing uses the selected printer's printable-area bounds, looking
 from the front at a 45-degree elevation with X horizontal. Orbit uses Z up;
-middle/right drag pans. The orientation gizmo returns to axis-aligned views.
+middle/right drag pans. In Prepare, orbit uses the aggregate world-bounds
+center of the selected content (including parts and cross-plate selections),
+or the current plate's footprint center when nothing is selected. Preview uses
+the current plate center regardless of the retained Prepare selection.
+Selection and ordinary plate changes do not reframe the camera: the orbit pivot
+is independent of its navigation target and preserves the existing composition.
+Each admitted pointer gesture freezes its pivot through the complete damped
+rotation. The next gesture uses the latest displayed selection/plate geometry.
+Ordinary orbit and painting share the same rigid camera/target rotation; tool
+and mode handoffs discard prior inertia without moving the displayed pose.
+The orientation gizmo returns to axis-aligned views.
 The current plate's geometry, grid and artwork are specified in
 [Printer Bed Display](Printer%20Bed%20Display.md).
 

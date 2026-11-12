@@ -4,9 +4,10 @@ import { useSetupWizardStore } from '@/stores/useSetupWizardStore';
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Canvas, events as createPointerEvents, useFrame, useThree, type RootState } from '@react-three/fiber';
-import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
+import { GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
 import { BED_SIZE, getPrintableAreaBounds, normalizePrintableArea, type PrintableAreaBounds } from './BedPlate';
 import { Scene } from './Scene';
+import { CameraControls } from './CameraControls';
 import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
 import { ArrangementPanel } from '../arrangement/ArrangementControls';
@@ -480,25 +481,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
               onEmptyBedClick={selectPlate}
             />
             <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />
-            <OrbitControls
-              makeDefault
+            <CameraControls
               enabled={!paintingActive}
-              enableDamping
-              // LEFT = orbit, MIDDLE = pan, RIGHT = pan, wheel = zoom — the
-              // upstream OrcaSlicer drag defaults (see AppConfig.cpp
-              // `*_mouse_drag_action`). Body/gizmo drags (DragControls
-              // dragConfig, MoveGizmo) disable orbit for the gesture's
-              // duration.
-              mouseButtons={{
-                LEFT: THREE.MOUSE.ROTATE,
-                MIDDLE: THREE.MOUSE.PAN,
-                RIGHT: THREE.MOUSE.PAN,
-              }}
-              // R3F's event manager tests every interactive mesh before it
-              // dispatches a pointer event. Disable that layer for the whole
-              // camera gesture so orbiting over a dense mesh remains smooth.
-              onStart={() => setCameraGestureActive(true)}
-              onEnd={() => setCameraGestureActive(false)}
+              mode={previewTab ? 'preview' : 'prepare'}
+              sceneInteraction={sceneInteraction}
+              bounds={bedBounds}
+              plateSession={plateSession}
+              onGestureActive={setCameraGestureActive}
             />
             <CameraFraming
               bounds={bedBounds}

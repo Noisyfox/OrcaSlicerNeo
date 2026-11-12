@@ -1,3 +1,4 @@
+import { rotateCameraFromPointer, panCamera } from '../../cameraNavigation';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
@@ -217,9 +218,9 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
       gesture.x = event.clientX; gesture.y = event.clientY;
       if (gesture.mode === 'rotate') {
         if (!pivotRef.current) return;
-        rotatePaintingCamera(camera, target, pivotRef.current, dx, dy, canvas.clientHeight);
+        rotateCameraFromPointer(camera, target, pivotRef.current, dx, dy, canvas.clientHeight);
       }
-      else panPaintingCamera(camera, target, dx, dy, canvas.clientHeight);
+      else panCamera(camera, target, dx, dy, canvas.clientHeight);
       camera.updateMatrixWorld(); invalidate(); setCursor(null); owner.hoverAt();
     };
     const up = (event: PointerEvent) => {
@@ -299,28 +300,4 @@ function PaintResourceMesh({ resource, matrix, colors, targetName, highlightBed 
     {!triangle && <mesh name={__ORCA_E2E__ ? overlay ? 'painting-candidate' : targetName : undefined} geometry={resource.geometry} material={materials} renderOrder={overhang ? PAINTING_RENDER_ORDER.candidate - 1 : overlay ? PAINTING_RENDER_ORDER.candidate : PAINTING_RENDER_ORDER.draft} />}
     {resource.source.contour.length > 0 && <lineSegments name={__ORCA_E2E__ ? triangle ? 'painting-contour-triangle' : 'painting-contour' : undefined} geometry={resource.contour} material={contourMaterial} renderOrder={PAINTING_RENDER_ORDER.contour} />}
   </group>;
-}
-
-export function rotatePaintingCamera(camera: THREE.Camera, target: THREE.Vector3, pivot: THREE.Vector3, dx: number, dy: number, height: number): void {
-  // Inverse of Orca's view rotation: world-Z azimuth and camera-right zenith.
-  // Retain Neo's safe polar range from the view direction, rather than the
-  // pivot offset (which differs after pan). Apply the same rigid transform to
-  // navigation's target so OrbitControls retains the existing framing.
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-  const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
-  const polar = Math.acos(THREE.MathUtils.clamp(backward.z, -1, 1));
-  const zenith = THREE.MathUtils.clamp(polar - 2 * Math.PI * dy / height, 1e-6, Math.PI - 1e-6) - polar;
-  const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -2 * Math.PI * dx / height)
-    .multiply(new THREE.Quaternion().setFromAxisAngle(right, zenith));
-  camera.position.sub(pivot).applyQuaternion(rotation).add(pivot);
-  camera.quaternion.premultiply(rotation);
-  target.sub(pivot).applyQuaternion(rotation).add(pivot);
-}
-export function panPaintingCamera(camera: THREE.Camera, target: THREE.Vector3, dx: number, dy: number, height: number): void {
-  const distance = camera.position.distanceTo(target);
-  const fov = (camera as THREE.PerspectiveCamera).fov ?? 45;
-  const factor = 2 * distance * Math.tan(fov * Math.PI / 360) / height;
-  const delta = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(-dx * factor)
-    .add(new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).multiplyScalar(dy * factor));
-  camera.position.add(delta); target.add(delta);
 }

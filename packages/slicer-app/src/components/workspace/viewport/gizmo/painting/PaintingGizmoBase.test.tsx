@@ -7,7 +7,8 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { PaintingController, type PaintingPorts, type PaintingState } from './PaintingController';
 import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
 import { InstanceHider } from '../../InstanceHider';
-import { PaintingGizmoBase, paintingModelColor, paintingSurfaceMaterial, paintingStartMiss, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
+import { rotateCameraFromPointer, panCamera } from '../../cameraNavigation';
+import { PaintingGizmoBase, paintingModelColor, paintingSurfaceMaterial, paintingStartMiss, paintingModelBounds, paintingCursorMeshes, triangleContourMaterial } from './PaintingGizmoBase';
 
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));
 vi.mock('./PaintingProvider', () => ({ usePaintingState: () => mocked.state, usePaintingController: () => mocked.owner }));
@@ -363,10 +364,10 @@ it('uses tight transformed original solid-part bounds for the displayed instance
 it('rotates camera pose and navigation target rigidly about the model after pan, preserving its camera-space and projected position', () => {
   const camera = mocked.three.camera as THREE.PerspectiveCamera, target = mocked.three.controls.target as THREE.Vector3;
   const pivot = new THREE.Vector3(100, 40, 20);
-  panPaintingCamera(camera, target, 170, -110, 600); camera.updateMatrixWorld();
+  panCamera(camera, target, 170, -110, 600); camera.updateMatrixWorld();
   const before = cameraPoint(pivot), projected = pivot.clone().project(camera), distance = camera.position.distanceTo(pivot), navigationDistance = camera.position.distanceTo(target);
   const targetCamera = cameraPoint(target); const oldPosition = camera.position.clone(), oldQuaternion = camera.quaternion.clone();
-  rotatePaintingCamera(camera, target, pivot, 40, 25, 600); camera.updateMatrixWorld();
+  rotateCameraFromPointer(camera, target, pivot, 40, 25, 600); camera.updateMatrixWorld();
   expect(camera.position.equals(oldPosition)).toBe(false); expect(camera.quaternion.equals(oldQuaternion)).toBe(false);
   near(cameraPoint(pivot).toArray(), before.toArray()); near(pivot.clone().project(camera).toArray(), projected.toArray());
   near(cameraPoint(target).toArray(), targetCamera.toArray()); expect(camera.position.distanceTo(pivot)).toBeCloseTo(distance, 8);
@@ -376,9 +377,9 @@ it('rotates camera pose and navigation target rigidly about the model after pan,
 
 it.each([2000, -2000])('keeps the existing safe polar view range after pan with a %s-pixel vertical orbit and closes coherently', (dy) => {
   const camera = mocked.three.camera as THREE.PerspectiveCamera, target = mocked.three.controls.target as THREE.Vector3, pivot = new THREE.Vector3(100, 40, 20);
-  panPaintingCamera(camera, target, 200, -100, 600); camera.updateMatrixWorld();
+  panCamera(camera, target, 200, -100, 600); camera.updateMatrixWorld();
   const before = cameraPoint(pivot);
-  rotatePaintingCamera(camera, target, pivot, 45, dy, 600); camera.updateMatrixWorld();
+  rotateCameraFromPointer(camera, target, pivot, 45, dy, 600); camera.updateMatrixWorld();
   near(cameraPoint(pivot).toArray(), before.toArray());
   const polar = Math.acos(THREE.MathUtils.clamp(new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion).z, -1, 1));
   expect(polar).toBeGreaterThan(0); expect(polar).toBeLessThan(Math.PI);
