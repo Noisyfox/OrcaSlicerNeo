@@ -2107,7 +2107,11 @@ the display name; `sn` supplies stable identity and deduplication across renamed
 instances. Both `lan` and `wan` link modes are discoverable. Resolved addresses
 take precedence over the redundant TXT `ip`. The advertised SRV port is LAN
 MQTT (1884); the existing HTTP agent uses the resolved IP at port 7125 instead.
-Do not infer nozzle configuration or a user-selected profile from an announcement.
+Newly adopted U1 connections default their model association to
+`Snapmaker / Snapmaker U1` and their Console URL to `http://<resolved-IP>/`
+(Fluidd, default HTTP port). This does not select nozzle variants, activate
+presets or change the project's Printer. Discovery does not establish nozzle
+configuration.
 Protocol evidence is the official
 [U1 registrar](https://github.com/Snapmaker/u1-moonraker/blob/ed7b3752a9a938c87ee086f3b7b21a9352a2a0c9/moonraker/components/zeroconf.py#L153-L174).
 
@@ -2120,7 +2124,9 @@ the existing Moonraker HTTP route, not a claim of MQTT/PIN authentication.
 Adoption validates expiry, host, identity and endpoint and derives capabilities
 locally. It persists stable reported identity separately from configured model
 association. Repeated adoption deduplicates by serial or an existing manual
-endpoint, preserving that entry's ID, name, credentials and configured model.
+endpoint, preserving that entry's ID, name, credentials and any configured model
+or Console URL; absent model and blank Console URL receive discovery defaults
+during explicit adoption. Subsequent configuration editing can still clear them.
 Electron multicast/IPC/device-list fixtures and Web manual-configuration tests
 cover software behavior. Physical U1 discovery and other desktop platforms
 remain unqualified. No new mobile interaction is added; static/mobile Web

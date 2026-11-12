@@ -7,6 +7,11 @@ import { fail } from '../moonraker-http';
 const serviceType = '_snapmaker._tcp.local.';
 const providerId = 'snapmaker' as D.Id<'provider'>;
 const candidateId = (serial: string) => `snapmaker:${encodeURIComponent(serial)}` as D.Id<'candidate'>;
+function consoleUrl(apiUrl: string): `http://${string}` {
+  const url = new URL(apiUrl);
+  url.port = '';
+  return url.href as `http://${string}`;
+}
 const text = (value: unknown): value is string => typeof value === 'string' && !!value.trim() && value.length <= 256 && !/[\x00-\x1f\x7f]/.test(value);
 function endpoint(addresses: readonly string[]): string | undefined {
   // Prefer resolved IPv4. Firmware's TXT ip is a redundant, potentially stale single address.
@@ -25,7 +30,7 @@ export function u1Discovery(mdns: MdnsDiscovery, host: D.AgentHost, capabilities
     const address = endpoint(service.addresses);
     if (!address) return;
     return { id: candidateId(sn.trim()), providerId, displayName: text(service.txt.device_name) ? service.txt.device_name.trim() : 'Snapmaker U1',
-      configuration: { typeId: 'snapmaker' as D.Id<'printer-type'>, hostId: host.id, channel: 'lan', address, credentialRef: null, webInterfaceUrl: null },
+      configuration: { typeId: 'snapmaker' as D.Id<'printer-type'>, hostId: host.id, channel: 'lan', address, credentialRef: null, webInterfaceUrl: consoleUrl(address) },
       capabilities: capabilities(), externalRefs: [{ namespace: 'snapmaker', value: sn.trim() }], expiresAtMs: service.expiresAtMs, access: 'none' };
   }
   return {
@@ -57,15 +62,16 @@ export function u1Discovery(mdns: MdnsDiscovery, host: D.AgentHost, capabilities
     validate(value) {
       const config = value.configuration, reference = value.externalRefs?.[0];
       if (value.providerId !== providerId || value.access !== 'none' || config.typeId !== 'snapmaker' || config.hostId !== host.id
-        || config.channel !== 'lan' || config.credentialRef !== null || config.webInterfaceUrl !== null
+        || config.channel !== 'lan' || config.credentialRef !== null
         || value.externalRefs.length !== 1 || reference?.namespace !== 'snapmaker' || !text(reference.value)
         || value.id !== candidateId(reference.value) || !text(value.displayName)) fail('invalid-request', 'Invalid U1 discovery candidate');
       if (!Number.isFinite(value.expiresAtMs) || value.expiresAtMs <= Date.now()) fail('stale-context', 'This discovery candidate has expired');
       let url: URL;
       try { url = new URL(config.address ?? ''); } catch { fail('invalid-request', 'Invalid U1 discovery address'); }
       const canonical = endpoint([url!.hostname.replace(/^\[|\]$/g, '')]);
-      if (!canonical || config.address !== canonical) fail('invalid-request', 'Invalid U1 discovery address');
-      return { id: candidateId(reference!.value), driverId: 'snapmaker', displayName: value.displayName.trim(), apiBaseUrl: canonical!, apiKey: '', consoleUrl: '',
+      if (!canonical || config.address !== canonical || config.webInterfaceUrl !== consoleUrl(canonical)) fail('invalid-request', 'Invalid U1 discovery address');
+      return { id: candidateId(reference!.value), driverId: 'snapmaker', displayName: value.displayName.trim(), apiBaseUrl: canonical!, apiKey: '', consoleUrl: consoleUrl(canonical!),
+        printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' },
         discoveredIdentity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1', serialNumber: reference!.value } };
     },
   };

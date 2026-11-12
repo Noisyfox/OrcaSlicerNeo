@@ -444,7 +444,8 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
       if (repeated && previous) return saved(previous);
       const printer: PrinterConfiguration = { ...previous?.printer, ...discovered,
         ...(previous ? { id: previous.printer.id, displayName: previous.printer.displayName, apiKey: previous.printer.apiKey,
-          consoleUrl: previous.printer.consoleUrl } : {}) };
+          consoleUrl: previous.printer.consoleUrl || discovered.consoleUrl,
+          ...(previous.printer.printerModel ? { printerModel: previous.printer.printerModel } : {}) } : {}) };
       const next = await saveConfiguration({ ...snapshot.document,
         printers: previous ? snapshot.document.printers.map(p => p.id === printer.id ? printer : p) : [...snapshot.document.printers, printer] });
       state.additions.set(key, { signature, printerId: printer.id });

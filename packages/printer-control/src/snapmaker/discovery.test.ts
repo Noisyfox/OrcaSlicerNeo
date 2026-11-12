@@ -46,10 +46,10 @@ it('maps U1 announcements in either link mode to HTTP 7125 using resolved addres
   f.events.splice(0, 1, ...bad.map(service => ({ type: 'upsert' as const, service })), { type: 'upsert', service: announcement() });
   const values = await candidates(f.create()); expect(values).toHaveLength(1);
   expect(values[0]).toMatchObject({ id: 'snapmaker:SN', displayName: 'Workshop U1', access: 'none',
-    configuration: { address: 'http://192.168.1.20:7125/', hostId: host.id, typeId: 'snapmaker', credentialRef: null } });
+    configuration: { address: 'http://192.168.1.20:7125/', webInterfaceUrl: 'http://192.168.1.20/', hostId: host.id, typeId: 'snapmaker', credentialRef: null } });
   expect(JSON.stringify(values[0])).not.toContain('private-account');
   f.events.splice(0, f.events.length, { type: 'upsert', service: announcement({ addresses: ['2001:db8::123'], txt: { machine_type: 'Snapmaker U1', sn: 'SN', link_mode: 'lan' } }) });
-  expect((await candidates(f.create()))[0].configuration.address).toBe('http://[2001:db8::123]:7125/');
+  expect((await candidates(f.create()))[0].configuration).toMatchObject({ address: 'http://[2001:db8::123]:7125/', webInterfaceUrl: 'http://[2001:db8::123]/' });
   expect(f.request).not.toHaveBeenCalled();
 });
 it('deduplicates by serial across instances, handles identity changes and withdraws the last announcement', async () => {
@@ -68,6 +68,7 @@ it('adopts self-contained candidates locally, persists identity and rejects forg
     { ...candidate, configuration: { ...candidate.configuration, hostId: id<'agent-host'>('other') } },
     { ...candidate, configuration: { ...candidate.configuration, address: 'http://192.168.1.20:1884/' } },
     { ...candidate, configuration: { ...candidate.configuration, address: 'http://user:secret@192.168.1.20:7125/' } },
+    { ...candidate, configuration: { ...candidate.configuration, webInterfaceUrl: 'http://other-host/' as const } },
     { ...candidate, externalRefs: [{ namespace: 'snapmaker', value: 'different' }] },
   ];
   for (const value of invalid) expect((await service.adopt({ requestId: id('bad'), candidate: value })).ok).toBe(false);
@@ -75,12 +76,25 @@ it('adopts self-contained candidates locally, persists identity and rejects forg
   const request = { requestId: id<'request'>('adopt'), candidate };
   const saved = unwrap(await service.adopt(request));
   expect(saved.identity).toMatchObject({ id: 'snapmaker:SN', model: 'Snapmaker U1', serialNumber: 'SN', externalRefs: [{ namespace: 'snapmaker', value: 'SN' }] });
-  expect(saved.configuredModel).toBeUndefined();
+  expect(saved.configuredModel).toEqual({ vendorId: 'Snapmaker', model: 'Snapmaker U1' });
   expect(saved.routes[0].configuration.address).toBe('http://192.168.1.20:7125/');
+  expect(saved.routes[0].configuration.webInterfaceUrl).toBe('http://192.168.1.20/');
   expect(unwrap(await service.adopt(request)).identity.id).toBe(saved.identity.id); expect(f.configuration.save).toHaveBeenCalledOnce();
-  expect(unwrap(await f.create(false).listSaved())[0].identity).toEqual(saved.identity);
+  const restored = unwrap(await f.create(false).listSaved())[0];
+  expect(restored.identity).toEqual(saved.identity);
+  expect(restored.configuredModel).toEqual(saved.configuredModel);
+  expect(unwrap(await f.create(false).configurations.read({ printerId: restored.identity.id, routeId: restored.routes[0].id })))
+    .toMatchObject({ printerModel: saved.configuredModel, values: { consoleUrl: 'http://192.168.1.20/' } });
   expect(f.document().printPreferences).toEqual({ existing: { timelapse: false } });
   expect(f.request).not.toHaveBeenCalled();
+});
+it('fills discovery defaults when merging an existing endpoint without a model or console', async () => {
+  const f = fixture([{ id: 'manual', displayName: 'My U1', driverId: 'snapmaker', apiBaseUrl: 'http://192.168.1.20:7125/', apiKey: 'key', consoleUrl: '' }]);
+  const service = f.create(), candidate = (await candidates(service))[0];
+  const saved = unwrap(await service.adopt({ requestId: id('merge'), candidate }));
+  expect(saved.identity.id).toBe('manual');
+  expect(saved.configuredModel).toEqual({ vendorId: 'Snapmaker', model: 'Snapmaker U1' });
+  expect(f.document().printers[0]).toMatchObject({ apiKey: 'key', consoleUrl: 'http://192.168.1.20/' });
 });
 it('merges a manually configured endpoint without changing its ID, name, profile or credentials, and retains identity while editing', async () => {
   const f = fixture([{ id: 'manual', displayName: 'My printer', driverId: 'snapmaker', apiBaseUrl: 'http://192.168.1.20:7125/', apiKey: 'key', consoleUrl: 'http://console/',

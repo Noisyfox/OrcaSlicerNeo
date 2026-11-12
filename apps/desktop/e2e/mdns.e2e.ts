@@ -56,12 +56,17 @@ test('Electron resolves multicast through generic IPC and adopts U1 into the exi
     await expect(page.getByTestId('printer-access-code')).toHaveCount(0);
     await page.getByRole('button', { name: 'Add LAN connection' }).click();
     await expect.poll(() => JSON.parse(readFileSync(configuration, 'utf8')).printers).toMatchObject([
-      { driverId: 'snapmaker', displayName: u1Name, apiBaseUrl: 'http://127.0.0.1:7125/',
+      { driverId: 'snapmaker', displayName: u1Name, apiBaseUrl: 'http://127.0.0.1:7125/', consoleUrl: 'http://127.0.0.1/',
+        printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' },
         discoveredIdentity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1', serialNumber: serial } },
     ]);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByTestId('device-printer-select').click();
     await expect(page.getByTestId(`device-select-snapmaker:${serial}`)).toContainText(u1Name);
+    await page.getByTestId(`device-select-snapmaker:${serial}`).click();
+    await page.getByTestId(`device-edit-snapmaker:${serial}`).click();
+    await expect(page.getByTestId('device-printer-model')).toContainText('Snapmaker U1');
+    await expect(page.getByTestId('device-console-url')).toHaveValue('http://127.0.0.1/');
     expect(errors).toEqual([]);
   } finally {
     await app.close(); socket.destroy(); rmSync(directory, { recursive: true, force: true });
