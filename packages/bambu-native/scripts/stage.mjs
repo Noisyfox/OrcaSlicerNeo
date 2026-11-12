@@ -18,7 +18,8 @@ function runNode(args) {
 
 export function buildAddon() {
   runNode([join(packageRoot, 'scripts/verify-declarations.mjs')]);
-  runNode([require.resolve('node-gyp/bin/node-gyp.js'), 'rebuild']);
+  runNode([require.resolve('node-gyp/bin/node-gyp.js'), 'configure']);
+  runNode([require.resolve('node-gyp/bin/node-gyp.js'), 'build']);
   runNode([join(dirname(require.resolve('typescript/package.json')), require('typescript/package.json').bin.tsc), '-p', 'tsconfig.json']);
 }
 
