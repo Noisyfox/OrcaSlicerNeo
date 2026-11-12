@@ -720,8 +720,10 @@ test('Snapmaker Device uses Electron transport for physical controls and verifie
     await page.getByRole('button', { name: 'Move X positive', exact: true }).click({ position: { x: 150, y: 90 } });
     await expect.poll(() => fixture.scripts.some(script => script.includes('G1 X10 F3600'))).toBe(true);
     await expect.poll(() => fixture.scripts.at(-1)).toBe('RESTORE_GCODE_STATE NAME=orca_device_jog');
-    await page.getByRole('combobox', { name: 'Movement step', exact: true }).click();
-    await page.getByRole('option', { name: '0.1 mm', exact: true }).click();
+    const steps = page.getByRole('tablist', { name: 'Movement step', exact: true });
+    await expect(steps.getByRole('tab', { name: '10 mm', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await steps.getByRole('tab', { name: '0.1 mm', exact: true }).click();
+    await expect(steps.getByRole('tab', { name: '0.1 mm', exact: true })).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: 'Move Z negative', exact: true }).click();
     await expect.poll(() => fixture.scripts.some(script => script.includes('G1 Z-0.1 F1800'))).toBe(true);
     await expect.poll(() => fixture.scripts.at(-1)).toBe('RESTORE_GCODE_STATE NAME=orca_device_jog');

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 export function valueOf<T>(reading: D.Reading<T> | undefined): T | undefined { return reading?.kind === 'known' ? reading.value : undefined; }
 export function display<T>(reading: D.Reading<T> | undefined, format: (value: T) => string = String) { return reading?.kind === 'known' ? `${format(reading.value)}${reading.freshness === 'stale' ? ' (stale)' : ''}` : 'Not reported'; }
 export function ControlCard({ title, children }: { title: string; children: ReactNode }) { return <section className="printer-control-card"><h3 className="text-sm font-semibold">{title}</h3>{children}</section>; }
@@ -136,11 +137,12 @@ export function MotionCard({ capabilities, snapshot, disabled, send }: CardContr
         <div className="printer-z-controls"><span>Z axis</span>{move(group.id, 'z', 'negative')}{move(group.id, 'z', 'positive')}</div>
       </div>)}
       {!!steps.length && <Field>
-        <FieldLabel htmlFor={stepFieldId}>Movement step</FieldLabel>
-        <Select items={steps.map(item => ({ value: item.id, label: item.label }))} value={step ?? null} onValueChange={setStep}>
-          <SelectTrigger id={stepFieldId} aria-label="Movement step"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectGroup>{steps.map(item => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</SelectGroup></SelectContent>
-        </Select>
+        <FieldLabel id={stepFieldId}>Movement step</FieldLabel>
+        <Tabs value={step} onValueChange={value => setStep(String(value))}>
+          <TabsList variant="segmented" className="w-full" aria-labelledby={stepFieldId}>
+            {steps.map(item => <TabsTrigger key={item.id} value={item.id}>{item.label}</TabsTrigger>)}
+          </TabsList>
+        </Tabs>
       </Field>}
       {!groups.length && <p className="text-xs text-muted-foreground">Waiting for motion information.</p>}
     </section>}

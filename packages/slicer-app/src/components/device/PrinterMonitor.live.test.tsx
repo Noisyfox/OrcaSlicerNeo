@@ -373,8 +373,8 @@ it('never substitutes a different movement step for an axis that lacks the selec
     await f.render();
     const x = f.element.querySelector<HTMLButtonElement>('[aria-label="Move X positive"]')!, y = f.element.querySelector<HTMLButtonElement>('[aria-label="Move Y positive"]')!;
     expect(x.disabled).toBe(false); expect(y.disabled).toBe(true);
-    expect(f.element.querySelector('[aria-label="Movement step"] [data-slot="select-value"]')?.textContent).toBe('Fine X');
-    await f.choose('Movement step', 'Fine Y');
+    expect(f.element.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Fine X');
+    await f.click('Fine Y');
     expect(x.disabled).toBe(true); expect(y.disabled).toBe(false);
     await act(async () => y.click());
     expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'motion.jog', params: { motionGroupId: group, axis: 'y', stepId: 'fine-y' } } });

@@ -1105,7 +1105,7 @@ persistence is defined under Console selection and behavior below.
 
 The U1 provider discovers homing, XYZ jogging, tool selection, parking and manual
 extrusion per firmware command and reported hardware. Motion uses the shared
-directional pad, Home axes button and 10, 1 and 0.1 mm step choices. Jogging
+directional pad, Home axes button and 10, 1 and 0.1 mm step tabs. Jogging
 requires the requested axis to be reported homed, its current coordinate and
 travel limits, and a reported velocity limit. Reject a step outside the reported
 travel instead of clamping it or silently homing. XY speed is capped at 60 mm/s,
