@@ -154,8 +154,8 @@ owns affected-result invalidation.
 
 ## Measure gizmo design
 
-**Status:** Accepted Measure design; implementation and qualification are
-pending.
+**Status:** Implemented. Qualification follows the bounded host, runtime and
+model scope described below; release-wide qualification remains separate.
 
 ### Orca reference
 
