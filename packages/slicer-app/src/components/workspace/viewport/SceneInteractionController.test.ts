@@ -102,6 +102,16 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toEqual(volumes);
   });
 
+  it('uses the selected-volume scope for pointer and object-mode expansion', () => {
+    const lease = controller.instanceHider.acquire({ kind: 'volumes', volumes: [volumes[0].buffer, volumes[3].buffer] });
+    controller.setSelectionMode('object');
+    expect(controller.selectFromHit(volumes[1], false)).toBe(false);
+    expect(controller.selectFromHit(volumes[0], false)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[3]]);
+    expect(controller.tryBeginBodyDrag(volumes[2])).toBe(false);
+    lease.release();
+  });
+
   it('releases Boolean isolation when selection becomes ineligible or the model resets', () => {
     controller.selectFromHit(volumes[0], false); controller.toggleGizmo('mesh-boolean');
     controller.selectVolumeIds([volumes[2].id]);

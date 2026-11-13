@@ -1,5 +1,5 @@
 import { MeshBooleanSession, meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
-import { InstanceHider, visibleInstanceVolumes, type InstanceHiderLease } from './InstanceHider';
+import { InstanceHider, visibleToolVolumes, type InstanceHiderLease } from './InstanceHider';
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
 import type { HistoryContext, ModelStructureResult } from '@slicer/client';
@@ -362,7 +362,7 @@ export class SceneInteractionController {
   /** The GLVolume IDs a click expands to for a given selection mode (Orca's
    *  part selection is anchored to the clicked instance). */
   private hitModeVolumeIds(hit: GLVolume, mode: SelectionMode): string[] {
-    const volumes = visibleInstanceVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
+    const volumes = visibleToolVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
     if (mode === 'object') return volumes.filter((v) => v.buffer.objectIdx === hit.buffer.objectIdx).map((v) => v.id);
     if (mode === 'volume')
       return volumes.filter(
@@ -405,7 +405,7 @@ export class SceneInteractionController {
     // whole instance — the workspace's per-click override of the selection mode.
     const mode = part ? 'volume' : this.selectionMode;
     if (additive && !this.canToggleVolumeIds(this.hitModeVolumeIds(hit, mode))) return false;
-    const volumes = visibleInstanceVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
+    const volumes = visibleToolVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
     const changed = additive
       ? this.selection.toggleFromHit(hit, volumes, mode)
       : this.selection.replaceFromHit(hit, volumes, mode);
