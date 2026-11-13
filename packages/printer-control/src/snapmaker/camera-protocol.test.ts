@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { U1CameraControl } from '../index';
-import type { PrinterTransport } from '../transport';
+import type { PrinterTransport } from '@orca/platform-contract';
 import { readU1TimelapsePage, u1TimelapseVideoUrl } from './timelapse';
 
 class Socket extends EventTarget {

@@ -2,7 +2,7 @@ import { isBambuSubmissionRequest, type BambuSubmissionInputs, type BambuSubmiss
 import { isBambuStorageRequest, type BambuStorageInputs, type BambuStorageResults } from './bambuStorage';
 import { isBambuCommandPayload, isPrintObjectContextRef } from './bambuCommandValidation';
 /** Renderer-safe domain RPC. Native protocol JSON and credentials have no representation here. */
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 export interface BambuControlInputs extends BambuSubmissionInputs, BambuStorageInputs {
   objectMap: { contextRef: D.PrintObjectContextRef; readId: string };
   cancelObjectRead: { readId: string };

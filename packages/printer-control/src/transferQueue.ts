@@ -1,28 +1,6 @@
 /** Host-neutral admission shared by download and stored-media readers. */
-import type { PrinterError } from './domain';
+import type { TransferCompletion, TransferSnapshot, TransferTicket, TransferRequest } from '@orca/platform-contract';
 
-export type TransferCompletion = { status: 'finished' } | { status: 'blocked'; reason: PrinterError };
-export interface TransferSnapshot {
-  state: 'waiting' | 'running' | 'stopping' | 'blocked' | 'finished';
-  attempt: number;
-  reason: PrinterError | null;
-}
-export interface TransferTicket {
-  snapshot(): TransferSnapshot;
-  /** Resolves only once remote reads and cleanup have joined, or waiting work was removed. */
-  finished: Promise<void>;
-  cancel(): void;
-  /** Retry the blocked head in place with a new attempt. Later work cannot pass it. */
-  retry(): boolean;
-  /** Acknowledge the blocked result and continue later work without retrying it. */
-  continue(): boolean;
-}
-export interface TransferRequest {
-  /** Validated host-resolved physical identity, never a route ID or UI selection. */
-  physicalPrinterKey: string;
-  run(context: { signal: AbortSignal; attempt: number }): Promise<TransferCompletion>;
-  changed?(snapshot: TransferSnapshot): void;
-}
 interface Entry {
   request: TransferRequest;
   snapshot: TransferSnapshot;

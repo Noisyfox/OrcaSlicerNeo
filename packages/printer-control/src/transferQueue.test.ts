@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TransferQueue, type TransferCompletion, type TransferSnapshot } from './transferQueue';
+import { TransferQueue } from './transferQueue';
+import type { TransferCompletion, TransferSnapshot } from '@orca/platform-contract';
 
 const done = { status: 'finished' } as const;
 const blocked = { status: 'blocked', reason: { code: 'offline', message: 'Printer disconnected.' } } as const;

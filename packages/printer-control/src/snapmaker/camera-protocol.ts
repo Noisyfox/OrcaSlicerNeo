@@ -1,8 +1,6 @@
 /** U1 camera control. Source URLs and temporary authorization stay provider-private. */
-import type { PrinterConfiguration } from '../configuration';
-import type { PrinterTransport, PrinterWebSocket, PrinterWebSocketTransport } from '../transport';
+import type { PrinterConfiguration, PrinterTransport, PrinterWebSocket, PrinterWebSocketTransport, PrinterError } from '@orca/platform-contract';
 import { endpoint, fail, MoonrakerFailure, record } from '../moonraker-http';
-import type { PrinterError } from '../domain';
 
 const REQUEST_TIMEOUT_MS = 5000;
 interface PendingRequest {

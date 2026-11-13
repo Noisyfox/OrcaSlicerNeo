@@ -1,6 +1,6 @@
-import { createBrowserScreenColorSampler, externalHttpsUrl } from '@orca/platform-contract';
-import { createPrinterService, deleteU1Timelapse, readU1TimelapsePage, u1TimelapseVideoUrl } from '@orca/printer-control';
 import {
+  createBrowserScreenColorSampler,
+  externalHttpsUrl,
   MODEL_FILE_ACCEPT,
   NO_RECENT_PROJECTS,
   gcodeFilenameBasename,
@@ -13,15 +13,11 @@ import {
   type ProfileSource,
   type PrinterConfigurationRepository,
   type SlicerRuntime,
-} from '@orca/platform-contract';
-import type { Id } from '@orca/printer-control/domain';
-import {
-  createMoonrakerService,
-  createSnapmakerService,
-  U1CameraMedia,
-  normalizePrinterConfigurationDocument,
+  type Id,
   type PrinterConfigurationDocument,
-} from '@orca/printer-control';
+} from '@orca/platform-contract';
+import { createPrinterService, deleteU1Timelapse, readU1TimelapsePage, u1TimelapseVideoUrl } from '@orca/printer-control';
+import { createMoonrakerService, createSnapmakerService, U1CameraMedia, normalizePrinterConfigurationDocument } from '@orca/printer-control';
 import { createBrowserPrinterTransport } from './browserPrinterTransport';
 import { createBrowserPrinterDownloads } from './browserPrinterDownloads';
 import { createBrowserWebViewHost } from './browserWebView';

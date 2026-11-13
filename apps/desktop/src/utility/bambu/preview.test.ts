@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { BambuTelemetry } from './telemetry';
 import { readCurrentPrintPreview } from './preview';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 const target = { printerId: 'bambu:p' as D.Id<'printer'>, routeId: 'bambu:p:agent' as D.Id<'route'> };
 function fixture() {
   const telemetry = new BambuTelemetry();

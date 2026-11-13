@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, readdir, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Id, PrinterFiles, RemoteFileRef } from '@orca/printer-control/domain';
+import type { Id, PrinterFiles, RemoteFileRef } from '@orca/platform-contract';
 import { DownloadExecutor } from './downloadExecutor';
 import { createDownloadFileSink, openDownloadJournal } from './downloadFiles';
 const roots: string[] = [];

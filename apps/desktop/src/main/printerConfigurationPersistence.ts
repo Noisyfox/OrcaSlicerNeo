@@ -1,7 +1,5 @@
-import {
-  normalizePrinterConfigurationDocument,
-  type PrinterConfigurationDocument,
-} from '../../../../packages/printer-control/src/configuration';
+import { normalizePrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
+import type { PrinterConfigurationDocument } from '@orca/platform-contract';
 
 export interface PrinterConfigurationFileSystem {
   readText?(path: string): Promise<string>;

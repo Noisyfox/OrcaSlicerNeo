@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';

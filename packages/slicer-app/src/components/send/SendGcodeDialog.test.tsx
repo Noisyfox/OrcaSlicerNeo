@@ -2,8 +2,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
-import { createMoonrakerService, type PrinterConfiguration, type PrinterTransport, type PrinterTransportRequest, type PrinterTransportResponse } from '@orca/printer-control';
+import {
+  PlatformProvider,
+  type PlatformCapabilities,
+  type UserPreferences,
+  type PrinterConfiguration,
+  type PrinterTransport,
+  type PrinterTransportRequest,
+  type PrinterTransportResponse,
+} from '@orca/platform-contract';
+import { createMoonrakerService } from '@orca/printer-control';
 import { SendGcodeDialog } from './SendGcodeDialog';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -50,7 +58,7 @@ function makePlatform(
 ) {
   let preferences = preferenceValue;
   const configuration = { load: vi.fn(async () => documentValue), save: vi.fn(async () => undefined) };
-  const service = createMoonrakerService({ configuration, transport, host: { id: 'test' as import('@orca/printer-control/domain').Id<'agent-host'>, name: 'Test', execution: 'browser' } });
+  const service = createMoonrakerService({ configuration, transport, host: { id: 'test' as import('@orca/platform-contract').Id<'agent-host'>, name: 'Test', execution: 'browser' } });
   const runtime = {
     getPrinterDeviceMatch: vi.fn(async (identity: Parameters<PlatformCapabilities['runtime']['getPrinterDeviceMatch']>[0]) => ({ ok: true as const,
       printer: useSettingsStore.getState().selectedPrinter, matches: identity.model === 'Alpha' })),

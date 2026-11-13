@@ -1,7 +1,6 @@
 /** Host-neutral U1 media resources. One authority owns admission and session cleanup. */
-import type * as D from '../domain';
-import type { PrinterConfiguration } from '../configuration';
-import type { PrinterTransport, PrinterWebSocketTransport } from '../transport';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration, PrinterTransport, PrinterWebSocketTransport } from '@orca/platform-contract';
 import { fail, MoonrakerFailure, publicError } from '../moonraker-http';
 import { copy, newId, requestSignature } from '../operations';
 import { safe } from '../http-service';

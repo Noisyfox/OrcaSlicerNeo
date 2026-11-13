@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuDeviceAccess } from './deviceAccess';
 import { StorageHostError, type BambuStorageCapabilities } from './storageFiles';
 

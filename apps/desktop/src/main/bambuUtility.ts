@@ -1,5 +1,5 @@
 import { isDownloadProgress } from '../shared/downloadExecution';
-import type { DownloadProgress } from '@orca/printer-control/downloads';
+import type { DownloadProgress } from '@orca/platform-contract';
 import type { BambuMediaRequest, BambuMediaAttachment } from '../shared/bambuMedia';
 import type { MessagePortMain } from 'electron';
 import { isBambuControlRequest, type BambuControlInputs, type BambuControlMethod, type BambuControlResults } from '../shared/bambuControl';

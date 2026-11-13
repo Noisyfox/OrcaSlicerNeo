@@ -1,6 +1,6 @@
 /** Snapmaker orchestration and host-lifetime U1 state, built on shared HTTP infrastructure. */
-import type * as D from '../domain';
-import type { PrinterConfiguration } from '../configuration';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration, MdnsDiscovery } from '@orca/platform-contract';
 import { createHttpPrinterService, known, retained, safe, supported, unknown, unsupported, type HttpServiceOptions, type HttpServiceContext, type HttpServiceBehavior, type ConfigurationEntry } from '../http-service';
 import { fail, MoonrakerFailure } from '../moonraker-http';
 import { copy, newId } from '../operations';
@@ -14,8 +14,10 @@ import { matchU1Materials, type FilamentMatcher } from './observation';
 import { U1_CAMERA_ID, u1CameraCapability } from './camera';
 import { U1Storage, u1DeleteCapability, u1StorageCapabilities } from './storage';
 import type { U1TimelapseTransport } from './timelapse';
+import { u1Discovery } from './discovery';
 
 export interface SnapmakerServiceOptions extends HttpServiceOptions {
+  mdns?: MdnsDiscovery;
   /** Read-only native preset matcher; raw device controls need no catalogue. */
   matchFilaments?: FilamentMatcher;
   camera?: (resolve: (target: D.TargetRequest) => Promise<{ printer: Readonly<PrinterConfiguration>; revision: D.Revision }>) => Required<NonNullable<HttpServiceBehavior['media']>>;
@@ -159,6 +161,7 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
   }
   return {
     capabilities, observations, submissions: executor, files: storage.files,
+    discovery: options.mdns ? u1Discovery(options.mdns, options.host, capabilities) : undefined,
     media: {
       ...camera,
       open: (request, options) => request.source.kind === 'file-preview' ? storage.open(request, options)

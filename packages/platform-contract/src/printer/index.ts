@@ -1,5 +1,5 @@
 /**
- * Type-only printer domain API. Import from @orca/printer-control/domain.
+ * Type-only printer domain API. Import from @orca/platform-contract.
  * Concrete providers, validation, transport and project mutation are not implemented here.
  */
 export type * from './common';
@@ -19,3 +19,6 @@ export * from './submission';
 export type * from './remote-print';
 
 export type * from './preferences';
+
+export type * from './transport';
+export type * from './synchronization';

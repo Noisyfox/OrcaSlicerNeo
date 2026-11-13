@@ -4,8 +4,8 @@ import { bambuFiles, bambuRemotePrints } from './bambuFiles';
 import { bambuControls, bambuOperations } from './bambuControls';
 import { bambuObservations } from './bambuObservations';
 import { bambuCapabilities, savedBambuPrinter } from '../../../shared/bambuPrinters';
-import type { AccountProvider } from '@orca/service-provider';
-import type * as D from '@orca/printer-control/domain';
+import type { AccountProvider } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import type { BambuBridge } from '../../../shared/bambu';
 import type { BambuLanCandidate } from '../../../shared/bambuDevices';
 

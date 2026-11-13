@@ -1,14 +1,6 @@
-import type * as D from './domain';
+import type * as D from '@orca/platform-contract';
 
-/** Advisory raw device materials. Project Sync deliberately uses a stricter source policy. */
-export interface DeviceGroupingContext {
-  identity: D.PrinterIdentity;
-  toolCount: number;
-  materials: {
-    slotId: string; toolIndex: number; external: boolean; materialType: string;
-    colour: string | null; catalogRefs: readonly D.ExternalRef[];
-  }[];
-}
+import type { DeviceGroupingContext } from '@orca/platform-contract';
 
 export function deviceGroupingContext(snapshot: D.PrinterSnapshot, identity: D.PrinterIdentity): DeviceGroupingContext | null {
   const reading = snapshot.values.materials;

@@ -32,7 +32,9 @@ export default defineConfig(({ mode }) => {
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { externalizeDeps: { exclude: ['@orca/printer-control', 'yauzl', 'saxes', 'proper-lockfile', 'mp4box', '@orca/bambu-native', '@orca/color-sampler-native'] }, rollupOptions: { input: {
+      // Installers omit node_modules. Bundle referenced JS dependencies; Electron
+      // and Node builtins remain external through electron-vite's host presets.
+      build: { externalizeDeps: false, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
         'bambu-host': resolve('src/utility/bambu-host.ts'),
@@ -44,7 +46,7 @@ export default defineConfig(({ mode }) => {
         'recent-thumbnail-worker': resolve('src/utility/recent-thumbnail-worker.ts'),
       } } },
     },
-    preload: { build: { rollupOptions: { input: { index: resolve('src/preload/index.ts'), 'bambu-login': resolve('src/preload/bambu-login.ts') } } }, resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
+    preload: { build: { externalizeDeps: false, rollupOptions: { input: { index: resolve('src/preload/index.ts'), 'bambu-login': resolve('src/preload/bambu-login.ts') } } }, resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
     renderer: {
       define: {
         __ORCA_E2E__: JSON.stringify(mode === 'e2e' || env.VITE_E2E === '1'),

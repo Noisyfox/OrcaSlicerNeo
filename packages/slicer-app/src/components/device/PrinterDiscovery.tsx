@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Radar } from 'lucide-react';
-import { usePlatform } from '@orca/platform-contract';
-import type { DiscoveryCandidate, Id, ProviderDescriptor, SavedPrinter } from '@orca/printer-control/domain';
+import { usePlatform, type DiscoveryCandidate, type Id, type ProviderDescriptor, type SavedPrinter } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';

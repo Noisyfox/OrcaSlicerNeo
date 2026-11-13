@@ -1,5 +1,5 @@
 /** U1 persistent preference translation and verification; never used by job preparation. */
-import type * as D from '../domain';
+import type * as D from '@orca/platform-contract';
 import type { U1DeviceSnapshot } from './device';
 import { fail, record } from '../moonraker-http';
 interface Field { key: D.DevicePreferenceKey; label: string; object: string; path: string[]; command: string; parameter: string; choices: readonly D.DevicePreferenceValue[] }

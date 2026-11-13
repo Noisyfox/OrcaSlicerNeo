@@ -1,5 +1,5 @@
-import type { PrinterConfiguration } from '../configuration';
-import type * as D from '../domain';
+import type { PrinterConfiguration } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { safe, type HttpServiceContext } from '../http-service';
 import { endpoint, fail, MoonrakerFailure, record } from '../moonraker-http';
 import { copy } from '../operations';

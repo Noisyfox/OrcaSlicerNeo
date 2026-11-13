@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { PrinterAlerts } from './PrinterAlerts';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const target = { printerId: 'printer' as D.Id<'printer'>, routeId: 'route' as D.Id<'route'> };

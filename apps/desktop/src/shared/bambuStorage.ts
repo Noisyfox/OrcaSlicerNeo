@@ -1,5 +1,5 @@
 /** Metadata-only Storage RPC. Destination paths, credentials and binary streams are host-private. */
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { isPrintOptions } from './bambuSubmission';
 export interface BambuStorageInputs {
   'storage.storages': { target: D.PrinterTarget; readId: string };

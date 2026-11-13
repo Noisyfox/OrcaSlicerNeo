@@ -1,5 +1,5 @@
 import type { BambuNative, NativeEvent, NativeHttpResult } from '@orca/bambu-native';
-import type { AccountError, AccountResult, AccountState } from '@orca/service-provider';
+import type { AccountError, AccountResult, AccountState } from '@orca/platform-contract';
 import { BAMBU_REGIONS, type BambuChange, type BambuRegion } from '../../shared/bambu';
 import type { BambuAccountRequest, BambuHostResults, LoginCompletion } from '../../shared/bambuHost';
 import { BambuDevices } from './devices';

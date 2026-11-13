@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { WebViewHost, WebViewPanel, WebViewPanelCapabilities } from '@orca/platform-contract';
-import type { PrinterConfiguration } from '@orca/printer-control';
+import type { WebViewHost, WebViewPanel, WebViewPanelCapabilities, PrinterConfiguration } from '@orca/platform-contract';
 import { mountPrinterConsolePanel, panelMessage, removePrinter } from './DevicePanel';
 
 const capabilities: WebViewPanelCapabilities = {

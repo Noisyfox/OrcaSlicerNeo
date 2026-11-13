@@ -3,7 +3,7 @@ import { isBambuControlRequest } from '../src/shared/bambuControl';
 import { expect, test } from '@playwright/test';
 import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 test('material configuration supports alpha and four-stop gradients while preserving unsupported reported color groups', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {

@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { TelemetryProjection } from './telemetry';
 import type { Report } from './protocol';
 

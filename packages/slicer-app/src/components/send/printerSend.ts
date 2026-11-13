@@ -1,5 +1,5 @@
 /** Send orchestration over explicit domain resources; no retained printer connection. */
-import type { Id, PrinterService, PrinterError, RemoteFile, SavedPrinter } from '@orca/printer-control/domain';
+import type { Id, PrinterService, PrinterError, RemoteFile, SavedPrinter } from '@orca/platform-contract';
 
 export class SendFailure extends Error {
   constructor(readonly code: PrinterError['code'] | 'outcome-unknown') { super(code); }

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { U1_CAMERA_ID, type PrinterConfiguration } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
+import { U1_CAMERA_ID } from '@orca/printer-control';
+import type { PrinterConfiguration } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { SnapmakerCameraRuntime } from './runtime';
 import { cameraConfigurationDigest, type CameraRequest } from '../../shared/snapmakerCamera';
 import type { CameraPort } from '../bambu/mediaChannel';

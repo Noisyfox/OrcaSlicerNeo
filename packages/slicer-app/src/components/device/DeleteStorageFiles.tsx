@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { usePlatform } from '@orca/platform-contract';
-import type { RemoteFile, RemoteFileRef } from '@orca/printer-control/domain';
+import { usePlatform, type RemoteFile, type RemoteFileRef } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { deleteStorageFile, pausesDeletion, type FileDeletionOutcome } from './deleteStorageFile';

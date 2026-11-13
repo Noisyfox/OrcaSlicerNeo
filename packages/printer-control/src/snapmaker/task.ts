@@ -1,6 +1,6 @@
 /** Current-task identity, timing and thumbnails from U1 file metadata. */
-import type * as D from '../domain';
-import type { PrinterConfiguration } from '../configuration';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration } from '@orca/platform-contract';
 import { MoonrakerHttp, record, fail } from '../moonraker-http';
 import { gcodeMetadataEndpoint, gcodeThumbnailPath, readGcodeThumbnail } from './file-thumbnail';
 

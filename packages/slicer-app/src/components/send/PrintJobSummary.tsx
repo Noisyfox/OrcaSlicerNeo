@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Box, Clock3, Pencil, Printer, RefreshCw, Weight } from 'lucide-react';
-import type { PrintRequirements, SavedPrinter } from '@orca/printer-control/domain';
+import type { PrintRequirements, SavedPrinter } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';

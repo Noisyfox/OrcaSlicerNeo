@@ -1,32 +1,8 @@
 /** Shared observation-to-project input boundary. No protocol, native preset policy or device writes. */
-import type * as D from './domain';
+import type * as D from '@orca/platform-contract';
 
-export type SynchronizationKind = 'printer' | 'filament';
-export interface SynchronizationSource {
-  kind: SynchronizationKind;
-  target: D.PrinterTarget;
-  configurationRevision: D.Revision;
-  topologyRevision: D.Revision;
-  inventoryRevision: D.Revision;
-  identity: D.PrinterIdentity;
-  /** Normalized descriptor/tool order, never parsed from opaque device IDs. */
-  tools: readonly {
-    id: D.Id<'tool'>;
-    name: string;
-    diameterMm: number | null;
-    flowType: string | null;
-    flowReporting: D.Nozzle['flowReporting'];
-    capacity: number;
-  }[];
-  materials: readonly {
-    slotId: D.Id<'slot'>;
-    label: string;
-    unitKind: D.MaterialUnit['kind'];
-    toolIndices: readonly number[];
-    presence: 'present' | 'empty' | 'unknown';
-    metadata: D.MaterialMetadata | null;
-  }[];
-}
+import type { SynchronizationKind, SynchronizationSource } from '@orca/platform-contract';
+
 const failure = (code: D.ErrorCode, message: string): D.Result<never> => ({ ok: false, error: { code, message } });
 function fresh<T>(reading: D.Reading<T> | undefined, route: D.Id<'route'>): T | undefined {
   return reading?.kind === 'known' && reading.freshness === 'fresh' && reading.sourceRouteId === route ? reading.value : undefined;

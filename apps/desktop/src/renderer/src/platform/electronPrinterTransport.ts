@@ -1,8 +1,4 @@
-import type {
-  PrinterTransport,
-  PrinterTransportRequest,
-  PrinterTransportResponse,
-} from '@orca/printer-control';
+import type { PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from '@orca/platform-contract';
 import type { ElectronBridge, PrinterTransportIpcRequest } from '../../../shared/ipc';
 
 function abortError(): DOMException {

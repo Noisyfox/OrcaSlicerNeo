@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { id } from './protocol';
 /** Slice indices are left-to-right; Bambu's physical main tool is on the right. */
 export const physicalTool = (index: number, count: number) => count === 2 ? 1 - index : index;

@@ -10,6 +10,7 @@ import { createScreenColorIpc } from './screenColorIpc';
 import { createScreenColorFixture } from './testing/screenColorFixture';
 import { externalHttpsUrl } from '../../../../packages/platform-contract/src/externalLinks';
 import { BambuMediaIpc } from './bambuMediaIpc';
+import { MdnsHost } from './mdns';
 import { SnapmakerCameraIpc } from './snapmakerCameraIpc';
 import { SnapmakerCameraUtility } from './snapmakerCameraUtility';
 import { SnapmakerTimelapseHost } from './snapmakerTimelapses';
@@ -461,9 +462,20 @@ function registerIpc(): void {
     return summarizeElectronMemory(app.getAppMetrics());
   });
 
+  const mdns = new MdnsHost();
+  app.once('will-quit', () => mdns.close());
+  for (const [channel, action] of [
+    [Ipc.mdnsStart, (sender: WebContents, id: unknown, type: unknown) => mdns.start(sender, id, type)],
+    [Ipc.mdnsSnapshot, (sender: WebContents, id: unknown) => mdns.snapshot(sender, id)],
+    [Ipc.mdnsStop, (sender: WebContents, id: unknown) => mdns.stop(sender, id)],
+  ] as const) ipcMain.handle(channel, (event, id: unknown, type: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('mDNS IPC request rejected');
+    return action(event.sender, id, type);
+  });
+
   const storedMedia = new StoredMediaQueue(printerDownloads.queue, {
     resolve: file => printerDownloads.resolvePhysical(file),
-    open: async (owner, request) => await bambuUtility!.media(owner, { method: 'open', input: request }) as import('@orca/printer-control/domain').Result<import('@orca/printer-control/domain').MediaDescriptor>,
+    open: async (owner, request) => await bambuUtility!.media(owner, { method: 'open', input: request }) as import('@orca/platform-contract').Result<import('@orca/platform-contract').MediaDescriptor>,
     waitRead: (owner, ref) => bambuUtility!.host('media.waitRead', { owner, ref }),
     cancelOpen: (owner, requestId) => bambuUtility!.media(owner, { method: 'cancelOpen', input: { requestId } }),
     close: (owner, ref) => bambuUtility!.media(owner, { method: 'close', input: ref }),

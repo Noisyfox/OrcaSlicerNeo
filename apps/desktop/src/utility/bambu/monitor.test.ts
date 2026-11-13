@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import type { BambuNative } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuDeviceAccess } from './deviceAccess';
 import { BambuMonitor } from './monitor';
 import type { BambuObjectSkipping } from './objectSkipping';

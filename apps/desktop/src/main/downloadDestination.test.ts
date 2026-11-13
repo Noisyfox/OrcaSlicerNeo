@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { BrowserWindow } from 'electron';
-import type { DownloadDirectorySelectionId, DownloadSelection } from '@orca/printer-control/domain';
+import type { DownloadDirectorySelectionId, DownloadSelection } from '@orca/platform-contract';
 const electron = vi.hoisted(() => ({ app: { getPath: vi.fn(() => '/default/downloads') }, dialog: {
   showOpenDialog: vi.fn(), showSaveDialog: vi.fn(), showMessageBox: vi.fn(),
 }, shell: { openPath: vi.fn(async () => '') } }));

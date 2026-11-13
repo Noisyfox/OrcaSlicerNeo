@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuLocalState } from './repository';
 import type { BambuDevice } from '../../shared/bambuDevices';
 import type { BambuHostConfig } from '../../shared/bambu';

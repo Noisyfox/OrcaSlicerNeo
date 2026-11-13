@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createPrinterService } from './providers';
 import { createMoonrakerService } from './service';
-import type { Id, PrinterProvider, RemoteFileRef, SavedPrinter, TargetRequest } from './domain';
+import type { Id, PrinterProvider, RemoteFileRef, SavedPrinter, TargetRequest } from '@orca/platform-contract';
 
 async function fixture(id = 'moonraker', printerId = 'moon') {
   const request = vi.fn(async () => { throw new Error('Listing must not probe devices'); });

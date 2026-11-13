@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { BambuStorageError } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuStorageFiles, StorageHostError, storageFailure } from './storageFiles';
 type DeleteRequest = Extract<D.CommandRequest, { command: D.CommandOf<'files.delete'> }>;
 const rejected = (code: D.ErrorCode, message: string): D.Submission => ({ kind: 'rejected', error: { code, message } });

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { usePlatform } from '@orca/platform-contract';
-import type { MediaDescriptor, RemoteFile, FilePreviewOption } from '@orca/printer-control/domain';
+import { usePlatform, type MediaDescriptor, type RemoteFile, type FilePreviewOption } from '@orca/platform-contract';
 import { snapshotThumbnail, useThumbnailCache } from './media/ThumbnailCache';
 const waiting: (() => void)[] = []; let active = 0;
 async function admitted<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T | undefined> {

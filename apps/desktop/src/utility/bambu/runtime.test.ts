@@ -6,7 +6,7 @@ import type { BambuNative, NativeEvent } from '@orca/bambu-native';
 import { BambuRuntime } from './runtime';
 import { BambuRepository } from './repository';
 import { storageNative } from './storageSessions';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 
 async function fixture(work: (directory: string) => Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), 'neo-bambu-runtime-'));

@@ -5,8 +5,9 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
-import { createSnapmakerService, normalizePrinterConfigurationDocument, readSynchronizationSource, type PrinterTransportRequest } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
+import { createSnapmakerService, normalizePrinterConfigurationDocument, readSynchronizationSource } from '@orca/printer-control';
+import type { PrinterTransportRequest } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 
 const configPath = process.env.NEO_U1_ACCEPTANCE_CONFIG;
 test.skip(!configPath, 'Requires an explicitly selected real U1 configuration.');

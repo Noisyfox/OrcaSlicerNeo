@@ -1,6 +1,5 @@
 /** Private execution-host protocol. Never forwarded through the application preload. */
-import type { DownloadProgress, DownloadResult } from '@orca/printer-control/downloads';
-import type { RemoteFileRef } from '@orca/printer-control/domain';
+import type { DownloadProgress, DownloadResult, RemoteFileRef } from '@orca/platform-contract';
 import type { DownloadRecovery, SavedDownloadFile } from '../utility/downloadFiles';
 import type { ManagedDownloadDestination } from '../utility/downloadExecutor';
 import { isStorageFileRef } from './bambuStorage';

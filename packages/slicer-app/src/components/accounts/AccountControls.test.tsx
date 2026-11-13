@@ -2,8 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
-import type { AccountProvider, AccountState, ProviderId } from '@orca/service-provider';
+import { PlatformProvider, type PlatformCapabilities, type AccountProvider, type AccountState, type ProviderId } from '@orca/platform-contract';
 import { HomeAccounts } from './AccountControls';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let cleanup = () => {};

@@ -2,9 +2,17 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities, type WebViewPanel, type WebViewPanelCapabilities, type WebViewHost } from '@orca/platform-contract';
+import {
+  PlatformProvider,
+  type PlatformCapabilities,
+  type WebViewPanel,
+  type WebViewPanelCapabilities,
+  type WebViewHost,
+  type PrinterConfiguration,
+  type PrinterConfigurationDocument,
+} from '@orca/platform-contract';
 import { DevicePanel } from '../../../packages/slicer-app/src/components/device/DevicePanel';
-import { createMoonrakerService, createSnapmakerService, createPrinterService, type PrinterConfiguration, type PrinterConfigurationDocument } from '@orca/printer-control';
+import { createMoonrakerService, createSnapmakerService, createPrinterService } from '@orca/printer-control';
 
 const printer: PrinterConfiguration = {
   id: 'p1', displayName: 'Workshop', driverId: 'moonraker',
@@ -49,7 +57,7 @@ function makePlatform(calls: string[]) {
   // fields are inert typed seams for this component-level test.
   return {
     platform: {
-      printers: { configuration, service: createPrinterService(([['moonraker', createMoonrakerService], ['snapmaker', createSnapmakerService]] as const).map(([name, create]) => ({ id: name as import('@orca/printer-control/domain').Id<'provider'>, name, printers: create({ configuration, transport: { request: async () => { throw new Error('Device console must not issue HTTP requests'); } }, host: { id: 'test' as import('@orca/printer-control/domain').Id<'agent-host'>, name: 'Test', execution: 'browser' } }) }))) },
+      printers: { configuration, service: createPrinterService(([['moonraker', createMoonrakerService], ['snapmaker', createSnapmakerService]] as const).map(([name, create]) => ({ id: name as import('@orca/platform-contract').Id<'provider'>, name, printers: create({ configuration, transport: { request: async () => { throw new Error('Device console must not issue HTTP requests'); } }, host: { id: 'test' as import('@orca/platform-contract').Id<'agent-host'>, name: 'Test', execution: 'browser' } }) }))) },
       webview,
       preferences: userPreferences,
     } as unknown as PlatformCapabilities,

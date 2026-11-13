@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { TransferQueue } from '@orca/printer-control/transfer-queue';
 import { BambuUtility, bambuPaths } from '../src/main/bambuUtility';
 import { BambuMediaIpc } from '../src/main/bambuMediaIpc';

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { useDeviceSelectionStore as store } from './useDeviceSelectionStore';
 const id = <K extends string>(value: string) => value as D.Id<K>;
 function snapshot(): D.PrinterSnapshot<'descriptor'> {

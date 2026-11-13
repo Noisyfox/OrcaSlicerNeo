@@ -1,6 +1,6 @@
 import type { BambuDeviceContext, BambuRecoveryContext, PreparedProtocolCommand } from './controlContext';
 import { randomUUID } from 'node:crypto';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { printErrorResource } from './errorResources';
 
 /** Recovery references belong to the current error/task episode; callers never supply protocol fields. */

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { PrinterConfigurationDocument } from '@orca/printer-control';
+import type { PrinterConfigurationDocument } from '@orca/platform-contract';
 import { cameraConfigurationDigest } from '../shared/snapmakerCamera';
 import { SnapmakerTimelapseHost } from './snapmakerTimelapses';
 

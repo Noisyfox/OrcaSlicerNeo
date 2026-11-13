@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { playbackUrl } from './playback';
 import { startMediaPlayback, type PlaybackState } from './playback';
-import type { MediaDescriptor, MediaStreamPacket, PrinterMedia } from '@orca/printer-control/domain';
+import type { MediaDescriptor, MediaStreamPacket, PrinterMedia } from '@orca/platform-contract';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { executeDownload, type DownloadExecution, type DownloadProgress } from './downloads';
-import type { DownloadedFile, Id, PrinterFiles, RemoteFileRef } from './domain';
+import { executeDownload } from './downloads';
+import type { DownloadExecution, DownloadProgress, DownloadedFile, Id, PrinterFiles, RemoteFileRef } from '@orca/platform-contract';
 
 const file: RemoteFileRef = { printerId: 'printer' as Id<'printer'>, routeId: 'lan' as Id<'route'>,
   configurationRevision: 'config', storageId: 'sd' as Id<'storage'>, fileId: 'file' as Id<'remote-file'> };

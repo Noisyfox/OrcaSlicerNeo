@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import type { BambuBridge } from '../../../shared/bambu';
 import { bambuFiles } from './bambuFiles';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 
 it('forwards metadata with a unique cancellation token and discards an aborted late response', async () => {
   let finish!: (value: unknown) => void;

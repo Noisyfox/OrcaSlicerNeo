@@ -1,4 +1,4 @@
-import type { PrinterSubmissions } from './domain';
+import type { PrinterSubmissions } from '@orca/platform-contract';
 const unavailable = async () => ({ ok: false as const, error: { code: 'unsupported' as const, message: 'Local print submission is unavailable.' } });
 export const unsupportedSubmissions: PrinterSubmissions = {
   prepare: unavailable, submit: unavailable, get: unavailable, cancel: unavailable,

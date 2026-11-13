@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
-import { deleteU1Timelapse, readU1TimelapsePage, u1TimelapseVideoUrl, type PrinterConfiguration, type PrinterConfigurationDocument } from '@orca/printer-control';
-import type { ErrorCode, Result } from '@orca/printer-control/domain';
+import { deleteU1Timelapse, readU1TimelapsePage, u1TimelapseVideoUrl } from '@orca/printer-control';
+import type { PrinterConfiguration, PrinterConfigurationDocument, ErrorCode, Result } from '@orca/platform-contract';
 import { cameraConfigurationDigest, cameraConfigurationKey } from '../shared/snapmakerCamera';
 import { printerMediaScheme } from '../shared/printerMedia';
 import { cameraHttpTransport } from '../utility/snapmaker/http';

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { normalizePrinterConfigurationDocument, PrinterConfigurationValidationError } from './configuration';
-import type { PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from './transport';
+import type { PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from '@orca/platform-contract';
 import { createMoonrakerService } from './service';
-import type * as D from './domain';
+import type * as D from '@orca/platform-contract';
 
 const printer = {
   id: 'printer-a',

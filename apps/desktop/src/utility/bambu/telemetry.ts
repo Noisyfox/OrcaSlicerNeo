@@ -2,7 +2,7 @@
 import { stageLabel } from './stages';
 import n6 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N6.json';
 import n7 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N7.json';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { materialCatalogRefs, modelCatalogRefs } from './printResources';
 import { id, identifier, number, record, records, text, unknown, type Report } from './protocol';
 

@@ -92,7 +92,11 @@ workflow owns exact target suffixes and runner choices. Each target uses a
 matching native runner and Node architecture so its Node-API addon can be built
 and exercised in the packaged application.
 
-JavaScript production dependencies are bundled by Vite. Exclude production
+Main and preload set `build.externalizeDeps: false` so Vite bundles referenced
+JavaScript dependencies without a per-package exception list. Electron and
+Node builtins remain external through electron-vite's host presets. Native
+addons continue loading from the explicit `extraResources` paths below.
+Exclude production
 `node_modules` from electron-builder file
 collection so installers do not include workspace source and `.work` builds.
 Staged `out/renderer/wasm` and `out/renderer/profiles` remain runtime assets,

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type * as D from './domain';
+import type * as D from '@orca/platform-contract';
 import { createMoonrakerService } from './service';
 import { readSynchronizationSource, synchronizationSource, validateSynchronizationSource } from './synchronization';
 import { u1MaterialInventory } from './snapmaker/observation';

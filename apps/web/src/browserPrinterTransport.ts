@@ -1,9 +1,4 @@
-import type {
-  PrinterTransport,
-  PrinterTransportBody,
-  PrinterTransportRequest,
-  PrinterTransportResponse,
-} from '@orca/printer-control';
+import type { PrinterTransport, PrinterTransportBody, PrinterTransportRequest, PrinterTransportResponse } from '@orca/platform-contract';
 
 function abortError(): DOMException {
   return new DOMException('The printer request was cancelled', 'AbortError');

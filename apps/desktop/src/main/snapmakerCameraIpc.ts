@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { MessageChannelMain, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
-import type { PrinterConfigurationDocument } from '@orca/printer-control';
+import type { PrinterConfigurationDocument } from '@orca/platform-contract';
 import { cameraConfigurationDigest, isCameraRequest, isCameraAttachment } from '../shared/snapmakerCamera';
 import { Ipc } from '../shared/ipc';
 import type { SnapmakerCameraUtility } from './snapmakerCameraUtility';

@@ -1,31 +1,5 @@
-import type { PrintPreferences } from './domain/print-options';
-import type { ConfiguredPrinterModel } from './domain/printer';
+import { BUILT_IN_PRINTER_DRIVER_IDS, PRINTER_CONFIGURATION_VERSION, type BuiltInPrinterDriverId, type PrinterDriverId, type PrinterConfiguration, type PrinterConfigurationDocument, type PrintPreferences, type ConfiguredPrinterModel } from '@orca/platform-contract';
 import { normalizePrintPreferences } from './print-preferences';
-export const PRINTER_CONFIGURATION_VERSION = 1 as const;
-export const BUILT_IN_PRINTER_DRIVER_IDS = ['moonraker', 'snapmaker'] as const;
-export type BuiltInPrinterDriverId = typeof BUILT_IN_PRINTER_DRIVER_IDS[number];
-export type PrinterDriverId = BuiltInPrinterDriverId;
-
-export interface PrinterConfiguration {
-  id: string;
-  displayName: string;
-  driverId: PrinterDriverId;
-  consoleUrl: string;
-  apiBaseUrl: string;
-  /** Kept complete in the configuration document; never included in errors. */
-  apiKey: string;
-  /** Omitted means no user-configured model restriction. */
-  printerModel?: ConfiguredPrinterModel;
-}
-
-export interface PrinterConfigurationDocument {
-  version: typeof PRINTER_CONFIGURATION_VERSION;
-  printers: PrinterConfiguration[];
-  /** Stable physical printer IDs, including providers without manual connection entries. */
-  printPreferences?: Record<string, PrintPreferences>;
-  /** Explicit global opt-in matching Orca's abnormal-storage override. */
-  allowAbnormalStorage?: boolean;
-}
 
 export class PrinterConfigurationValidationError extends Error {
   readonly issues: readonly string[];
@@ -120,6 +94,15 @@ export function normalizePrinterConfigurationDocument(value: unknown): PrinterCo
       } else printerModel = { vendorId: model.vendorId.trim(), model: model.model.trim() };
     }
 
+    let discoveredIdentity: PrinterConfiguration['discoveredIdentity'];
+    if (raw.discoveredIdentity !== undefined) {
+      const identity = raw.discoveredIdentity;
+      if (!isRecord(identity) || ['manufacturer', 'model', 'serialNumber'].some(key =>
+        typeof identity[key] !== 'string' || !identity[key].trim() || identity[key].length > 256)) {
+        issues.push(`${prefix}.discoveredIdentity must contain manufacturer, model and serialNumber`);
+      } else discoveredIdentity = { manufacturer: (identity.manufacturer as string).trim(), model: (identity.model as string).trim(), serialNumber: (identity.serialNumber as string).trim() };
+    }
+
     if (id && displayName && BUILT_IN_PRINTER_DRIVER_IDS.includes(driverId as BuiltInPrinterDriverId)
       && apiBaseUrl && typeof raw.apiKey === 'string') {
       printers.push({
@@ -131,6 +114,7 @@ export function normalizePrinterConfigurationDocument(value: unknown): PrinterCo
         // Do not trim, truncate, or otherwise alter credentials.
         apiKey: raw.apiKey,
         ...(printerModel ? { printerModel } : {}),
+        ...(discoveredIdentity ? { discoveredIdentity } : {}),
       });
     }
   }

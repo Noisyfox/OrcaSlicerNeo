@@ -2,6 +2,7 @@ import { createElectronScreenColorSources } from './screenColor';
 import { createBambuProvider } from './bambuProvider';
 import { snapmakerCamera } from './snapmakerCamera';
 import { createPrinterService } from '@orca/printer-control';
+import { electronMdns } from './mdns';
 import { snapmakerTimelapses } from './snapmakerTimelapses';
 import {
   DEFAULT_USER_PREFERENCES,
@@ -18,16 +19,12 @@ import {
   type ProjectOpenBatchResult,
   type ProjectDropFile,
   type UserPreferences,
-} from '@orca/platform-contract';
-import type { Id } from '@orca/printer-control/domain';
-import {
-  createMoonrakerService,
-  createSnapmakerService,
-  normalizePrinterConfigurationDocument,
+  type Id,
   type PrinterConfigurationDocument,
-} from '@orca/printer-control';
+  type SlicerRuntime,
+} from '@orca/platform-contract';
+import { createMoonrakerService, createSnapmakerService, normalizePrinterConfigurationDocument } from '@orca/printer-control';
 import type { FileDialogFilter } from '../../../shared/ipc';
-import type { SlicerRuntime } from '@orca/platform-contract';
 import { createElectronPrinterTransport } from './electronPrinterTransport';
 import { createElectronWebViewHost } from './electronWebView';
 
@@ -54,6 +51,7 @@ function projectName(name: string): string {
 /** The only renderer module allowed to know about the Electron preload API. */
 export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorAvailable: boolean): PlatformCapabilities {
   const host = window.orca;
+  const mdns = electronMdns(host.mdns);
   // Keep the native path in this adapter only. The shared application receives
   // displayName and bytes, while this map remains available for future reload
   // support without leaking absolute paths into shared state.
@@ -269,6 +267,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
         inMemoryPreferences = normalized;
       },
     },
+    mdns,
     accounts: [bambu],
     printers: {
       downloads: host.printers.downloads,
@@ -283,6 +282,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
       }, {
         id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
         printers: createSnapmakerService({
+          mdns,
           timelapses: snapmakerTimelapses(host.printers.timelapses),
           camera: resolve => snapmakerCamera(host.printers.camera, resolve),
           matchFilaments: materials => runtime.matchFilamentPresets(materials),

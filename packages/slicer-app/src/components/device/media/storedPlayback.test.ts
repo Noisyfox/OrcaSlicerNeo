@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import type { MediaDescriptor, PrinterMedia } from '@orca/printer-control/domain';
+import type { MediaDescriptor, PrinterMedia } from '@orca/platform-contract';
 import { startStoredPlayback } from './storedPlayback';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });

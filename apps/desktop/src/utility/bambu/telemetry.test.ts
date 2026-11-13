@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuTelemetry } from './telemetry';
 const target: D.PrinterTarget = { printerId: 'printer' as D.Id<'printer'>, routeId: 'cloud' as D.Id<'route'> };
 const identity: D.PrinterIdentity = { id: target.printerId, displayName: 'Printer', manufacturer: 'Bambu Lab', model: 'H2D', serialNumber: null, externalRefs: [] };

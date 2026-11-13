@@ -1,7 +1,6 @@
 /** Provider-private HTTP mapping; callers use the domain service, never vendor payloads. */
-import { PrinterConfigurationValidationError, type PrinterConfiguration } from './configuration';
-import type { PrinterTransport, PrinterTransportRequest } from './transport';
-import type { PrinterError } from './domain';
+import { PrinterConfigurationValidationError } from './configuration';
+import type { PrinterConfiguration, PrinterTransport, PrinterTransportRequest, PrinterError } from '@orca/platform-contract';
 
 export class MoonrakerFailure extends Error {
   constructor(readonly detail: PrinterError, readonly uncertain = false) {

@@ -1,8 +1,8 @@
 import { expect, it, vi } from 'vitest';
-import type * as D from '../domain';
+import type * as D from '@orca/platform-contract';
 import { MoonrakerHttp } from '../moonraker-http';
 import { U1Submissions, U1_SEND_FAILURE } from './submissions';
-import type { PrinterTransportRequest } from '../transport';
+import type { PrinterTransportRequest } from '@orca/platform-contract';
 import { normalizePrinterConfigurationDocument } from '../configuration';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;

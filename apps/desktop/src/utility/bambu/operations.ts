@@ -3,7 +3,7 @@ import type { BambuStoragePrints } from './storagePrints';
 import type { PreparedCommand } from './controlContext';
 import { randomUUID } from 'node:crypto';
 import type { NativeEvent } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { commandBasis, prepareCommand } from './commands';
 import { BambuMonitor } from './monitor';
 import { record, text } from './protocol';

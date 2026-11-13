@@ -1,4 +1,4 @@
-import type { SynchronizationSource } from '@orca/printer-control';
+import type { SynchronizationSource } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, MaterialImportPreparation, MaterialImportSource } from '@slicer/client';
 
 /** Device-native catalogue associations have already been normalized by the agent. */

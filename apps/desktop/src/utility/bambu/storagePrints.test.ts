@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { RemotePrintMetadata } from '../../../../../packages/slicer-runtime/src/core';
 import { BambuStorageFiles, type BambuStorageSource } from './storageFiles';
 import { BambuStoragePrints } from './storagePrints';

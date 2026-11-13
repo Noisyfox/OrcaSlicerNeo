@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "types": []
+  },
+  "include": [
+    "src/printer",
+    "src/mdns.ts",
+    "src/serviceProvider.ts",
+    "typechecks"
+  ]
+}

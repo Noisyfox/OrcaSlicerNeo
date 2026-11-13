@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { ConfiguredPrinterModel } from '@orca/printer-control/domain';
+import type { ConfiguredPrinterModel } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
 import { Field, FieldContent, FieldDescription, FieldLabel } from '@/components/ui/field';

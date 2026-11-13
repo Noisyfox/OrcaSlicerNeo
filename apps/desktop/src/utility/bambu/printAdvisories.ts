@@ -1,5 +1,5 @@
 import type { BambuDeviceContext } from './controlContext';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { printerFilamentId } from './printResources';
 /** Non-blocking Orca pre-print diagnostics for fixed-nozzle jobs. */
 export function printAdvisories(request: D.PrintPreparationRequest, context: BambuDeviceContext, options: D.PrintOptions, used: readonly D.MaterialPath[], external: (path: D.MaterialPath) => boolean): D.PrintIssue[] {

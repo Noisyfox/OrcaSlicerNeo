@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { loadBambuCamera, type BambuNative, type NativeCamera } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuHostConfig } from '../../shared/bambu';
 import type { BambuMediaAttachment, BambuMediaRequest, BambuMediaStatus } from '../../shared/bambuMedia';
 import type { BambuDeviceAccess } from './deviceAccess';

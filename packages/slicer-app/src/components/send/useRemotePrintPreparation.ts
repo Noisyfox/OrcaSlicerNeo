@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { PrintPreparationViewState } from './PrintPreparationPanel';
 

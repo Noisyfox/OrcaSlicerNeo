@@ -1,4 +1,4 @@
-import type { ServiceProvider } from '@orca/service-provider';
+import type { ServiceProvider } from '../serviceProvider';
 /** Stateless local SDK contracts. Streams/signals require an explicit IPC/network binding. */
 import type { Id, UnixMs, ExternalRef, PrinterError, Result, ReadOptions, Capability, AtLeastOne, ObservationCursor, PrinterTarget, TargetRequest, Reading, NonEmptyReadonlyArray, Revision } from './common';
 import type { AgentHost, SavedPrinter, PrinterDescriptor, PrinterCapabilities, PrinterRoute, PrinterRouteConfiguration, StateTopic, PrinterObservationMap } from './printer';

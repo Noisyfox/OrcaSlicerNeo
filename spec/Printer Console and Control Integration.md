@@ -2623,8 +2623,15 @@ Protocol ownership, slicing semantics and evidence limits are maintained in
   under browser CORS, mixed-content and local-network permission restrictions;
   this delivery does not add a gateway.
 - Add `snapmaker` to the manual printer agent dropdown. Reuse the existing API
-  base URL, optional API key and optional Console URL. Do not add automatic
-  discovery in this delivery.
+  base URL, optional API key and optional Console URL. Electron additionally
+  discovers U1 through the existing Discover LAN printers dialog. Announcements
+  appear as candidates and are saved only after Add LAN connection, without an
+  access-code prompt for the Moonraker HTTP route. Closing the dialog stops the
+  scan. Newly discovered U1 entries default Printer model to
+  `Snapmaker / Snapmaker U1` and Console URL to `http://<IP>/`; the API URL
+  remains `http://<IP>:7125/`. Existing non-empty user choices survive merging.
+  Static Web retains manual IP/address configuration. The shared U1 agent
+  consumes an optional generic mDNS capability; only Electron implements it.
 - Initially support and qualify U1. Other Snapmaker models are not included
   merely because the agent has a vendor-wide name.
 - Keep model association optional. A connection can be saved and supported

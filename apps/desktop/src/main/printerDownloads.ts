@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { ManagedDownloadTasks } from '@orca/printer-control/download-tasks';
 import { TransferQueue } from '@orca/printer-control/transfer-queue';
-import type { DownloadProgress, DownloadResult } from '@orca/printer-control/downloads';
+import type { DownloadProgress, DownloadResult } from '@orca/platform-contract';
 import type { SavedDownloadFile } from '../utility/downloadFiles';
 import type { ManagedDownloadDestination } from '../utility/downloadExecutor';
 export interface DownloadBinding {

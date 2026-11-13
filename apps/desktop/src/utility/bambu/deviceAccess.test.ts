@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import type { BambuNative } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuDevice } from '../../shared/bambuDevices';
 import { BambuDeviceAccess } from './deviceAccess';
 const target = (id: string): D.PrinterTarget => ({ printerId: `bambu:${id}` as D.Id<'printer'>, routeId: `bambu:${id}:agent` as D.Id<'route'> });

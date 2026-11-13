@@ -1,5 +1,5 @@
 import type { U1TimelapsePage } from '@orca/printer-control';
-import type { Result } from '@orca/printer-control/domain';
+import type { Result } from '@orca/platform-contract';
 
 type Scope = { printerId: string; configurationDigest: string };
 

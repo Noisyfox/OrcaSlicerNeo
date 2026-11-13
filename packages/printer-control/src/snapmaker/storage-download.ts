@@ -1,5 +1,5 @@
-import type { PrinterConfiguration } from '../configuration';
-import type * as D from '../domain';
+import type { PrinterConfiguration } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { safe } from '../http-service';
 import { endpoint, fail, MoonrakerFailure } from '../moonraker-http';
 import { u1GcodeEndpoint, u1GcodeRef, u1StorageRouteDigest, u1TimelapseAssetEndpoint, u1TimelapsePrefix, u1TimelapseRef } from './file-reference';

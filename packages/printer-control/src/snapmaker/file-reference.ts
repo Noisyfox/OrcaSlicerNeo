@@ -1,5 +1,5 @@
-import type { PrinterConfiguration } from '../configuration';
-import type * as D from '../domain';
+import type { PrinterConfiguration } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { fail } from '../moonraker-http';
 import { isRelativeFilePath } from './file-thumbnail';
 

@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { DesktopPrinterDownloads, type DownloadBinding, type DownloadHost } from './printerDownloads';
 import { isDownloadRequest } from '../shared/printerDownloads';
 const file: D.RemoteFileRef = { printerId: 'printer' as D.Id<'printer'>, routeId: 'lan' as D.Id<'route'>,

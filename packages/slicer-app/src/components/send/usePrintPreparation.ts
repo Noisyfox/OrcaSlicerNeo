@@ -1,6 +1,6 @@
 import { sendActivity } from '@orca/printer-control';
 import { useEffect, useRef, useState } from 'react';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { SliceResultReceipt } from '@slicer/client';
 import { gcodeFilenameBasename, type PlatformCapabilities } from '@orca/platform-contract';
 import { useSlicerStore } from '@/stores/useSlicerStore';

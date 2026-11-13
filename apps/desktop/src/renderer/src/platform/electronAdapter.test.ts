@@ -1,9 +1,8 @@
 import { completeSetupWizard } from '../../../../../../packages/slicer-app/src/components/wizard/setupWizardCompletion';
 import { describe, expect, it, vi } from 'vitest';
-import { normalizeUserPreferences, updateUserPreferences } from '@orca/platform-contract';
+import { normalizeUserPreferences, updateUserPreferences, type PrinterConfigurationDocument } from '@orca/platform-contract';
 import { createElectronAdapter } from './electronAdapter';
 import { createElectronPrinterTransport } from './electronPrinterTransport';
-import type { PrinterConfigurationDocument } from '@orca/printer-control';
 
 function setup(overrides: Record<string, unknown> = {}) {
     const load = vi.fn(async () => ({ found: true, json: { version: 1, rememberedBedTypes: {}, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } } }));

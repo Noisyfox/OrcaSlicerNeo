@@ -1,14 +1,12 @@
-import { unavailablePrinterDownloads } from '@orca/printer-control';
 import type {
   ExternalLinks, FileDownloader, GcodeExporter, ModelImporter, PlatformCapabilities, ProfileSource,
   SlicerRuntime, UserPreferencesRepository, PrinterConfigurationRepository,
-  WebViewHost, ProjectFileCapability, PlatformMemory,
-} from './contracts';
-import type { PrinterService } from '@orca/printer-control/domain';
+  WebViewHost, ProjectFileCapability, PlatformMemory, MdnsDiscovery, MdnsService, MdnsEvent, PrinterTransport, PrinterConfigurationDocument, AccountProvider,
+} from './index';
+import type { PrinterService, PrinterDownloads } from './index';
 import type { MenuCommandId, PlatformMenu } from './menu';
 
-// This file is intentionally value-free. It is compiled in isolation by the
-// platform-contract import guard and must remain free of host/runtime imports.
+// Compile-only host fixtures. No implementation or host-runtime imports are allowed.
 export const fakeCapabilities: PlatformCapabilities = {
   screenColor: { native: null, browser: null },
   models: { async pick() { return null; } } satisfies ModelImporter,
@@ -26,7 +24,7 @@ export const fakeCapabilities: PlatformCapabilities = {
   preferences: { async load() { throw new Error(); }, async save() {} } satisfies UserPreferencesRepository,
   accounts: [],
   printers: {
-    downloads: unavailablePrinterDownloads(),
+    downloads: {} as PrinterDownloads,
     configuration: { onChanged: () => () => {}, async load() { return { version: 1 as const, printers: [] }; }, async save() {} } satisfies PrinterConfigurationRepository,
     service: {} as PrinterService,
   },
@@ -56,3 +54,20 @@ export const fakeCapabilities: PlatformCapabilities = {
   } satisfies PlatformMenu,
   externalLinks: { openSource() {}, openHttps() {} } satisfies ExternalLinks,
 };
+
+// External consumers use the root entrypoint for all public networking/printer contracts.
+const browse: MdnsDiscovery = { async *browse(_type, _options) {
+  const service: MdnsService = { id: 'fixture._http._tcp.local.', serviceType: _type, name: 'fixture',
+    host: 'fixture.local.', port: 80, addresses: ['127.0.0.1'], txt: { model: 'fixture' }, expiresAtMs: 1 };
+  yield { type: 'upsert', service } satisfies MdnsEvent;
+} };
+const transport: PrinterTransport = { async request(_request) {
+  return { status: 200, async json() { return {}; }, async bytes() { return new Uint8Array(); } };
+} };
+const document: PrinterConfigurationDocument = { version: 1, printers: [] };
+void browse; void transport; void document;
+
+// Account-only providers remain usable through the common root entrypoint.
+declare const accountProvider: AccountProvider;
+const accounts: PlatformCapabilities['accounts'] = [accountProvider];
+void accounts;

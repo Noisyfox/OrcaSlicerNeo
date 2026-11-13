@@ -1,7 +1,7 @@
 import type { BambuDeviceContext } from './controlContext';
 import { randomUUID } from 'node:crypto';
 import type { BambuNative, NativeEvent } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
 import type { BambuDevice } from '../../shared/bambuDevices';

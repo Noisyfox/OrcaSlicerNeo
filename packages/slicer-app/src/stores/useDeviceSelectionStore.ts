@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { deviceGroupingContext, synchronizationSource, type SynchronizationSource } from '@orca/printer-control';
+import { deviceGroupingContext, synchronizationSource } from '@orca/printer-control';
+import type { SynchronizationSource } from '@orca/platform-contract';
 import type { DeviceMaterialContext } from '@slicer/client';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 type Connection = { target: D.PrinterTarget; configurationRevision: D.Revision; identity: D.PrinterIdentity };
 /** Device selection and page navigation have separate callers and lifetimes. */
 export const useDeviceSelectionStore = create<{

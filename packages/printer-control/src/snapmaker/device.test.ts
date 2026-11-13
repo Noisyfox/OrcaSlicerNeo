@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type * as D from '../domain';
+import type * as D from '@orca/platform-contract';
 import { MoonrakerHttp } from '../moonraker-http';
 import { normalizePrinterConfigurationDocument } from '../configuration';
 import { u1MaterialInventory, u1FilamentType, matchU1Materials } from './observation';

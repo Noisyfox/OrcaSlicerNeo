@@ -12,11 +12,18 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Pencil, Plus, Trash2, Monitor } from 'lucide-react';
-import type { SavedPrinter, PrinterRoute, TargetRequest } from '@orca/printer-control/domain';
+import {
+  updateUserPreferences,
+  usePlatform,
+  type SavedPrinter,
+  type PrinterRoute,
+  type TargetRequest,
+  type PrinterConfiguration,
+  type WebViewHost,
+  type WebViewPanelState,
+} from '@orca/platform-contract';
 import { usePrinterCatalogue } from './usePrinterCatalogue';
-import type { PrinterConfiguration } from '@orca/printer-control';
 import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
-import { updateUserPreferences, usePlatform, type WebViewHost, type WebViewPanelState } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';

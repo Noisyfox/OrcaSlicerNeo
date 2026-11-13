@@ -1,5 +1,5 @@
 import { utilityProcess, type MessagePortMain } from 'electron';
-import type { PrinterConfigurationDocument } from '@orca/printer-control';
+import type { PrinterConfigurationDocument } from '@orca/platform-contract';
 import type { BambuUtilityChild } from './bambuUtility';
 import type { CameraRequest } from '../shared/snapmakerCamera';
 import type { BambuMediaAttachment } from '../shared/bambuMedia';

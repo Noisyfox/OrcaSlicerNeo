@@ -3,7 +3,7 @@ import { BufferTarget, EncodedPacket, EncodedVideoPacketSource, Mp4OutputFormat,
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { ProgressiveMp4 } from './progressiveMp4';
 import { StoredVideoCache } from './storedVideoCache';
 

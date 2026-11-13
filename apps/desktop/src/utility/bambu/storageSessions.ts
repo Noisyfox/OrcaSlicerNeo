@@ -4,7 +4,7 @@ import { StorageResourceQueue } from './storageResourceQueue';
 import { dirname, join } from 'node:path';
 import { listBambuStorageFiles, readBambuStorageFile, deleteBambuStorageFile, openBambuStorageResourceReader,
   type BambuNative, type BambuStorageDownload } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
 import type { BambuHostConfig } from '../../shared/bambu';

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuStorageFiles, type BambuStorageSource } from './storageFiles';
 import { BambuStorageImages, thumbnailMime } from './storageImages';
 const owners: BambuStorageImages[] = [];

@@ -1,5 +1,6 @@
-import { U1CameraMedia, type PrinterConfiguration, type PrinterConfigurationDocument, type U1CameraMediaOptions } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
+import { U1CameraMedia, type U1CameraMediaOptions } from '@orca/printer-control';
+import type { PrinterConfiguration, PrinterConfigurationDocument } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { cameraConfigurationKey, type CameraRequest, type CameraStatus } from '../../shared/snapmakerCamera';
 import type { BambuMediaAttachment } from '../../shared/bambuMedia';
 import { CameraChannel, type CameraPort } from '../bambu/mediaChannel';

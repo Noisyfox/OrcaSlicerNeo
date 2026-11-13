@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { ExportPrintResult, PrintManifest, SliceResultReceipt } from '@slicer/client';
 import { PrintPreparationPanel } from './PrintPreparationPanel';

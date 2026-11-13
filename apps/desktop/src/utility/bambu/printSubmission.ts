@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, open, rm, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { BambuNative, NativeEvent } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuSubmissionInputs } from '../../shared/bambuSubmission';
 import type { BambuDeviceAccess } from './deviceAccess';
 import type { BambuDevices } from './devices';

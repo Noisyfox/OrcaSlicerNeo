@@ -1,4 +1,4 @@
-import type { PrintPreferences } from './domain/print-options';
+import type { PrintPreferences } from '@orca/platform-contract';
 const modes = ['auto', 'on', 'off'];
 export const printPreferenceKeys = ['bedLeveling', 'flowCalibration', 'nozzleOffsetCalibration', 'timelapse', 'timelapseStorage', 'sharedPressureAdvance'] as const;
 export function normalizePrintPreferences(value: unknown): PrintPreferences {

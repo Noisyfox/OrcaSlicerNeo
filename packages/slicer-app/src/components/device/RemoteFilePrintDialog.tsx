@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Box } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';

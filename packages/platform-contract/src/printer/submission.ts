@@ -136,3 +136,9 @@ export interface PrinterSubmissions {
   cancel(ref: PrintSubmissionRef): Promise<Result<PrintSubmissionState>>;
   watch(ref: PrintSubmissionRef, options?: ReadOptions): AsyncIterable<PrintSubmissionState>;
 }
+
+export interface SendActivityLease {
+  signal: AbortSignal;
+  setCancellation(cancel: () => void | Promise<unknown>): void;
+  finish(): void;
+}
