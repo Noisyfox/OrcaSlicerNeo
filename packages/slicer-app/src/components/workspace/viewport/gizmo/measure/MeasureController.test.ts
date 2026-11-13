@@ -109,6 +109,14 @@ describe('Measure controller lifecycle', () => {
 });
 
 describe('Measure input and resource ownership', () => {
+  it('discards a hover still in flight when camera navigation starts', async () => {
+    const { controller, api } = fixture(); await controller.open([target]);
+    const pending = deferred<MeasureDisplay>(); api.getMeasureDisplay.mockReturnValueOnce(pending.promise);
+    controller.hover(event(1)); await tick(); controller.invalidateHover();
+    pending.resolve(display('md-obsolete')); await tick(); await controller.settled();
+    expect(controller.getSnapshot().display).toBeNull();
+    expect(api.releaseMeasureDisplay).toHaveBeenCalledWith({ version: 1, sessionId: 'ms-1', displayId: 'md-obsolete' });
+  });
   it('keeps one hover in flight and only processes the newest pending hover', async () => {
     const { controller, api } = fixture(); await controller.open([target]);
     const first = deferred<MeasureDisplay>(), last = deferred<MeasureDisplay>();

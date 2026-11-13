@@ -156,6 +156,14 @@ export class MeasureController {
     this.pendingHover = { event: snapshot, generation: this.generation, serial: ++this.hoverSerial, admission: this.ports.admissionKey() };
     this.scheduleHover();
   }
+  /** Camera gestures obsolete both pending and displayed hover snapshots. */
+  invalidateHover(): void {
+    this.lastEvent = null;
+    this.hoverSerial++;
+    this.pendingHover = null;
+    this.retireDisplay();
+    if (this.state.display) this.update({ display: null });
+  }
   private scheduleHover(): void {
     if (this.hoverScheduled || !this.pendingHover || this.state.phase !== 'idle' || !this.state.status || !this.ports.canMeasure()) return;
     this.hoverScheduled = true;
