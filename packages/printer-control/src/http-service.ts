@@ -1,7 +1,7 @@
 /** Shared HTTP configuration, upload and operation assembly for concrete agents. */
-import { BUILT_IN_PRINTER_DRIVER_IDS, normalizePrinterConfiguration, type PrinterConfiguration } from './configuration';
-import type { PrinterTransport } from './transport';
-import type * as D from './domain';
+import { normalizePrinterConfiguration } from './configuration';
+import { BUILT_IN_PRINTER_DRIVER_IDS, type PrinterConfiguration, type PrinterTransport } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { MoonrakerHttp, MoonrakerFailure, fail, publicError, record } from './moonraker-http';
 import { OperationStore, copy, newId, requestSignature, streamError } from './operations';
 import { unsupportedSubmissions } from './submission';

@@ -115,8 +115,9 @@ preserve that distinction.
 
 ### 1.2 Current interface boundary
 
-The type-only [domain entrypoint](../packages/printer-control/src/domain/index.ts)
-is exported as `@orca/printer-control/domain`. It defines the initial concrete
+The [platform contract root](../packages/platform-contract/src/index.ts)
+exports the public printer interfaces and DTOs, organized internally in the
+[printer contracts](../packages/platform-contract/src/printer/index.ts). It defines the current
 contract for printer resources, materials, extensible sensors, controls,
 capabilities, files, media, discovery, manual configuration and native Web entry
 resolution. All public operations are independently addressed. Discovery and
@@ -125,8 +126,8 @@ type-known support does not require a probe. Observations explicitly distinguish
 cached access from a one-shot device read, including materials and firmware.
 The source is authoritative
 for current field shapes; this specification records their purpose and limits.
-The [compile-only consumers](../packages/printer-control/typechecks/domain.ts)
-exercise public imports, typed extensions, command/result correlations and
+The [compile-only consumers](../packages/platform-contract/typechecks/domain.ts)
+exercise typed extensions, command/result correlations and
 representative printer shapes without implementing an agent.
 
 The interface selects typed topic reads, replacement events with opaque cursors,
@@ -138,9 +139,15 @@ Future refinements update the single contract and its consumers together.
 No gateway wire format or credential persistence migration is defined. The bounded
 Moonraker runtime migration is described below.
 
-The package root exports the [Moonraker service factory](../packages/printer-control/src/service.ts).
-It implements the domain service using host-injected configuration and HTTP
-transport. Both hosts provide this service through the platform contract;
+`@orca/printer-control` contains implementations and exports the [Moonraker service factory](../packages/printer-control/src/service.ts).
+It depends on `@orca/platform-contract` and implements the domain service using
+host-injected configuration and HTTP transport. Persisted printer document types,
+HTTP/WebSocket transport seams, download/transfer DTOs and mDNS contracts also
+belong to the platform contract root. Configuration validation, vendor protocols
+and task executors remain in `printer-control`. The contract package, including
+its tests and fixtures, must not depend on this implementation package; the import
+guard enforces that direction. There is no separate network-discovery package or
+printer contract subpath. Both hosts provide this service through the platform contract;
 application code uses the domain API instead of the retired driver and Send
 service. There is one current control contract, without a compatibility alias.
 Project material import remains an application-owned workflow; its proposal
@@ -578,10 +585,10 @@ acceptance evidence. Completing a step does not claim completion of later
 features. Keep incomplete Bambu capabilities unavailable in production; test
 providers are test fixtures, not an alternate production networking path.
 
-The [printer contracts](../packages/printer-control/src/domain/service.ts) now
+The [printer contracts](../packages/platform-contract/src/printer/service.ts) now
 use provider-owned account association, route-targeted rename/forget operations,
 local management permissions, access-code authorization and saved-list change
-notifications. [Route configuration](../packages/printer-control/src/domain/printer.ts)
+notifications. [Route configuration](../packages/platform-contract/src/printer/printer.ts)
 no longer exposes `accountRef`. The
 [Device panel](../packages/slicer-app/src/components/device/DevicePanel.tsx)
 and [Send dialog](../packages/slicer-app/src/components/send/SendGcodeDialog.tsx)
@@ -2260,7 +2267,7 @@ auto-start, awaits successful transfer, applies mapping/options and dispatches
 start only after successful preparation responses. An upload failure does not
 apply those job settings. The agent transmits the exported G-code unchanged and does not
 inspect its contents for preparation inputs or conflicting startup commands.
-The current [submission capability](../packages/printer-control/src/domain/printer.ts)
+The current [submission capability](../packages/platform-contract/src/printer/printer.ts)
 only names `print-3mf`, and the
 [preparation controller](../packages/slicer-app/src/components/send/usePrintPreparation.ts)
 exports a print/configuration package. Extend this single contract to select
@@ -2873,7 +2880,7 @@ printer route, independently of Neo's monitoring, control and file capabilities.
 The native page and Neo's own device pages may coexist. A printer that only
 exposes a Web UI remains representable without inventing control support.
 
-The [Web interface contract](../packages/printer-control/src/domain/web-interface.ts)
+The [Web interface contract](../packages/platform-contract/src/printer/web-interface.ts)
 provides service-scoped description and launch resolution. Neither requires a
 successful printer-control connection. The description projects the same
 route capability published by enumeration/description; it is not a second support
@@ -3396,7 +3403,7 @@ this is an adapter limit, not a discovered printer hardware limit.
 
 #### Media resource contract changes
 
-The single current [media contract](../packages/printer-control/src/domain/media.ts)
+The single current [media contract](../packages/platform-contract/src/printer/media.ts)
 now includes explicit `mse-fmp4` and `jpeg-frames` delivery variants. Each carries an
 opaque stream identity and its format; MSE carries the complete MIME/codec
 string. Keep URL delivery separate from binary delivery. The `readStream`
@@ -3776,9 +3783,9 @@ analysis; their performance and compatibility claims are not Neo qualification.
 The Snapmaker agent owns camera RPC encoding, response validation, acquisition
 URL resolution, renewal and conversion into complete JPEG packets. Host
 adapters own HTTP and WebSocket networking. Shared application code consumes
-the existing [managed media contract](../packages/printer-control/src/domain/media.ts)
+the existing [managed media contract](../packages/platform-contract/src/printer/media.ts)
 and [JPEG player](../packages/slicer-app/src/components/device/media/playback.ts).
-The existing [HTTP transport](../packages/printer-control/src/transport.ts)
+The existing [HTTP transport](../packages/platform-contract/src/printer/transport.ts)
 is complemented by a host-injected WebSocket seam with cancellable
 connection, message, error and close handling. Correlate JSON-RPC responses by
 request ID and validate their result/error payloads. Notifications and
@@ -4164,7 +4171,7 @@ mixed download/playback admission remains unqualified.
 The [managed task engine](../packages/printer-control/src/downloadTasks.ts) now
 tracks batch/task identity, attempt-scoped progress, private saved receipts,
 isolated failure continuation and blocked-head retry/acknowledgment. Its public
-[task contract](../packages/printer-control/src/domain/downloadTasks.ts) contains
+[task contract](../packages/platform-contract/src/printer/downloadTasks.ts) contains
 no destination paths and distinguishes managed saving from browser handoff.
 The [desktop registry](../apps/desktop/src/main/printerDownloads.ts), destination
 dialogs, private utility execution/progress, public task IPC and application-close
@@ -4394,7 +4401,7 @@ storage, collection or directory clears selection but does not cancel admitted
 download tasks. The contract boundaries below define cursor scoping and
 refresh-time reconciliation; concrete cursor encoding remains adapter-owned.
 
-The [file domain](../packages/printer-control/src/domain/files.ts) owns remote
+The [file domain](../packages/platform-contract/src/printer/files.ts) owns remote
 selection, metadata and binary reads. Keep `PrinterFiles.download` as a read
 operation returning `DownloadedFile`/`BinaryRead`, including actual byte counts,
 range information and an asynchronous sequence of owned byte chunks. The agent

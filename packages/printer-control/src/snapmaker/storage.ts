@@ -1,5 +1,5 @@
 /** U1 G-code collections and previews over the configured Moonraker route. */
-import type * as D from '../domain';
+import type * as D from '@orca/platform-contract';
 import { safe, supported, type ConfigurationEntry, type HttpServiceBehavior, type HttpServiceContext, type ResolvedConfiguration } from '../http-service';
 import { fail, record } from '../moonraker-http';
 import { copy, newId } from '../operations';

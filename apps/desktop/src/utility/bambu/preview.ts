@@ -1,5 +1,5 @@
 import type { BambuNative } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuDeviceAccess } from './deviceAccess';
 import { number, record, records } from './protocol';
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });

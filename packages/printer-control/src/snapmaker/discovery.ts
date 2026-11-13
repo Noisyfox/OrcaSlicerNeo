@@ -1,6 +1,6 @@
 /** U1 DNS-SD interpretation; the injected host owns all multicast networking. */
-import type { MdnsDiscovery, MdnsService } from '@orca/network-discovery';
-import type * as D from '../domain';
+import type { MdnsDiscovery, MdnsService } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import type { HttpServiceBehavior } from '../http-service';
 import { fail } from '../moonraker-http';
 

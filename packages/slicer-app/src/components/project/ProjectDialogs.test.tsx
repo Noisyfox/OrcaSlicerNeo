@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import {
+  PlatformProvider,
+  type PlatformCapabilities,
+  type PrinterConfigurationDocument,
+  type DownloadDirectorySelectionId,
+  type PrinterDownloads,
+} from '@orca/platform-contract';
 import { unavailablePrinterDownloads } from '@orca/printer-control';
-import type { PrinterConfigurationDocument } from '@orca/printer-control';
-import type { DownloadDirectorySelectionId, PrinterDownloads } from '@orca/printer-control/domain';
 import type { AccountProvider, ProviderId } from '@orca/service-provider';
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';

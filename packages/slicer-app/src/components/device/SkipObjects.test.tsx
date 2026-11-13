@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { SkipObjects } from './SkipObjects';
 
 const target = { printerId: 'p' as D.Id<'printer'>, routeId: 'r' as D.Id<'route'>, expectedConfigurationRevision: 'v1' };

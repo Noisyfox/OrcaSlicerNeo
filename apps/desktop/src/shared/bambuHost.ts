@@ -1,7 +1,6 @@
 /** Private main ↔ utility protocol. Never exposed through the application preload. */
 import { isDownloadExecutionRequest, type DownloadExecutionInputs, type DownloadExecutionResults } from './downloadExecution';
-import type { Result } from '@orca/printer-control/domain';
-import type { MediaRef } from '@orca/printer-control/domain';
+import type { Result, MediaRef } from '@orca/platform-contract';
 import { isMediaRef } from './bambuMedia';
 import type { AccountResult } from '@orca/service-provider';
 export type LoginCompletion =

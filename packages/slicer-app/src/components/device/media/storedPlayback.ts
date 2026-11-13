@@ -1,4 +1,4 @@
-import type { MediaDescriptor, PrinterMedia } from '@orca/printer-control/domain';
+import type { MediaDescriptor, PrinterMedia } from '@orca/platform-contract';
 import { cancellable, event, PlaybackError } from './playback';
 
 /** Finite MSE delivery: pull disk packets only as buffer capacity permits, restart from indexed cache on seek. */

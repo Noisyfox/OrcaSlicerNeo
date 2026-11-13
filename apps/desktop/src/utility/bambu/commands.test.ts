@@ -1,6 +1,6 @@
 import type { CommandContext } from './controlContext';
 import { expect, it } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuTelemetry } from './telemetry';
 import { commandCapabilities, prepareCommand } from './commands';
 import { BambuRecovery } from './recovery';

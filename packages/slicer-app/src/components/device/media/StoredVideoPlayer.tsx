@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MediaDescriptor, PrinterMedia, VideoDelivery } from '@orca/printer-control/domain';
+import type { MediaDescriptor, PrinterMedia, VideoDelivery } from '@orca/platform-contract';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { startStoredPlayback } from './storedPlayback';

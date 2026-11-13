@@ -2,8 +2,8 @@ import { expect, it, vi } from 'vitest';
 import { createMoonrakerService } from './service';
 import { createSnapmakerService } from './snapmaker/service';
 import { createPrinterService } from './providers';
-import type { PrinterConfigurationDocument } from './configuration';
-import type * as D from './domain';
+import type { PrinterConfigurationDocument } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
 

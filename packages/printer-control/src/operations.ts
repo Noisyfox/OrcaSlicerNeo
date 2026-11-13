@@ -1,5 +1,5 @@
 /** Host-lifetime operation records. Observers never own or cancel physical operations. */
-import type { Id, PrinterOperation, OperationRef, RequestLookup, PrinterOperations, PrinterStreamError, ReadOptions, Submission } from './domain';
+import type { Id, PrinterOperation, OperationRef, RequestLookup, PrinterOperations, PrinterStreamError, ReadOptions, Submission } from '@orca/platform-contract';
 import { fail } from './moonraker-http';
 
 export const newId = <K extends string>(): Id<K> => crypto.randomUUID() as Id<K>;

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuStorageFiles } from './storageFiles';
 import { BambuStorageVideos } from './storageVideos';
 it('cold-start cleanup removes orphan caches but preserves live owners and unrelated directories', async () => {

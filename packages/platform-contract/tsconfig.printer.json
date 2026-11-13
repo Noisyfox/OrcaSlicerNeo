@@ -4,5 +4,9 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src/domain", "typechecks"]
+  "include": [
+    "src/printer",
+    "src/mdns.ts",
+    "typechecks"
+  ]
 }

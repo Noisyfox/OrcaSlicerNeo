@@ -1,4 +1,4 @@
-import type { MdnsDiscovery, MdnsService } from '@orca/network-discovery';
+import type { MdnsDiscovery, MdnsService } from '@orca/platform-contract';
 import type { MdnsBridge } from '../../../shared/mdns';
 
 /** Adapt host snapshots to a cancellable stream without exposing IPC to agents. */

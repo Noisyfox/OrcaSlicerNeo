@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { ControlCard } from '../PrinterControlCards';
 import { MediaPlayer } from './MediaPlayer';

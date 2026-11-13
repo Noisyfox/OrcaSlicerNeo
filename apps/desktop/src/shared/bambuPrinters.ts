@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuDevice } from './bambuDevices';
 const providerId = 'bambu' as D.Id<'provider'>;
 const hostId = 'desktop' as D.Id<'agent-host'>;

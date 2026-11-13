@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import type { MediaDescriptor, PrinterMedia } from '@orca/printer-control/domain';
+import type { MediaDescriptor, PrinterMedia } from '@orca/platform-contract';
 import { StoredVideoPlayer } from './StoredVideoPlayer';
 const playback = vi.hoisted(() => ({ seek: vi.fn(), setRanges: vi.fn(), stop: vi.fn(async () => {}) }));
 vi.mock('./storedPlayback', () => ({ startStoredPlayback: () => playback }));

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { usePlatform } from '@orca/platform-contract';
-import type { DownloadTaskSnapshot, PrinterDownloads, Result } from '@orca/printer-control/domain';
+import { usePlatform, type DownloadTaskSnapshot, type PrinterDownloads, type Result } from '@orca/platform-contract';
 import { ChevronDown } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Progress } from '@/components/ui/progress';

@@ -4,9 +4,9 @@ import { createSnapmakerService } from './service';
 import { createPrinterService } from '../providers';
 import { readSynchronizationSource } from '../synchronization';
 import { U1CameraMedia, U1_CAMERA_ID } from './camera';
-import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from '../configuration';
-import type * as D from '../domain';
-import type { PrinterTransportRequest, PrinterTransportResponse } from '../transport';
+import { normalizePrinterConfigurationDocument } from '../configuration';
+import type { PrinterConfigurationDocument, PrinterTransportRequest, PrinterTransportResponse } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
 

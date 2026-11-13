@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 /** Bounded host transport; no native paths or credentials are renderer-supplied. */
 export interface BambuSubmissionInputs {
   'print.prepare': D.PrintPreparationRequest;

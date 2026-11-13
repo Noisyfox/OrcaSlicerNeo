@@ -1,5 +1,5 @@
 import type { U1TimelapseTransport } from '@orca/printer-control';
-import type { Result } from '@orca/printer-control/domain';
+import type { Result } from '@orca/platform-contract';
 import { cameraConfigurationDigest } from '../../../shared/snapmakerCamera';
 import type { SnapmakerTimelapseBridge } from '../../../shared/snapmakerTimelapses';
 

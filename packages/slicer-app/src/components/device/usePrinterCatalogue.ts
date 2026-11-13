@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PrinterService, SavedPrinter } from '@orca/printer-control/domain';
-import type { PlatformCapabilities } from '@orca/platform-contract';
+import type { PrinterService, SavedPrinter, PlatformCapabilities } from '@orca/platform-contract';
 
 /** Local provider projection only. Invalidations never start discovery or device probes. */
 export function usePrinterCatalogue(service: PrinterService, enabled = true) {

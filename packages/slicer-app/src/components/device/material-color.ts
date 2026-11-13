@@ -1,5 +1,5 @@
 import type { ColorValue } from '@orca/platform-contract';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { ColorSwatchDisplay } from '@/components/ui/color-swatch';
 
 type Color = D.MaterialColor | D.MaterialColorConfiguration;

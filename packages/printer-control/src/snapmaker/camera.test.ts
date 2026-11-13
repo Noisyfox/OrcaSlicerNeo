@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { U1CameraMedia, U1_CAMERA_ID } from '../index';
-import type * as D from '../domain';
-import type { PrinterConfiguration } from '../configuration';
-import type { PrinterTransport } from '../transport';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration, PrinterTransport } from '@orca/platform-contract';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
 const target = { printerId: id<'printer'>('u1'), routeId: id<'route'>('u1-route') };

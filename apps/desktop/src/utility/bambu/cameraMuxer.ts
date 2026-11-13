@@ -1,7 +1,7 @@
 /** Continuous AVC fragments may start between IDRs, but only within the same decoder generation. */
 import { createFile, DataStream } from 'mp4box';
 import type { NativeCameraSample } from '@orca/bambu-native';
-import type { MediaStreamPacket } from '@orca/printer-control/domain';
+import type { MediaStreamPacket } from '@orca/platform-contract';
 
 export function cameraNals(bytes: Uint8Array): Uint8Array[] {
   const starts: { start: number; data: number }[] = [];

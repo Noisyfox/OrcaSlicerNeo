@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import type { MdnsService } from '@orca/network-discovery';
+import type { MdnsService } from '@orca/platform-contract';
 import { electronMdns } from './mdns';
 
 it('stops even when cancelled while start IPC is pending', async () => {

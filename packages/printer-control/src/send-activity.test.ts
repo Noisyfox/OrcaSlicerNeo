@@ -1,5 +1,5 @@
 import { it, expect, vi } from 'vitest';
-import type * as D from './domain';
+import type * as D from '@orca/platform-contract';
 import { SendActivity, sendActivity, trackPrinterSends } from './send-activity';
 it('protects artifact preparation and cancels late-admitted work without replaying it', async () => {
   const activity = new SendActivity(), cancel = vi.fn(), lease = activity.begin();

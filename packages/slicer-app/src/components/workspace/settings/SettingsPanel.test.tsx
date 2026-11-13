@@ -10,7 +10,7 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { sliceModel } from '../actions/sliceActions';

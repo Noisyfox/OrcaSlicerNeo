@@ -1,7 +1,7 @@
 import { isBambuMediaRequest, isBambuMediaAttachment } from '../../shared/bambuMedia';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { BambuNative, NativeCamera } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuMedia } from './media';
 import { CameraChannel, type CameraPort } from './mediaChannel';
 import { savedBambuPrinter } from '../../shared/bambuPrinters';

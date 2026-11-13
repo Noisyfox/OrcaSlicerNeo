@@ -475,7 +475,7 @@ function registerIpc(): void {
 
   const storedMedia = new StoredMediaQueue(printerDownloads.queue, {
     resolve: file => printerDownloads.resolvePhysical(file),
-    open: async (owner, request) => await bambuUtility!.media(owner, { method: 'open', input: request }) as import('@orca/printer-control/domain').Result<import('@orca/printer-control/domain').MediaDescriptor>,
+    open: async (owner, request) => await bambuUtility!.media(owner, { method: 'open', input: request }) as import('@orca/platform-contract').Result<import('@orca/platform-contract').MediaDescriptor>,
     waitRead: (owner, ref) => bambuUtility!.host('media.waitRead', { owner, ref }),
     cancelOpen: (owner, requestId) => bambuUtility!.media(owner, { method: 'cancelOpen', input: { requestId } }),
     close: (owner, ref) => bambuUtility!.media(owner, { method: 'close', input: ref }),

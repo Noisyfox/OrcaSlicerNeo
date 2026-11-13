@@ -1,5 +1,5 @@
 import type { BambuDeviceContext } from './controlContext';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { nozzleFlowType } from './telemetry';
 import { known, mapMaterials, physicalTool } from './printMapping';
 import { filamentCatalog, filamentRules, nozzleHardness, printerFilamentId, printerPrintProfile } from './printResources';

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import type { PrinterService } from '@orca/printer-control/domain';
+import type { PrinterService } from '@orca/platform-contract';
 import { sendActivity } from '@orca/printer-control';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';

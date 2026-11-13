@@ -1,7 +1,7 @@
-// Compile-only consumers of the public entrypoint. Never imported by runtime code.
-import type { PrinterAction, PrinterActionRef, PrintStatus, CommandCapabilities, CommandOf, CommandRequest, RemoteFileRef, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
-import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
-import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails, ObservationRequest, PrinterSnapshot, FirmwareComponent, MaterialImportProposal, Revision } from '@orca/printer-control/domain';
+// Strict compile-only consumers of the printer contracts. Never imported by runtime code.
+import type { PrinterAction, PrinterActionRef, PrintStatus, CommandCapabilities, CommandOf, CommandRequest, RemoteFileRef, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '../src/printer';
+import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '../src/printer';
+import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails, ObservationRequest, PrinterSnapshot, FirmwareComponent, MaterialImportProposal, Revision } from '../src/printer';
 
 // Brands in fixtures stand in for IDs validated/issued by a future provider.
 const id = <K extends string,>(value: string): Id<K> => value as Id<K>;
@@ -369,7 +369,7 @@ const emptyEvent: PrinterEvent = {
 };
 
 // The public extension point preserves structured reading types after augmentation.
-declare module '@orca/printer-control/domain' {
+declare module '../src/printer' {
   interface SensorTypeMap {
     'fixture:air-quality': {
       unit: null;
@@ -915,7 +915,7 @@ async function invokeObservedAction() {
 
 // Common provider identity composes independent capability interfaces.
 import type { AccountProvider } from '@orca/service-provider';
-import type { PrinterProvider } from '../src/domain';
+import type { PrinterProvider } from '../src/printer';
 interface CombinedProvider extends AccountProvider, PrinterProvider {}
 declare const combinedProvider: CombinedProvider;
 void combinedProvider.account.login();
@@ -957,7 +957,7 @@ const firmwareExtrusion: CommandOf<'extrusion.move'> = { type: 'extrusion.move',
 void stepJog; void firmwareExtrusion;
 
 // Media descriptors alone construct playback; no observation/session preflight.
-async function consumeCamera(descriptor: import('@orca/printer-control/domain').MediaDescriptor) {
+async function consumeCamera(descriptor: import('../src/printer').MediaDescriptor) {
   if (descriptor.presentation.kind !== 'video') return;
   const delivery = descriptor.presentation.delivery;
   if ('streamId' in delivery) {
@@ -974,10 +974,10 @@ async function consumeCamera(descriptor: import('@orca/printer-control/domain').
 // @ts-expect-error Raw strings cannot invent host-issued stream identities.
 service.media.readStream({ media: mediaRef, streamId: 'stream' });
 // @ts-expect-error A binary stream has no remote URL.
-const invalidBinary: import('@orca/printer-control/domain').VideoDelivery = { transport: 'jpeg-frames', url: 'https://example.org' };
+const invalidBinary: import('../src/printer').VideoDelivery = { transport: 'jpeg-frames', url: 'https://example.org' };
 
 // Current-print object references carry task context, never native instance IDs.
-declare const objectContext: import('@orca/printer-control/domain').PrintObjectContextRef;
+declare const objectContext: import('../src/printer').PrintObjectContextRef;
 const skipObjects: CommandOf<'jobs.skipObjects'> = {
   type: 'jobs.skipObjects', params: { contextRef: objectContext, objectIds: [id<'print-object'>('part-a')], intent: 'skip-selected' },
 };

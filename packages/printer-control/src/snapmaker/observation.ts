@@ -1,5 +1,5 @@
 /** U1 object normalization. Missing device data stays unknown, including load state. */
-import type * as D from '../domain';
+import type * as D from '@orca/platform-contract';
 import { record, fail } from '../moonraker-http';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;

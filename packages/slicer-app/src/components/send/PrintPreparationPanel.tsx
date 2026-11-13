@@ -4,7 +4,7 @@ import { useEffect, useId, type ReactNode } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { MaterialSourcePicker } from './MaterialSourcePicker';
 import { PrintJobSummary } from './PrintJobSummary';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { SliceResultReceipt } from '@slicer/client';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';

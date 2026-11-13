@@ -1,4 +1,4 @@
-import type { PrinterError, PrinterService, RemoteFileRef } from '@orca/printer-control/domain';
+import type { PrinterError, PrinterService, RemoteFileRef } from '@orca/platform-contract';
 export type FileDeletionOutcome = { state: 'deleted' } | { state: 'failed'; error: PrinterError } | { state: 'unconfirmed'; message: string };
 /** Observe only a recorded command, never re-query the filesystem or resend an uncertain mutation. */
 export async function deleteStorageFile(service: PrinterService, file: RemoteFileRef, signal: AbortSignal): Promise<FileDeletionOutcome> {

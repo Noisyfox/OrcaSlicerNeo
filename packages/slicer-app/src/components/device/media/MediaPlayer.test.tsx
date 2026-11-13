@@ -2,7 +2,7 @@
 import { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { MediaDescriptor, PrinterMedia } from '@orca/printer-control/domain';
+import type { MediaDescriptor, PrinterMedia } from '@orca/platform-contract';
 import { MediaPlayer } from './MediaPlayer';
 import { startMediaPlayback } from './playback';
 vi.mock('./playback', () => ({ startMediaPlayback: vi.fn() }));

@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuStorageError } from '@orca/bambu-native';
 import { BambuStorageFiles, type BambuStorageSource } from './storageFiles';
 import { BambuStorageCommands } from './storageCommands';

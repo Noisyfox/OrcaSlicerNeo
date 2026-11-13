@@ -1,7 +1,7 @@
 import multicastDns from 'multicast-dns';
 import { isIP } from 'node:net';
 import type { WebContents } from 'electron';
-import type { MdnsService } from '@orca/network-discovery';
+import type { MdnsService } from '@orca/platform-contract';
 
 type RecordType = 'PTR' | 'SRV' | 'TXT' | 'A' | 'AAAA';
 interface WireRecord { name: string; type: string; ttl?: number; data?: unknown; flush?: boolean }

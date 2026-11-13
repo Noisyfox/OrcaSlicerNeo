@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import type { BambuNative, NativeEvent } from '@orca/bambu-native';
-import type { Result } from '@orca/printer-control/domain';
+import type { Result } from '@orca/platform-contract';
 import type { BambuLanCandidate } from '../../shared/bambuDevices';
 import type { BambuRepository } from './repository';
 

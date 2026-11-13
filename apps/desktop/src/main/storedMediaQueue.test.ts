@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { TransferQueue } from '@orca/printer-control/transfer-queue';
 import { StoredMediaQueue, type StoredMediaBinding } from './storedMediaQueue';
 const request = (id: string) => ({ requestId: id, target: { printerId: 'printer', routeId: 'route' }, source: { kind: 'file-preview', previewId: 'video', target: { printerId: 'printer', routeId: 'route', configurationRevision: 'r', storageId: 'sd', fileId: 'movie' } }, client: {} }) as D.OpenMediaRequest;

@@ -2,9 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import { PlatformProvider, type PlatformCapabilities, type Id, type PrinterService, type Result, type SavedPrinter } from '@orca/platform-contract';
 import { createMoonrakerService, createPrinterService } from '@orca/printer-control';
-import type { Id, PrinterService, Result, SavedPrinter } from '@orca/printer-control/domain';
 import { DevicePanel } from './DevicePanel';
 import { usePrinterCatalogue } from './usePrinterCatalogue';
 import { sendRoute } from '../send/printerSend';

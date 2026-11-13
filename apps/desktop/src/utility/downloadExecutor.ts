@@ -1,5 +1,5 @@
-import { executeDownload, type DownloadProgress, type DownloadResult } from '@orca/printer-control/downloads';
-import type { PrinterFiles, RemoteFileRef } from '@orca/printer-control/domain';
+import { executeDownload } from '@orca/printer-control/downloads';
+import type { DownloadProgress, DownloadResult, PrinterFiles, RemoteFileRef } from '@orca/platform-contract';
 import { createDownloadFileSink, openDownloadJournal, type DownloadDestination, type DownloadJournal, type SavedDownloadFile } from './downloadFiles';
 
 export type ManagedDownloadDestination = { kind: 'directory'; directory: string } | Extract<DownloadDestination, { kind: 'file' }>;

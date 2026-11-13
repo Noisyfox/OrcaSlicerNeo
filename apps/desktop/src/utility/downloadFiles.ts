@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { link, mkdir, open, readFile, readdir, rename, unlink, rmdir, lstat, writeFile, type FileHandle } from 'node:fs/promises';
-import type { DownloadSink } from '@orca/printer-control/downloads';
+import type { DownloadSink } from '@orca/platform-contract';
 
 export type DownloadDestination = { kind: 'directory'; directory: string; fileName: string }
   | { kind: 'file'; path: string; overwriteConfirmed: boolean };

@@ -19,9 +19,6 @@ importers:
       '@orca/color-sampler-native':
         specifier: workspace:*
         version: link:../../packages/color-sampler-native
-      '@orca/network-discovery':
-        specifier: workspace:*
-        version: link:../../packages/network-discovery
       '@orca/platform-contract':
         specifier: workspace:*
         version: link:../../packages/platform-contract
@@ -226,20 +223,8 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  packages/network-discovery:
-    devDependencies:
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-
   packages/platform-contract:
     dependencies:
-      '@orca/network-discovery':
-        specifier: workspace:*
-        version: link:../network-discovery
-      '@orca/printer-control':
-        specifier: workspace:*
-        version: link:../printer-control
       '@orca/service-provider':
         specifier: workspace:*
         version: link:../service-provider
@@ -259,9 +244,9 @@ importers:
 
   packages/printer-control:
     dependencies:
-      '@orca/network-discovery':
+      '@orca/platform-contract':
         specifier: workspace:*
-        version: link:../network-discovery
+        version: link:../platform-contract
       '@orca/service-provider':
         specifier: workspace:*
         version: link:../service-provider

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { usePlatform, type PlatformCapabilities } from '@orca/platform-contract';
-import { validateSynchronizationSource, type SynchronizationSource } from '@orca/printer-control';
+import { usePlatform, type PlatformCapabilities, type SynchronizationSource } from '@orca/platform-contract';
+import { validateSynchronizationSource } from '@orca/printer-control';
 import type { DeviceFilamentOptions, FilamentSessionSnapshot } from '@slicer/client';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';

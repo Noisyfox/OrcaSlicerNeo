@@ -1,40 +1,13 @@
 /** Host-neutral managed saving. Readers never receive a destination or filesystem path. */
-import type { DownloadedFile, PrinterError, PrinterFiles, RemoteFileRef } from './domain';
-
-export interface DownloadProgress {
-  phase: 'opening' | 'transferring' | 'finalizing';
-  writtenBytes: number;
-  totalBytes: number | null;
-  canCancel: boolean;
-}
-
-/** The host owns temporary output. Each write must settle before cleanup can remove it. */
-export interface DownloadSink<T> {
-  write(chunk: Uint8Array): Promise<void>;
-  /** Publication is the commit point: cancellation cannot undo a successful publication. */
-  publish(): Promise<T>;
-  /** Close and remove only this attempt's unpublished output; safe after a failed publish. */
-  discard(): Promise<void>;
-}
-
-export type DownloadFailureStage = 'open' | 'read' | 'write' | 'validate' | 'publish' | 'cleanup';
-export interface DownloadFailure {
-  stage: DownloadFailureStage;
-  error: PrinterError;
-  /** Cleanup errors take precedence over a nominal cancellation. */
-  cleanupFailed: boolean;
-}
-export type DownloadResult<T> = { status: 'saved'; value: T; writtenBytes: number }
-  | { status: 'cancelled'; writtenBytes: number }
-  | { status: 'failed'; writtenBytes: number; failure: DownloadFailure };
-
-export interface DownloadExecution<T> {
-  read: PrinterFiles['download'];
-  /** A rejected open cleans any output it created before rejecting. */
-  createSink(file: Pick<DownloadedFile, 'suggestedFileName' | 'mimeType' | 'totalBytes'>): Promise<DownloadSink<T>>;
-  /** Host budget, also enforced at the provider/native transport boundary. */
-  maxChunkBytes: number;
-}
+import type {
+  PrinterError,
+  RemoteFileRef,
+  DownloadProgress,
+  DownloadSink,
+  DownloadFailureStage,
+  DownloadResult,
+  DownloadExecution,
+} from '@orca/platform-contract';
 
 class ReadFailure extends Error {
   constructor(readonly detail: PrinterError) { super(detail.message); }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 type Alert = D.PrinterObservationMap['alerts'][number];

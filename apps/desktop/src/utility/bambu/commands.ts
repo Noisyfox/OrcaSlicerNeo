@@ -1,6 +1,6 @@
 import type { CommandContext, PreparedCommand, PreparedProtocolCommand } from './controlContext';
 import { createHash } from 'node:crypto';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { bambuCapabilities } from '../../shared/bambuPrinters';
 import { cameraProtocol, type TelemetryProjection } from './telemetry';
 import { protocolReport, id, number, record, records, type Report } from './protocol';

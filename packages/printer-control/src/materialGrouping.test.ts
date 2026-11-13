@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type * as D from './domain';
+import type * as D from '@orca/platform-contract';
 import { deviceGroupingContext } from './materialGrouping';
 const id = <K extends string>(value: string) => value as D.Id<K>;
 const target: D.PrinterTarget = { printerId: id('printer'), routeId: id('route') };

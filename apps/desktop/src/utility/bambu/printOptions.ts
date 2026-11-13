@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuMachineState } from './telemetry';
 import { number, record, type Report } from './protocol';
 import { printerFilamentId } from './printResources';

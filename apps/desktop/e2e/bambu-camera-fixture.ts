@@ -1,5 +1,5 @@
 import type { ElectronApplication, Page } from '@playwright/test';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { Ipc } from '../src/shared/ipc';
 declare global { var cameraFixture: { opened: number; closed: string[]; resources: Record<string, D.MediaDescriptor> }; }
 /** Real renderer adapter/port/player; deterministic image source, no physical device. */

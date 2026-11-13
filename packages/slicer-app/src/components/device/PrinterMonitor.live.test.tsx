@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { createMoonrakerService } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { PrinterMonitor } from './PrinterMonitor';
 import { TemperatureInput } from './PrinterControlCards';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';

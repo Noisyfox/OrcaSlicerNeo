@@ -1,6 +1,6 @@
 import { basename, isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { DownloadDirectorySelectionId } from '@orca/printer-control/domain';
+import type { DownloadDirectorySelectionId } from '@orca/platform-contract';
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { app, dialog, shell, type BrowserWindow } from 'electron';
 import { writeFileAtomically } from './atomicFile';

@@ -1,6 +1,7 @@
 /** One host repository owns configuration serialization and generations across providers. */
-import { normalizePrinterConfigurationDocument, type PrinterConfiguration, type PrinterConfigurationDocument } from './configuration';
-import type * as D from './domain';
+import { normalizePrinterConfigurationDocument } from './configuration';
+import type { PrinterConfiguration, PrinterConfigurationDocument } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { fail } from './moonraker-http';
 import { OperationStore, copy, newId } from './operations';
 

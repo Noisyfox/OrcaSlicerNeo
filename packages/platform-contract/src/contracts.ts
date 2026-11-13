@@ -1,8 +1,8 @@
 import type { AccountProvider } from '@orca/service-provider';
 import type { BuildInfo, SlicerClient } from '@slicer/client';
 import type { HistoryRuntimeMethods } from '@slicer/client';
-import type { PrinterService } from '@orca/printer-control/domain';
-import type { PrinterConfigurationDocument } from '@orca/printer-control';
+import type { PrinterService } from './printer';
+import type { PrinterConfigurationDocument } from './printer';
 import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
 import type { ProfileActivation } from '@slicer/client';
 import { normalizeProfileActivation } from './profileActivation';
@@ -455,7 +455,7 @@ export interface PlatformMemory {
 
 export interface PlatformCapabilities {
   /** Absent on hosts without multicast networking; agents receive this capability by injection. */
-  mdns?: import('@orca/network-discovery').MdnsDiscovery;
+  mdns?: import('./mdns').MdnsDiscovery;
   screenColor: import('./screenColor').ScreenColorSources;
   /** Account capabilities available on this host; independent of printers. */
   accounts: readonly AccountProvider[];
@@ -465,7 +465,7 @@ export interface PlatformCapabilities {
   projects: ProjectFileCapability;
   recentProjects: RecentProjectsCapability;
   preferences: UserPreferencesRepository;
-  printers: { configuration: PrinterConfigurationRepository; service: PrinterService; downloads: import('@orca/printer-control/domain').PrinterDownloads };
+  printers: { configuration: PrinterConfigurationRepository; service: PrinterService; downloads: import('./printer').PrinterDownloads };
   webview: WebViewHost;
   runtime: SlicerRuntime;
   memory: PlatformMemory;

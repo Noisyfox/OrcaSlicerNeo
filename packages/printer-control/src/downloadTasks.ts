@@ -1,12 +1,14 @@
-import type { DownloadBatchId, DownloadSelection, DownloadTaskId, DownloadTaskSnapshot } from './domain';
-import type { DownloadProgress, DownloadResult } from './downloads';
-import { TransferQueue, type TransferTicket } from './transferQueue';
+import type {
+  DownloadBatchId,
+  DownloadTaskId,
+  DownloadTaskSnapshot,
+  DownloadProgress,
+  DownloadResult,
+  TransferTicket,
+  ManagedDownloadRequest,
+} from '@orca/platform-contract';
+import { TransferQueue } from './transferQueue';
 
-export interface ManagedDownloadRequest<T> extends DownloadSelection {
-  physicalPrinterKey: string;
-  /** Each attempt revalidates the source and opens fresh output starting at byte zero. */
-  execute(signal: AbortSignal, progress: (value: DownloadProgress) => void): Promise<DownloadResult<T>>;
-}
 interface Task<T> { snapshot: DownloadTaskSnapshot; request: ManagedDownloadRequest<T>; ticket?: TransferTicket; result?: T; active?: object }
 const terminal = (value: DownloadTaskSnapshot) => ['saved', 'failed', 'cancelled', 'handed-to-browser'].includes(value.state);
 export function pausesDownloadQueue(result: Extract<DownloadResult<unknown>, { status: 'failed' }>): boolean {

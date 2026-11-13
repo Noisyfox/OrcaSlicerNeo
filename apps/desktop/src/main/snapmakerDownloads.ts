@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { readU1Download, u1DownloadChunkBytes, u1DownloadSource, type PrinterConfigurationDocument } from '@orca/printer-control';
-import type { RemoteFileRef } from '@orca/printer-control/domain';
+import { readU1Download, u1DownloadChunkBytes, u1DownloadSource } from '@orca/printer-control';
+import type { PrinterConfigurationDocument, RemoteFileRef } from '@orca/platform-contract';
 import { DownloadExecutor } from '../utility/downloadExecutor';
 import type { DownloadRecovery } from '../utility/downloadFiles';
 import type { DownloadBinding } from './printerDownloads';

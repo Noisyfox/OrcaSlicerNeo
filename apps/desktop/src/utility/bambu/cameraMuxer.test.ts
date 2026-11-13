@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import type { MediaStreamPacket } from '@orca/printer-control/domain';
+import type { MediaStreamPacket } from '@orca/platform-contract';
 import { CameraMuxer } from './cameraMuxer';
 
 // SPS/PPS from the generated 320x180 baseline fixture; slices below exercise admission only.

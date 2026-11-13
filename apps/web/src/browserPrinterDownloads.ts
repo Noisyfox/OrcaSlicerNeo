@@ -1,5 +1,5 @@
 import { u1DownloadChunkBytes, unavailablePrinterDownloads } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { executeDownload } from '@orca/printer-control/downloads';
 import { ManagedDownloadTasks } from '@orca/printer-control/download-tasks';
 import { TransferQueue } from '@orca/printer-control/transfer-queue';

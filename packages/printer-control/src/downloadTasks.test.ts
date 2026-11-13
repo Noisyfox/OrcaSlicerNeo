@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DownloadResult, DownloadProgress } from './downloads';
-import { ManagedDownloadTasks, type ManagedDownloadRequest } from './downloadTasks';
+import type { DownloadResult, DownloadProgress, ManagedDownloadRequest, RemoteFileRef } from '@orca/platform-contract';
+import { ManagedDownloadTasks } from './downloadTasks';
 import { TransferQueue } from './transferQueue';
-import type { RemoteFileRef } from './domain';
 const file = { printerId: 'p', routeId: 'r', configurationRevision: 'c', storageId: 's', fileId: 'f' } as RemoteFileRef;
 const saved = (value = '/private/file'): DownloadResult<string> => ({ status: 'saved', value, writtenBytes: 3 });
 const failure = (code: 'transport' | 'file-not-found' | 'storage-unavailable'): DownloadResult<string> => ({ status: 'failed', writtenBytes: 1,

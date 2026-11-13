@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { CommandContext } from './controlContext';
 import { BambuTelemetry } from './telemetry';
 import { BambuMaterialSettings, materialConfigurationTargets, prepareMaterialConfiguration } from './materialSettings';

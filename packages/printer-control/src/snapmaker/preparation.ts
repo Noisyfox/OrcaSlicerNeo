@@ -1,6 +1,6 @@
 /** U1 preparation consumes structured slice/device data; it never reads G-code. */
-import type * as D from '../domain';
-import type { PrinterConfiguration } from '../configuration';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration } from '@orca/platform-contract';
 import { MoonrakerHttp, fail, record } from '../moonraker-http';
 import { u1MaterialInventory, u1PathId, u1ToolId } from './observation';
 

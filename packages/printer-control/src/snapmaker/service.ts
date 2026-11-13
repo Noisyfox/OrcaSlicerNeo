@@ -1,6 +1,6 @@
 /** Snapmaker orchestration and host-lifetime U1 state, built on shared HTTP infrastructure. */
-import type * as D from '../domain';
-import type { PrinterConfiguration } from '../configuration';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration, MdnsDiscovery } from '@orca/platform-contract';
 import { createHttpPrinterService, known, retained, safe, supported, unknown, unsupported, type HttpServiceOptions, type HttpServiceContext, type HttpServiceBehavior, type ConfigurationEntry } from '../http-service';
 import { fail, MoonrakerFailure } from '../moonraker-http';
 import { copy, newId } from '../operations';
@@ -14,7 +14,6 @@ import { matchU1Materials, type FilamentMatcher } from './observation';
 import { U1_CAMERA_ID, u1CameraCapability } from './camera';
 import { U1Storage, u1DeleteCapability, u1StorageCapabilities } from './storage';
 import type { U1TimelapseTransport } from './timelapse';
-import type { MdnsDiscovery } from '@orca/network-discovery';
 import { u1Discovery } from './discovery';
 
 export interface SnapmakerServiceOptions extends HttpServiceOptions {

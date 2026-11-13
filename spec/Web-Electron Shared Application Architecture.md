@@ -98,7 +98,7 @@ apps/
 packages/
   slicer-app/              shared React features, stores, viewport, styles
   slicer-runtime/          Worker/WASM/profile loading orchestration
-  platform-contract/       platform, preferences, and profile-source contracts
+  platform-contract/       platform, printer, networking, preferences and profile-source contracts
   slicer-wasm/             existing C++ bridge, WASM build, typed base client
 ```
 
@@ -158,7 +158,9 @@ interface PlatformCapabilities {
 
 - The Electron adapter uses native dialogs and main/preload IPC.
 - The Web adapter uses browser file selection and a normal Blob download.
-- `@orca/network-discovery` owns provider-neutral mDNS contracts. The optional
+- `@orca/platform-contract` exports provider-neutral mDNS and printer contracts
+  from its root entrypoint. Implementations depend on this package; it does not
+  depend on `printer-control`. The optional
   `mdns` host capability browses a DNS-SD service type and yields resolved
   instance, SRV, address and TXT updates/removals. Electron implements multicast
   I/O behind validated main-frame IPC; each explicit browse owns its socket,

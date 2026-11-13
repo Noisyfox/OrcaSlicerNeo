@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Pause, Play, Square } from 'lucide-react';
 import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
 import { usePlatform } from '@orca/platform-contract';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';

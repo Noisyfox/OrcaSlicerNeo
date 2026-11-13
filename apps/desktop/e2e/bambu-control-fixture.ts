@@ -1,6 +1,6 @@
 /** Renderer/preload/main IPC fixture. Utility protocol behavior is covered separately by provider tests. */
 import type { ElectronApplication } from '@playwright/test';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuTelemetry } from '../src/utility/bambu/telemetry';
 import { commandCapabilities } from '../src/utility/bambu/commands';
 import { savedBambuPrinter } from '../src/shared/bambuPrinters';

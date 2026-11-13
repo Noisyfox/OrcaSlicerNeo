@@ -1,4 +1,4 @@
-import type { PrinterConfiguration } from '../configuration';
+import type { PrinterConfiguration } from '@orca/platform-contract';
 import { fail, MoonrakerHttp, record } from '../moonraker-http';
 
 export function isRelativeFilePath(path: unknown): path is string {

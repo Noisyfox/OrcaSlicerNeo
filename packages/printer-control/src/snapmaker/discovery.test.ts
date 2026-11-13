@@ -1,8 +1,8 @@
 import { expect, it, vi } from 'vitest';
-import type { MdnsEvent, MdnsService } from '@orca/network-discovery';
-import type * as D from '../domain';
+import type { MdnsEvent, MdnsService, PrinterConfiguration } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { createSnapmakerService } from './service';
-import { normalizePrinterConfigurationDocument, type PrinterConfiguration } from '../configuration';
+import { normalizePrinterConfigurationDocument } from '../configuration';
 
 async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> { const values: T[] = []; for await (const value of stream) values.push(value); return values; }
 const id = <T extends string>(value: string) => value as D.Id<T>;

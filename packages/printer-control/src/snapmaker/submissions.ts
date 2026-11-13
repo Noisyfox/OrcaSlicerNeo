@@ -1,6 +1,6 @@
 /** Host-lifetime U1 delivery. Observing/closing a dialog never cancels this executor. */
-import type * as D from '../domain';
-import type { PrinterConfiguration } from '../configuration';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration } from '@orca/platform-contract';
 import { MoonrakerFailure, MoonrakerHttp, fail, publicError } from '../moonraker-http';
 import { copy, newId, requestSignature } from '../operations';
 import { prepareU1Print } from './protocol';

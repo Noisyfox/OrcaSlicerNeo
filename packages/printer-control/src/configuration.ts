@@ -1,33 +1,5 @@
-import type { PrintPreferences } from './domain/print-options';
-import type { ConfiguredPrinterModel } from './domain/printer';
+import { BUILT_IN_PRINTER_DRIVER_IDS, PRINTER_CONFIGURATION_VERSION, type BuiltInPrinterDriverId, type PrinterDriverId, type PrinterConfiguration, type PrinterConfigurationDocument, type PrintPreferences, type ConfiguredPrinterModel } from '@orca/platform-contract';
 import { normalizePrintPreferences } from './print-preferences';
-export const PRINTER_CONFIGURATION_VERSION = 1 as const;
-export const BUILT_IN_PRINTER_DRIVER_IDS = ['moonraker', 'snapmaker'] as const;
-export type BuiltInPrinterDriverId = typeof BUILT_IN_PRINTER_DRIVER_IDS[number];
-export type PrinterDriverId = BuiltInPrinterDriverId;
-
-export interface PrinterConfiguration {
-  id: string;
-  displayName: string;
-  driverId: PrinterDriverId;
-  consoleUrl: string;
-  apiBaseUrl: string;
-  /** Kept complete in the configuration document; never included in errors. */
-  apiKey: string;
-  /** Omitted means no user-configured model restriction. */
-  printerModel?: ConfiguredPrinterModel;
-  /** Stable identity learned during explicit discovery/adoption; never a configured profile. */
-  discoveredIdentity?: { manufacturer: string; model: string; serialNumber: string };
-}
-
-export interface PrinterConfigurationDocument {
-  version: typeof PRINTER_CONFIGURATION_VERSION;
-  printers: PrinterConfiguration[];
-  /** Stable physical printer IDs, including providers without manual connection entries. */
-  printPreferences?: Record<string, PrintPreferences>;
-  /** Explicit global opt-in matching Orca's abnormal-storage override. */
-  allowAbnormalStorage?: boolean;
-}
 
 export class PrinterConfigurationValidationError extends Error {
   readonly issues: readonly string[];

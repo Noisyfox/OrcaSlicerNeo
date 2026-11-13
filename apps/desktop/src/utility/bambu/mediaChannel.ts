@@ -1,4 +1,4 @@
-import type { MediaStreamPacket } from '@orca/printer-control/domain';
+import type { MediaStreamPacket } from '@orca/platform-contract';
 import type { BambuMediaMessage } from '../../shared/bambuMedia';
 export interface CameraPort {
   postMessage(message: BambuMediaMessage): void;
@@ -39,7 +39,7 @@ export class CameraChannel {
     if (packet.generation !== this.generation) { this.generation = packet.generation; this.sequence = 0; }
     try { this.port.postMessage({ type: 'packet', packet: { ...packet, sequence: this.sequence++ } }); } catch { this.failed(); }
   }
-  close(error?: import('@orca/printer-control/domain').PrinterError) {
+  close(error?: import('@orca/platform-contract').PrinterError) {
     if (this.stopped) return; this.stopped = true; this.pending = []; this.bytes = 0;
     try { this.port?.postMessage(error ? { type: 'error', error } : { type: 'closed' }); } catch { /* Document has gone. */ }
     this.port?.close();

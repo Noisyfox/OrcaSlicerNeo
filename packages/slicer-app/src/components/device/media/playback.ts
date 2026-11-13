@@ -1,5 +1,5 @@
 /** Browser-only delivery consumer. The resource owner opens/renews/closes media separately. */
-import type { MediaClientCapabilities, MediaDescriptor, MediaStreamPacket, PrinterMedia, VideoDelivery } from '@orca/printer-control/domain';
+import type { MediaClientCapabilities, MediaDescriptor, MediaStreamPacket, PrinterMedia, VideoDelivery } from '@orca/platform-contract';
 
 export type PlaybackState = 'connecting' | 'playing' | 'paused' | 'recovering';
 export interface PlaybackOptions {

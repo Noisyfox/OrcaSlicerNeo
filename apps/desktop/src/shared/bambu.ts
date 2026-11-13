@@ -2,7 +2,7 @@ import type { BambuMediaCall, BambuMediaAttachment } from './bambuMedia';
 import type { BambuControlCall } from './bambuControl';
 import type { AccountError, AccountResult, AccountSetting, AccountState } from '@orca/service-provider';
 import { isBambuDevice, isBambuLanCandidate, type BambuLanCandidate, type BambuDevice } from './bambuDevices';
-import type { Result } from '@orca/printer-control/domain';
+import type { Result } from '@orca/platform-contract';
 
 export const BAMBU_REGIONS = ['China', 'AsiaPacific', 'NorthAmerica', 'Europe', 'Others'] as const;
 export type BambuRegion = typeof BAMBU_REGIONS[number];

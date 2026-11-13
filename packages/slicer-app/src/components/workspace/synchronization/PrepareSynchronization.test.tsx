@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClient, createMockModule } from '@slicer/client';
 import { createMoonrakerService } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { DEFAULT_USER_PREFERENCES, PlatformProvider, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import { PrepareSynchronization, requestPrepareSynchronization, usePrepareSynchronization } from './PrepareSynchronization';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';

@@ -2,8 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
-import type { DiscoveryCandidate, PrinterService, SavedPrinter } from '@orca/printer-control/domain';
+import { PlatformProvider, type PlatformCapabilities, type DiscoveryCandidate, type PrinterService, type SavedPrinter } from '@orca/platform-contract';
 import { PrinterDiscovery } from './PrinterDiscovery';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let cleanup = () => {};

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import type { MediaDescriptor, PrinterMedia } from '@orca/printer-control/domain';
+import type { MediaDescriptor, PrinterMedia } from '@orca/platform-contract';
 import { startMediaPlayback, type PlaybackState } from './playback';
 import { Badge } from '@/components/ui/badge';
 

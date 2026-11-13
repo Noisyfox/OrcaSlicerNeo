@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { isMediaPacket, type BambuMediaAttachment, type BambuMediaMessage } from '../../../shared/bambuMedia';
 const failure = (code: D.ErrorCode, message: string): D.PrinterStreamError => Object.assign(new Error(message), { detail: { code, message } });
 

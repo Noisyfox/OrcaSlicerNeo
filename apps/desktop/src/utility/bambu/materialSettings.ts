@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { NativeEvent } from '@orca/bambu-native';
 import type { BambuDeviceAccess } from './deviceAccess';
 import type { BambuDeviceContext, CommandContext, PreparedCommand, PreparedProtocolCommand } from './controlContext';

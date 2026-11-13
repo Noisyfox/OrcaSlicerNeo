@@ -3,11 +3,17 @@ import { useProjectModal } from '../useProjectModal';
 import { PrintPreparationPanel } from './PrintPreparationPanel';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { SavedPrinter } from '@orca/printer-control/domain';
+import {
+  gcodeFilenameBasename,
+  updateUserPreferences,
+  usePlatform,
+  type SavedPrinter,
+  type RemoteFile,
+  type PlatformCapabilities,
+  type UserPreferences,
+} from '@orca/platform-contract';
 import { usePrinterCatalogue, usePrinterModelFilter } from '../device/usePrinterCatalogue';
-import type { RemoteFile } from '@orca/printer-control/domain';
 import { SendFailure, uploadForSend, startUploadedPrint, sendRoute } from './printerSend';
-import { gcodeFilenameBasename, updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';

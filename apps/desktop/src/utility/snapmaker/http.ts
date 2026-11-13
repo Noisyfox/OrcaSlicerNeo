@@ -1,4 +1,4 @@
-import type { PrinterTransport } from '@orca/printer-control';
+import type { PrinterTransport } from '@orca/platform-contract';
 
 /** Camera HTTP requests execute in the utility process. */
 export const cameraHttpTransport: PrinterTransport = {

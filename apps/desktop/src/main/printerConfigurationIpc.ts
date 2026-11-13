@@ -5,7 +5,8 @@ import {
   savePrinterConfigurationFile,
   type PrinterConfigurationFileSystem,
 } from './printerConfigurationPersistence';
-import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
+import { normalizePrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
+import type { PrinterConfigurationDocument } from '@orca/platform-contract';
 
 export interface PrinterConfigurationIpcDependencies {
   path(): string;

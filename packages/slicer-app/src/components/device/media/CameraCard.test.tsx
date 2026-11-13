@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { CameraCard } from './CameraCard';
 vi.mock('./MediaPlayer', () => ({ MediaPlayer: ({ descriptor, onError }: { descriptor: D.MediaDescriptor; onError(message: string): void }) =>
   <button data-testid="fake-player" onClick={() => onError('Decoder failed')}>{descriptor.ref.id}:{descriptor.revision}</button> }));

@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuBridge } from '../../../shared/bambu';
 /** Upload chunks are acknowledged one at a time; large archives never enter JSON arrays. */
 export function bambuSubmissions(bridge: BambuBridge): D.PrinterSubmissions {

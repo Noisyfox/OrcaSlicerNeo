@@ -14,7 +14,8 @@ import {
   type PrinterTransportIpcResponse,
   type PrinterTransportProgress,
 } from '../shared/ipc';
-import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
+import { normalizePrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
+import type { PrinterConfigurationDocument } from '@orca/platform-contract';
 import { NEO_VERSION } from '../../../../packages/slicer-runtime/src/version';
 
 // The renderer's only window to native features (design §Electron App).

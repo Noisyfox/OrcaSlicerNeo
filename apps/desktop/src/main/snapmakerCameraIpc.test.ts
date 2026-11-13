@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { expect, it, vi } from 'vitest';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
-import type { PrinterConfigurationDocument } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
+import type { PrinterConfigurationDocument } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import { cameraConfigurationDigest, type CameraRequest } from '../shared/snapmakerCamera';
 vi.mock('electron', () => ({ MessageChannelMain: class {} }));
 import { SnapmakerCameraIpc } from './snapmakerCameraIpc';

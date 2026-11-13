@@ -1,6 +1,6 @@
 import type { BambuDeviceContext, CommandContext } from './controlContext';
 import type { NativeEvent } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuDeviceAccess } from './deviceAccess';
 import type { BambuObjectSkipping } from './objectSkipping';
 import { BambuRecovery } from './recovery';

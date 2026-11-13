@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, ChevronDown, Disc3, Eraser, X } from 'lucide-react';
-import type { PrintMaterialRequirement, PrintMaterialSource } from '@orca/printer-control/domain';
+import type { PrintMaterialRequirement, PrintMaterialSource } from '@orca/platform-contract';
 import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverClose, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from '@/components/ui/popover';

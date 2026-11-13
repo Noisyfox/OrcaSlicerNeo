@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { installControlFixture } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
 import { isBambuControlRequest } from '../src/shared/bambuControl';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 declare global { var printFixture: { requests: unknown[]; submissions: D.PrintSubmissionRequest[]; chunks: number; state: D.PrintSubmissionState | null; holdRead: boolean; releaseRead?: () => void }; }
 test('Send & Print filters Bambu reported models and accepts matching agent catalogue references', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl') } });

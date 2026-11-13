@@ -1,5 +1,5 @@
-import type * as D from '@orca/printer-control/domain';
-import type { PrinterConfiguration } from '@orca/printer-control';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration } from '@orca/platform-contract';
 import { cameraConfigurationDigest, type SnapmakerCameraBridge } from '../../../shared/snapmakerCamera';
 import { desktopMediaStream } from './desktopMediaStream';
 

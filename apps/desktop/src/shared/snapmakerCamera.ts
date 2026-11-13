@@ -1,5 +1,5 @@
-import type * as D from '@orca/printer-control/domain';
-import type { PrinterConfiguration } from '@orca/printer-control';
+import type * as D from '@orca/platform-contract';
+import type { PrinterConfiguration } from '@orca/platform-contract';
 import { isBambuMediaRequest, isBambuMediaAttachment, isMediaRef, type BambuMediaAttachment } from './bambuMedia';
 
 export type CameraStatus = { descriptor: D.MediaDescriptor; state: 'connecting' | 'ready' | 'closed'; error: D.PrinterError | null };

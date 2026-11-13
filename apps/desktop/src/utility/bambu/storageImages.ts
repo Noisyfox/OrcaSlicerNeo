@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuMediaRequest, BambuMediaStatus } from '../../shared/bambuMedia';
 import { thumbnailTarget } from '../projectThumbnail';
 import { BambuStorageFiles, storageFailure } from './storageFiles';

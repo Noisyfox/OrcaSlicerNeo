@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { it, expect, vi } from 'vitest';
-import type { PrinterService } from '@orca/printer-control/domain';
+import type { PrinterService } from '@orca/platform-contract';
 import { sendActivity } from '@orca/printer-control';
 import { useSendExitGuard } from './SendExitGuard';
 it('offers return without cancellation, then requests local cancellation before allowing exit', async () => {

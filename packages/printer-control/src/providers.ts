@@ -1,6 +1,6 @@
 import { trackPrinterSends } from './send-activity';
 /** Dispatch by provider-owned route identity; account/session state never participates. */
-import type * as D from './domain';
+import type * as D from '@orca/platform-contract';
 
 const invalid = (message: string): D.PrinterError => ({ code: 'invalid-target', message });
 class RoutingError extends Error {

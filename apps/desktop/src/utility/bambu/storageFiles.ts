@@ -1,6 +1,6 @@
 /** Agent-owned remote references and browsing. No host destination or active-project state. */
 import { randomUUID } from 'node:crypto';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { BambuStorageError, type BambuStorageCollection, type BambuStorageEntry, type BambuStorageFile,
   type BambuStorageDownload } from '@orca/bambu-native';
 

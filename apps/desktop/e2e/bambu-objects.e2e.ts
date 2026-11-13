@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { installControlFixture } from './bambu-control-fixture';
 import { isBambuControlRequest } from '../src/shared/bambuControl';
 import { Ipc } from '../src/shared/ipc';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 
 test('current-task objects synchronize map/list, guard confirmations and allow independent consecutive batches', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });

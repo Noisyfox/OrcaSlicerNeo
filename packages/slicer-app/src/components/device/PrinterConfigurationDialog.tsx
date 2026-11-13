@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { usePlatform } from '@orca/platform-contract';
-import type { ConfiguredPrinterModel, Id, PrinterConfigurationForm, PrinterTypeDescriptor, TargetRequest } from '@orca/printer-control/domain';
+import {
+  usePlatform,
+  type ConfiguredPrinterModel,
+  type Id,
+  type PrinterConfigurationForm,
+  type PrinterTypeDescriptor,
+  type TargetRequest,
+} from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';

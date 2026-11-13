@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuMediaAttachment, BambuMediaRequest, BambuMediaStatus } from '../../shared/bambuMedia';
 import type { CameraPort } from './mediaChannel';
 import { BambuStorageFiles, storageFailure } from './storageFiles';

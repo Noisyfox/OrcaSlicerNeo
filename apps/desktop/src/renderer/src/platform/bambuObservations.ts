@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuBridge } from '../../../shared/bambu';
 const failure = (detail: D.PrinterError): D.PrinterStreamError => Object.assign(new Error(detail.message), { detail });
 function scoped<K extends D.StateTopic>(value: D.PrinterSnapshot, request: D.ObservationRequest<K>): D.PrinterSnapshot<K> {

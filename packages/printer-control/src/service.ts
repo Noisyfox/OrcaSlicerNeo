@@ -1,5 +1,5 @@
 /** On-demand Moonraker agent, using the shared HTTP configuration and operation owner. */
-import type * as D from './domain';
+import type * as D from '@orca/platform-contract';
 import { createHttpPrinterService, type HttpServiceOptions } from './http-service';
 
 export type MoonrakerServiceOptions = HttpServiceOptions;

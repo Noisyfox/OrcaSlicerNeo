@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { executeDownload } from '@orca/printer-control/downloads';
-import type { Id, RemoteFileRef } from '@orca/printer-control/domain';
+import type { Id, RemoteFileRef } from '@orca/platform-contract';
 import { createDownloadFileSink, recoverInterruptedDownloads } from './downloadFiles';
 
 const roots: string[] = [];

@@ -2,8 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
-import type { Result, SavedPrinter } from '@orca/printer-control/domain';
+import { PlatformProvider, type PlatformCapabilities, type Result, type SavedPrinter } from '@orca/platform-contract';
 import { DevicePanel } from './DevicePanel';
 
 describe('DevicePanel configuration loading', () => {

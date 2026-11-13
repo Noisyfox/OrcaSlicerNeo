@@ -1,7 +1,7 @@
 /** Host-private protocol decoding and pinned Orca compatibility defaults. */
 import h2d from '../../../../../packages/slicer-wasm/cpp/resources/printers/O1D.json';
 import h2dPro from '../../../../../packages/slicer-wasm/cpp/resources/printers/O1E.json';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 
 /** Shared protocol field decoding; independent of telemetry and resource lookup. */
 export type Report = Record<string, unknown>;

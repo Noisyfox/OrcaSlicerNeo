@@ -1,10 +1,7 @@
 /** Host-local unfinished sends. UI observation lifetime never owns this registry. */
-import type * as D from './domain';
-export interface SendActivityLease {
-  signal: AbortSignal;
-  setCancellation(cancel: () => void | Promise<unknown>): void;
-  finish(): void;
-}
+import type * as D from '@orca/platform-contract';
+import type { SendActivityLease } from '@orca/platform-contract';
+
 export class SendActivity {
   private entries = new Set<{ controller: AbortController; cancel?: () => void | Promise<unknown> }>();
   get active() { return this.entries.size > 0; }

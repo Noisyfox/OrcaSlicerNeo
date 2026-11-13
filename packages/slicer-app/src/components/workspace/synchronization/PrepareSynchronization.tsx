@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
-import { readSynchronizationSource, validateSynchronizationSource, type SynchronizationKind, type SynchronizationSource } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
-import { loadUserPreferences, usePlatform, type PlatformCapabilities } from '@orca/platform-contract';
+import { readSynchronizationSource, validateSynchronizationSource } from '@orca/printer-control';
+import { loadUserPreferences, usePlatform, type SynchronizationKind, type SynchronizationSource, type PlatformCapabilities } from '@orca/platform-contract';
+import type * as D from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, MaterialImportApplication } from '@slicer/client';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';

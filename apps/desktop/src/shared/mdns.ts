@@ -1,4 +1,4 @@
-import type { MdnsService } from '@orca/network-discovery';
+import type { MdnsService } from '@orca/platform-contract';
 
 /** Serializable snapshot binding; each browse belongs to the calling main-frame renderer. */
 export interface MdnsBridge {

@@ -1,6 +1,6 @@
 import { isStorageFileRef } from './bambuStorage';
 import { isPrintOptions } from './bambuSubmission';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string' && value.length > 0 && value.length < 1024;
 const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value);

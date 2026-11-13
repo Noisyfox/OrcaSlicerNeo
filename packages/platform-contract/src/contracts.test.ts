@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { MODEL_FILE_ACCEPT, MODEL_FILE_EXTENSIONS, normalizeGcodeTextWindowGeometry, normalizeUserPreferences, type GcodeExporter, type ModelImporter, type ProfileSource, type SlicerRuntime, type UserPreferencesRepository, type PrinterConfigurationRepository, type WebViewHost } from './contracts';
-import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 
 describe('user preferences', () => {
   it('admits independent concrete base-Printer flow vectors at both host storage boundaries', () => {
@@ -124,7 +123,7 @@ describe('host contracts', () => {
     };
     const printers: PrinterConfigurationRepository = {
       onChanged: () => () => {},
-      async load() { return normalizePrinterConfigurationDocument({ version: 1, printers: [] }); },
+      async load() { return { version: 1, printers: [] }; },
       async save(document) { expect(document.version).toBe(1); },
     };
     const profileBytes = new Uint8Array([123]);

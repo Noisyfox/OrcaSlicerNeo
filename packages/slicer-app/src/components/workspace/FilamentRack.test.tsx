@@ -2,14 +2,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_USER_PREFERENCES, PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import { DEFAULT_USER_PREFERENCES, PlatformProvider, type PlatformCapabilities, type SynchronizationSource } from '@orca/platform-contract';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
-import type { SynchronizationSource } from '@orca/printer-control';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, HistoryStatus } from '@slicer/client';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

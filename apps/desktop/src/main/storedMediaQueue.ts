@@ -1,5 +1,6 @@
-import type * as D from '@orca/printer-control/domain';
-import type { TransferQueue, TransferTicket } from '@orca/printer-control/transfer-queue';
+import type * as D from '@orca/platform-contract';
+import type { TransferQueue } from '@orca/printer-control/transfer-queue';
+import type { TransferTicket } from '@orca/platform-contract';
 const stopped = (): D.Result<never> => ({ ok: false, error: { code: 'cancelled', message: 'Video opening stopped.' } });
 interface Entry { owner: string; request: D.OpenMediaRequest; result: Promise<D.Result<D.MediaDescriptor>>; resolve(value: D.Result<D.MediaDescriptor>): void; ticket?: TransferTicket; ref?: D.MediaRef; cancelled: boolean }
 export interface StoredMediaBinding {

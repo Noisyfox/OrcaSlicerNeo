@@ -1,4 +1,4 @@
-import type { PrinterDownloads } from '@orca/printer-control/domain';
+import type { PrinterDownloads } from '@orca/platform-contract';
 import { isStorageFileRef } from './bambuStorage';
 export type DownloadMethod = Exclude<keyof PrinterDownloads, 'capability' | 'onChanged'>;
 export type DownloadRequest = { [K in DownloadMethod]: { method: K; args: Parameters<PrinterDownloads[K]> } }[DownloadMethod];

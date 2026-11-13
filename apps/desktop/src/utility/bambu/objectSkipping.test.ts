@@ -2,7 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import type { readBambuProjectResource, BambuNative } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuHostConfig } from '../../shared/bambu';
 import type { BambuDevice } from '../../shared/bambuDevices';
 import { BambuObjectSkipping } from './objectSkipping';

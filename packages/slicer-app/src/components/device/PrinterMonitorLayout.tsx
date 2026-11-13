@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Box } from 'lucide-react';
-import type { PrintStatus } from '@orca/printer-control/domain';
+import type { PrintStatus } from '@orca/platform-contract';
 import { ControlCard, display, valueOf } from './PrinterControlCards';
 import './PrinterMonitor.css';
 

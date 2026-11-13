@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type * as D from '../domain';
+import type * as D from '@orca/platform-contract';
 import { readU1Preparation, prepareU1Submission, type U1PreparationSnapshot } from './preparation';
 import { MoonrakerHttp } from '../moonraker-http';
 import { normalizePrinterConfigurationDocument } from '../configuration';

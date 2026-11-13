@@ -2,7 +2,7 @@
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ConfiguredPrinterModel } from '@orca/printer-control/domain';
+import type { ConfiguredPrinterModel } from '@orca/platform-contract';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { PrinterModelSelector } from './PrinterModelSelector';

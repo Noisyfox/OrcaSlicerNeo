@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuNative, NativePrintResult, NativePrintParameters } from '@orca/bambu-native';
 import type { BambuDeviceAccess } from './deviceAccess';
 import type { BambuDevices } from './devices';

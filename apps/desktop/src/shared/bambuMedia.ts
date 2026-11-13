@@ -1,6 +1,6 @@
 import { isStorageFileRef } from './bambuStorage';
 /** Metadata-only IPC and bounded binary channel messages. Credentials never cross this boundary. */
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 export type BambuMediaStatus = { descriptor: D.MediaDescriptor; state: 'ready' | 'interrupted' | 'closed'; error: D.PrinterError | null };
 export interface BambuMediaInputs { cancelOpen: { requestId: D.Id<'request'> }; open: D.OpenMediaRequest; get: D.MediaRef; renew: D.MediaRef; close: D.MediaRef }
 export interface BambuMediaResults { cancelOpen: D.Result<null>; open: D.Result<D.MediaDescriptor>; get: D.Result<BambuMediaStatus>; renew: D.Result<D.MediaDescriptor>; close: D.Result<null> }

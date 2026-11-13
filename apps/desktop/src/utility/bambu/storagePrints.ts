@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { REMOTE_PRINT_RESOURCES, type RemotePrintMetadata, type RemotePrintResourceBytes } from '../../../../../packages/slicer-runtime/src/core';
 import type { RemotePrintInspector } from '../remotePrintInspector';
 import { BambuStorageFiles, storageFailure } from './storageFiles';

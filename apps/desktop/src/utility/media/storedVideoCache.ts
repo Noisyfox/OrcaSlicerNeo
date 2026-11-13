@@ -1,6 +1,6 @@
 import { mkdtemp, open, rm, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { ProgressiveMp4, StoredVideoError, type VideoIndex } from './progressiveMp4';
 
 interface Fragment { offset: number; length: number; start: number; end: number; key: boolean }

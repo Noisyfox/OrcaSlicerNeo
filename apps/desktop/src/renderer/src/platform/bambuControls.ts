@@ -1,4 +1,4 @@
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuBridge } from '../../../shared/bambu';
 import { isBambuCommandPayload } from '../../../shared/bambuCommandValidation';
 import { isBambuControlRequest } from '../../../shared/bambuControl';

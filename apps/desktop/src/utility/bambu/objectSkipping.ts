@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { SaxesParser } from 'saxes';
 import { BambuResourceError, readBambuProjectResource, type BambuNative } from '@orca/bambu-native';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import type { BambuHostConfig } from '../../shared/bambu';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';

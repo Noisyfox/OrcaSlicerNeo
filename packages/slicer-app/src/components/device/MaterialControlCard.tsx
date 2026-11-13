@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Ellipsis, Flame, Pencil } from 'lucide-react';
-import type * as D from '@orca/printer-control/domain';
+import type * as D from '@orca/platform-contract';
 import { colorSwatchStyle } from '@/components/ui/color-swatch';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
