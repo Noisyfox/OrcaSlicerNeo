@@ -1,6 +1,6 @@
 import type { BambuMediaCall, BambuMediaAttachment } from './bambuMedia';
 import type { BambuControlCall } from './bambuControl';
-import type { AccountError, AccountResult, AccountSetting, AccountState } from '@orca/service-provider';
+import type { AccountError, AccountResult, AccountSetting, AccountState } from '@orca/platform-contract';
 import { isBambuDevice, isBambuLanCandidate, type BambuLanCandidate, type BambuDevice } from './bambuDevices';
 import type { Result } from '@orca/platform-contract';
 

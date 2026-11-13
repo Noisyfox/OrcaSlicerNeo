@@ -25,9 +25,6 @@ importers:
       '@orca/printer-control':
         specifier: workspace:*
         version: link:../../packages/printer-control
-      '@orca/service-provider':
-        specifier: workspace:*
-        version: link:../../packages/service-provider
       '@orca/slicer-app':
         specifier: workspace:*
         version: link:../../packages/slicer-app
@@ -225,9 +222,6 @@ importers:
 
   packages/platform-contract:
     dependencies:
-      '@orca/service-provider':
-        specifier: workspace:*
-        version: link:../service-provider
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -247,9 +241,6 @@ importers:
       '@orca/platform-contract':
         specifier: workspace:*
         version: link:../platform-contract
-      '@orca/service-provider':
-        specifier: workspace:*
-        version: link:../service-provider
     devDependencies:
       typescript:
         specifier: ^7.0.2
@@ -273,12 +264,6 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@24.13.3)(jsdom@26.1.0)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
 
-  packages/service-provider:
-    devDependencies:
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-
   packages/slicer-app:
     dependencies:
       '@base-ui/react':
@@ -290,9 +275,6 @@ importers:
       '@orca/printer-control':
         specifier: workspace:*
         version: link:../printer-control
-      '@orca/service-provider':
-        specifier: workspace:*
-        version: link:../service-provider
       '@orca/slicer-runtime':
         specifier: workspace:*
         version: link:../slicer-runtime

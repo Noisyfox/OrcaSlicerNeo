@@ -21,11 +21,17 @@ for (const section of ['dependencies', 'devDependencies', 'peerDependencies', 'o
   if (manifest[section]?.['@orca/printer-control']) throw new Error('platform-contract must not depend on printer-control');
 }
 
-// Account contracts must not acquire a dependency on printer or native host domains.
-await walk(new URL('../../service-provider/src/', import.meta.url), /(?:from\s*['"][^'"]*(?:platform-contract|printer-control|electron|node:|apps\/)|import\s*\(\s*['"][^'"]*(?:platform-contract|printer-control|electron|node:|apps\/))/);
+// Sharing a package must not make account contracts depend on the central
+// barrel, printer contracts, implementations or host code.
+const accountSource = await readFile(new URL('../src/serviceProvider.ts', import.meta.url), 'utf8');
+for (const match of accountSource.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)['"]([^'"]+)['"]/g)) {
+  if (/(?:platform-contract|printer-control|electron|node:|apps\/|(?:^|\/)(?:index|contracts|context|printer))/.test(match[1])) {
+    throw new Error(`forbidden account contract dependency: ${match[1]}`);
+  }
+}
 
 // Native addon wrappers are exclusively owned by Electron host code.
 const nativePluginImport = /(?:from\s*['"][^'"]*(?:bambu-native|color-sampler-native)|import\s*\(\s*['"][^'"]*(?:bambu-native|color-sampler-native))/;
-for (const path of ['../src/', '../../service-provider/src/', '../../printer-control/src/', '../../slicer-app/src/', '../../../apps/web/src/']) {
+for (const path of ['../src/', '../../printer-control/src/', '../../slicer-app/src/', '../../../apps/web/src/']) {
   await walk(new URL(path, import.meta.url), nativePluginImport);
 }

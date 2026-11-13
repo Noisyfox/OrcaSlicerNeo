@@ -1,4 +1,4 @@
-import type { AccountProvider } from '@orca/service-provider';
+import type { AccountProvider } from './serviceProvider';
 import type { BuildInfo, SlicerClient } from '@slicer/client';
 import type { HistoryRuntimeMethods } from '@slicer/client';
 import type { PrinterService } from './printer';

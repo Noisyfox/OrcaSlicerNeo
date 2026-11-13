@@ -1,4 +1,4 @@
-import type { AccountProvider, AccountState, ServiceProvider } from '../src';
+import type { AccountProvider, AccountState, ServiceProvider } from '../src/serviceProvider';
 declare const provider: AccountProvider;
 const identity: ServiceProvider = provider;
 void identity;

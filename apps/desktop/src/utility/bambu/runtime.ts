@@ -22,7 +22,7 @@ import { BambuDeviceAccess } from './deviceAccess';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadBambuNative, type BambuNative, type NativeEvent } from '@orca/bambu-native';
-import type { AccountState } from '@orca/service-provider';
+import type { AccountState } from '@orca/platform-contract';
 import { bambuRegionChoices, unavailableBambuAccount, type BambuChange, type BambuHostConfig, type BambuRead, type BambuReadResults } from '../../shared/bambu';
 import { BambuAccount, bambuCountry } from './account';
 import type { BambuHostRequest } from '../../shared/bambuHost';

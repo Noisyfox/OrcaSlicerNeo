@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { usePlatform, type ProjectInput, type ProjectLoadBehaviour, type UserPreferences, type DownloadDirectorySelectionId } from '@orca/platform-contract';
-import type { AccountProvider, AccountSetting } from '@orca/service-provider';
+import { usePlatform, type ProjectInput, type ProjectLoadBehaviour, type UserPreferences, type DownloadDirectorySelectionId, type AccountProvider, type AccountSetting } from '@orca/platform-contract';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectNotice, ProjectOperation } from '@/stores/useProjectStore';
 import { Button } from '@/components/ui/button';

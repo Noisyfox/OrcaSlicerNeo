@@ -2,7 +2,7 @@
 import { isDownloadExecutionRequest, type DownloadExecutionInputs, type DownloadExecutionResults } from './downloadExecution';
 import type { Result, MediaRef } from '@orca/platform-contract';
 import { isMediaRef } from './bambuMedia';
-import type { AccountResult } from '@orca/service-provider';
+import type { AccountResult } from '@orca/platform-contract';
 export type LoginCompletion =
   | { kind: 'ticket'; ticket: string; autotestToken?: string }
   | { kind: 'user'; data: Record<string, unknown>; autotestToken?: string }

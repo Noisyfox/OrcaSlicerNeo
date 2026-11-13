@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { BrowserWindow, ipcMain, nativeTheme, shell } from 'electron';
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
-import type { AccountResult } from '@orca/service-provider';
+import type { AccountResult } from '@orca/platform-contract';
 import type { BambuUtility } from './bambuUtility';
 import type { LoginCompletion } from '../shared/bambuHost';
 

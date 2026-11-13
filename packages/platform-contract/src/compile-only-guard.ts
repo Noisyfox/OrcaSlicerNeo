@@ -1,7 +1,7 @@
 import type {
   ExternalLinks, FileDownloader, GcodeExporter, ModelImporter, PlatformCapabilities, ProfileSource,
   SlicerRuntime, UserPreferencesRepository, PrinterConfigurationRepository,
-  WebViewHost, ProjectFileCapability, PlatformMemory, MdnsDiscovery, MdnsService, MdnsEvent, PrinterTransport, PrinterConfigurationDocument,
+  WebViewHost, ProjectFileCapability, PlatformMemory, MdnsDiscovery, MdnsService, MdnsEvent, PrinterTransport, PrinterConfigurationDocument, AccountProvider,
 } from './index';
 import type { PrinterService, PrinterDownloads } from './index';
 import type { MenuCommandId, PlatformMenu } from './menu';
@@ -66,3 +66,8 @@ const transport: PrinterTransport = { async request(_request) {
 } };
 const document: PrinterConfigurationDocument = { version: 1, printers: [] };
 void browse; void transport; void document;
+
+// Account-only providers remain usable through the common root entrypoint.
+declare const accountProvider: AccountProvider;
+const accounts: PlatformCapabilities['accounts'] = [accountProvider];
+void accounts;

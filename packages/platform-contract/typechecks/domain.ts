@@ -914,7 +914,7 @@ async function invokeObservedAction() {
 }
 
 // Common provider identity composes independent capability interfaces.
-import type { AccountProvider } from '@orca/service-provider';
+import type { AccountProvider } from '../src/serviceProvider';
 import type { PrinterProvider } from '../src/printer';
 interface CombinedProvider extends AccountProvider, PrinterProvider {}
 declare const combinedProvider: CombinedProvider;

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { UserRound } from 'lucide-react';
-import { usePlatform } from '@orca/platform-contract';
-import type { AccountProvider, AccountResult, AccountState } from '@orca/service-provider';
+import { usePlatform, type AccountProvider, type AccountResult, type AccountState } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 
 function AccountAvatar({ url }: { url: string | null }) {

@@ -225,7 +225,7 @@ browser download/link behavior. See [Application Shell](Application%20Shell.md).
 
 **Decision status:** The shared boundary and Electron-only Bambu native-addon
 direction are selected and implementation is authorized. Step 1 delivers the
-host-neutral [service-provider contracts](../packages/service-provider/src/index.ts)
+host-neutral [service-provider contracts](../packages/platform-contract/src/serviceProvider.ts)
 and platform account-capability injection. Account and printer interfaces are
 separate, with provider-owned account association. Step 2 adds common printer
 provider dispatch and reactive Device/Send catalogues while retaining Moonraker
@@ -251,7 +251,9 @@ isolated-login/system-browser handoff checks. The macOS ARM64 app also restores
 the real China-region account and Cloud catalogue across normal restart.
 
 Provider identity, account modeling and account methods belong in a shared
-contract module outside `printer-control`. They must be usable by services with
+contract module in `platform-contract`, exported from its root entrypoint alongside
+the printer and mDNS contracts. There is no separate service-provider package.
+The account module remains independent of printer types and is usable by services with
 no printer functionality, including future profile synchronization. The common
 provider boundary must not depend on the printer domain, Electron, Node.js,
 native plugin types or a vendor's authentication payloads.
@@ -449,8 +451,8 @@ preserve the selected product behavior and provider ownership boundaries:
 | Native host and delivery | Exact upstream binary release; ordinary build/feature verification and real-account/device acceptance. All six Electron targets are selected; use Orca's common headers and loader pattern. Orca configuration import and process crash recovery are excluded from the first delivery. |
 
 Authentication is handled by the provider, with account summaries available
-locally. The public account request/state contract is defined in the service-provider
-module; native transport/state handling must respect the selected window-close behavior. The Home-only login entry point, embedded
+locally. The public account request/state contract is defined in the platform contract
+account module; native transport/state handling must respect the selected window-close behavior. The Home-only login entry point, embedded
 login with external handoff, remembered login and Orca-compatible black-box
 plugin execution are accepted as described above. Existing stateless
 public printer access remains unchanged; internal plugin lifecycle is host-owned.

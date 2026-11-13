@@ -7,7 +7,7 @@ import {
   type PrinterDownloads,
 } from '@orca/platform-contract';
 import { unavailablePrinterDownloads } from '@orca/printer-control';
-import type { AccountProvider, ProviderId } from '@orca/service-provider';
+import type { AccountProvider, ProviderId } from '@orca/platform-contract';
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';

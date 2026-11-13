@@ -39,7 +39,6 @@
     "@orca/color-sampler-native": "workspace:*",
     "@orca/platform-contract": "workspace:*",
     "@orca/printer-control": "workspace:*",
-    "@orca/service-provider": "workspace:*",
     "@orca/slicer-app": "workspace:*",
     "@orca/slicer-runtime": "workspace:*",
     "@react-three/drei": "^10.7.8",
