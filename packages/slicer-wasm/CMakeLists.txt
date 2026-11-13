@@ -403,6 +403,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/painting/PaintingSession.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_painting.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_preset_drafts.cpp"
@@ -730,13 +731,19 @@ if(NEO_MEASURE_TEST)
   add_executable(measure_geometry_test
     "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.test.cpp")
-  target_link_libraries(measure_geometry_test PRIVATE ${_measure_test_libraries})
-  target_compile_options(measure_geometry_test PRIVATE -fexceptions)
-  target_link_options(measure_geometry_test PRIVATE -m64 -O2 -fexceptions
-    -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=1 -sASSERTIONS=1
-    -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
-  if(WASM_THREADING)
-    target_link_options(measure_geometry_test PRIVATE -pthread -sPTHREAD_POOL_SIZE=8)
-  endif()
-  set_target_properties(measure_geometry_test PROPERTIES SUFFIX ".cjs")
+  add_executable(measure_session_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.test.cpp")
+  foreach(_measure_test measure_geometry_test measure_session_test)
+    target_link_libraries(${_measure_test} PRIVATE ${_measure_test_libraries})
+    target_compile_options(${_measure_test} PRIVATE -fexceptions)
+    target_link_options(${_measure_test} PRIVATE -m64 -O2 -fexceptions
+      -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=1 -sASSERTIONS=1
+      -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
+    if(WASM_THREADING)
+      target_link_options(${_measure_test} PRIVATE -pthread -sPTHREAD_POOL_SIZE=8)
+    endif()
+    set_target_properties(${_measure_test} PROPERTIES SUFFIX ".cjs")
+  endforeach()
 endif()
