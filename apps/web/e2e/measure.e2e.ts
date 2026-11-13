@@ -17,7 +17,12 @@ test('real Web Measure selects the runtime and copies its result', async ({ page
     if (/\/wasm\/.*orca_slice\.(?:js|wasm|data)$/.test(path)) requests.add(path);
   });
   const errors: string[] = [];
-  page.on('pageerror', error => errors.push(String(error)));
+  page.on('pageerror', error => {
+    // WebKit reports deferred ResizeObserver notifications as a page error
+    // during normal layout; retain every other error for the acceptance gate.
+    if (browserName === 'webkit' && error.message === 'ResizeObserver loop completed with undelivered notifications.') return;
+    errors.push(String(error));
+  });
   let servedHash: string | undefined;
   await context.route('**/orca_slice.wasm', async route => {
     const response = await route.fetch(), bytes = await response.body();
@@ -56,7 +61,18 @@ test('real Web Measure selects the runtime and copies its result', async ({ page
   await page.keyboard.up('Shift');
   await expect(page.getByTestId('measure-second')).toContainText('Point on plane');
   const dimension = await page.getByTestId('measure-dimension').innerText();
-  expect(Number.parseFloat(dimension)).toBeCloseTo(Math.sqrt(128), 2);
+  // Playwright's native pointer coordinates are quantized differently by each
+  // browser. Bound the world-space error by one screen pixel on each axis for
+  // the two clicks, plus the displayed value's rounding.
+  const pixels = await page.evaluate(([x, y, z]) => {
+    const project = (window as any).__orcaE2e.projectWorldToScreen;
+    const origin = project([x, y, z]), alongX = project([x + 1, y, z]), alongY = project([x, y + 1, z]);
+    return [Math.hypot(alongX.x - origin.x, alongX.y - origin.y),
+      Math.hypot(alongY.x - origin.x, alongY.y - origin.y)];
+  }, [center[0], center[1], bounds.max[2]]);
+  expect(pixels[0]).toBeGreaterThan(0); expect(pixels[1]).toBeGreaterThan(0);
+  const pixelBound = Math.hypot(1 / pixels[0], 1 / pixels[1]) + .001;
+  expect(Math.abs(Number.parseFloat(dimension) - Math.sqrt(128))).toBeLessThan(pixelBound);
   const row = panel.getByTestId('measure-result').filter({ hasText: dimension });
   await expect(row).toHaveCount(1);
   if (browserName === 'chromium') {
