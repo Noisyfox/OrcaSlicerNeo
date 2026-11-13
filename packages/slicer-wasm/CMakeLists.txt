@@ -404,6 +404,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/painting/PaintingSession.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureService.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_painting.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_preset_drafts.cpp"
@@ -735,7 +736,12 @@ if(NEO_MEASURE_TEST)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.test.cpp")
-  foreach(_measure_test measure_geometry_test measure_session_test)
+  add_executable(measure_service_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureService.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureService.test.cpp")
+  foreach(_measure_test measure_geometry_test measure_session_test measure_service_test)
     target_link_libraries(${_measure_test} PRIVATE ${_measure_test_libraries})
     target_compile_options(${_measure_test} PRIVATE -fexceptions)
     target_link_options(${_measure_test} PRIVATE -m64 -O2 -fexceptions
