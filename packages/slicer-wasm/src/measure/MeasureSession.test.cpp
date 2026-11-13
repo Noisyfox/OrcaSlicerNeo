@@ -214,11 +214,20 @@ void off_mesh_center_and_midpoint_picking()
     Session session(model, {id});
     auto hover = session.pick_mesh(model, top(3.1, .5));
     CHECK(hover && hover->feature && hover->feature->surface.get_type() == Measure::SurfaceFeatureType::Circle);
+    CHECK(!session.pick_mesh(model, top(2.5, .5)));
+    auto circle_gripper = session.pick_gripper(model, top(2.5, .5), hover);
+    CHECK(circle_gripper && circle_gripper->source.surface.get_type() == Measure::SurfaceFeatureType::Circle);
+    const auto [circle_center, circle_radius, circle_normal] = circle_gripper->source.surface.get_circle();
+    CHECK(std::abs((circle_gripper->point_on_feature - circle_center).norm() - circle_radius) < 1e-8);
+    CHECK(std::abs((circle_gripper->point_on_feature - circle_center).dot(circle_normal)) < 1e-8);
     CHECK(!session.pick_mesh(model, top(0, 0))); // The ring center lies in empty space.
     auto visible = session.markers(model, hover);
     CHECK(visible.size() == 1 && visible[0].item.kind == SelectionKind::Center);
     auto center = session.pick_marker(model, top(0, 0), hover);
     CHECK(center && center->marker.item.kind == SelectionKind::Center);
+    auto click = session.pick(model, top(0, 0), hover);
+    CHECK(click && std::holds_alternative<MarkerHit>(*click));
+    CHECK(!session.pick(model, top(30, 30), hover)); // A stale hover cannot select a moved click.
     auto offset_viewport = top(0, 0);
     offset_viewport.viewport = Eigen::Vector4d(20, 30, 120, 80);
     offset_viewport.pointer = Vec2d(80, 70);
@@ -247,6 +256,10 @@ void off_mesh_center_and_midpoint_picking()
     Session box_session(box, {box_id});
     auto edge = box_session.pick_mesh(box, top(.05, 4));
     CHECK(edge && edge->feature && edge->feature->surface.get_type() == Measure::SurfaceFeatureType::Edge);
+    CHECK(!box_session.pick_mesh(box, top(-2, 4)));
+    auto edge_gripper = box_session.pick_gripper(box, top(-2, 4), edge);
+    CHECK(edge_gripper && edge_gripper->source.surface.get_type() == Measure::SurfaceFeatureType::Edge);
+    CHECK(edge_gripper->point_on_feature.isApprox(Vec3d(0, 4, 10), 1e-5));
     auto point = box_session.pick_mesh(box, top(9.95, 9.95));
     CHECK(point && point->feature && point->feature->surface.get_type() == Measure::SurfaceFeatureType::Point);
     box_session.choose(box, feature_item(box_id, *edge->feature));
@@ -278,6 +291,119 @@ void off_mesh_center_and_midpoint_picking()
     auto midpoint_hint = box_session.pick_marker(box, top(midpoint.x(), midpoint.y()), overlapping, 1);
     CHECK(center_hint && center_hint->marker.item.kind == SelectionKind::Center);
     CHECK(midpoint_hint && midpoint_hint->marker.item.kind == SelectionKind::Midpoint);
+
+    // Plane grippers use Orca's 0.05 local-unit overlay, even after the
+    // selected plane is no longer the current mesh hover.
+    auto plane = box_session.pick_mesh(box, top(3, 4));
+    CHECK(plane && plane->feature && plane->feature->surface.get_type() == Measure::SurfaceFeatureType::Plane);
+    box_session.choose(box, feature_item(box_id, *plane->feature));
+    auto plane_gripper = box_session.pick_gripper(box, top(3, 4));
+    CHECK(plane_gripper && plane_gripper->source.surface.get_type() == Measure::SurfaceFeatureType::Plane);
+    CHECK(plane_gripper->point_on_feature.isApprox(Vec3d(3, 4, 10.05), 1e-5));
+    auto zoomed = top(.05, 2);
+    zoomed.projection(0, 0) = .1; zoomed.projection(1, 1) = .1;
+    zoomed.pointer = Vec2d((.05 + 10) * 5, (10 - 2) * 5);
+    auto edge_over_plane = box_session.pick(box, zoomed, edge);
+    CHECK(edge_over_plane && std::holds_alternative<GripperHit>(*edge_over_plane));
+    CHECK(std::get<GripperHit>(*edge_over_plane).source.surface.get_type() == Measure::SurfaceFeatureType::Edge);
+    box_session.choose(box, point_item(box_id, plane_gripper->source, plane_gripper->point_on_feature));
+    CHECK(box_session.selection().second()->kind == SelectionKind::PointOnFeature);
+    box_session.clear_selection();
+
+    // In perspective, Orca projects the cylinder hit onto its axis. That may
+    // differ from the nearest point on the projected center line.
+    auto inclined = *edge;
+    Feature diagonal{edge->feature->geometry, Measure::SurfaceFeature(Measure::SurfaceFeatureType::Edge,
+        Vec3d(-4, 0, 20), Vec3d(4, 0, 60))};
+    diagonal.surface.world_tran = edge->feature->surface.world_tran;
+    inclined.feature = diagonal;
+    auto perspective_edge = top(0, 0);
+    perspective_edge.projection.setZero();
+    perspective_edge.projection(0, 0) = 1.3; perspective_edge.projection(1, 1) = 1.3;
+    perspective_edge.projection(2, 2) = -201. / 199.; perspective_edge.projection(2, 3) = -400. / 199.;
+    perspective_edge.projection(3, 2) = -1.;
+    perspective_edge.pointer = Vec2d((46.75 + 56.5) / 2., 50);
+    auto perspective_hit = box_session.pick_gripper(box, perspective_edge, inclined);
+    CHECK(perspective_hit);
+    const Vec3d axis = Vec3d(8, 0, 40), offset = perspective_hit->point_on_feature - Vec3d(-4, 0, 20);
+    CHECK(offset.cross(axis).norm() < 1e-6 && offset.dot(axis) >= 0 && offset.dot(axis) <= axis.squaredNorm());
+    CHECK(!perspective_hit->point_on_feature.isApprox(Vec3d(4. / 3., 0, 140. / 3.), 1e-3));
+    diagonal.surface = Measure::SurfaceFeature(Measure::SurfaceFeatureType::Edge, Vec3d(0, 0, 20), Vec3d(0, 0, 60));
+    diagonal.surface.world_tran = edge->feature->surface.world_tran;
+    inclined.feature = diagonal;
+    perspective_edge.pointer = Vec2d(50, 50);
+    auto end_on = box_session.pick_gripper(box, perspective_edge, inclined);
+    CHECK(end_on && end_on->point_on_feature.isApprox(Vec3d(0, 0, 60), 1e-5));
+
+    auto tilted = *edge;
+    const Vec3d tilted_normal(0, std::sqrt(.5), std::sqrt(.5));
+    Feature tilted_circle{edge->feature->geometry, Measure::SurfaceFeature(Measure::SurfaceFeatureType::Circle,
+        Vec3d(5, 5, 10), tilted_normal, std::nullopt, 3.)};
+    tilted_circle.surface.world_tran = edge->feature->surface.world_tran;
+    tilted.feature = tilted_circle;
+    auto tilted_event = zoomed; tilted_event.pointer = Vec2d(90, 25);
+    auto tilted_hit = box_session.pick_gripper(box, tilted_event, tilted);
+    CHECK(tilted_hit && std::abs((tilted_hit->point_on_feature - Vec3d(5, 5, 10)).norm() - 3.) < 1e-8);
+    CHECK(std::abs((tilted_hit->point_on_feature - Vec3d(5, 5, 10)).dot(tilted_normal)) < 1e-8);
+}
+
+void large_plane_gripper()
+{
+    // Exercise a plane spanning more than one overlay chunk, with the hit in
+    // the second chunk. Chunking limits individual indices, not mesh size.
+    constexpr int width = 190;
+    constexpr int layer_vertices = (width + 1) * (width + 1);
+    indexed_triangle_set mesh;
+    for (int z = 0; z <= 1; ++z) for (int y = 0; y <= width; ++y)
+        for (int x = 0; x <= width; ++x) mesh.vertices.emplace_back(x * .1f, y * .1f, float(z));
+    for (int y = 0; y < width; ++y) for (int x = 0; x < width; ++x) {
+        const int first = y * (width + 1) + x;
+        mesh.indices.emplace_back(first + layer_vertices, first + 1 + layer_vertices, first + width + 1 + layer_vertices);
+        mesh.indices.emplace_back(first + 1 + layer_vertices, first + width + 2 + layer_vertices, first + width + 1 + layer_vertices);
+        mesh.indices.emplace_back(first, first + width + 1, first + 1);
+        mesh.indices.emplace_back(first + 1, first + width + 1, first + width + 2);
+    }
+    auto side = [&](int a, int b) {
+        mesh.indices.emplace_back(a, b, a + layer_vertices);
+        mesh.indices.emplace_back(b, b + layer_vertices, a + layer_vertices);
+    };
+    for (int i = 0; i < width; ++i) {
+        side(i, i + 1);
+        side(i * (width + 1) + width, (i + 1) * (width + 1) + width);
+        side(width * (width + 1) + width - i, width * (width + 1) + width - i - 1);
+        side((width - i) * (width + 1), (width - i - 1) * (width + 1));
+    }
+    Model model; auto* object = model.add_object();
+    auto* volume = object->add_volume(TriangleMesh(mesh)); auto* instance = object->add_instance();
+    const TargetId id{object->id().id, instance->id().id, volume->id().id};
+    Session session(model, {id});
+    auto pick = session.pick_mesh(model, top(10.05, 18.05));
+    CHECK(pick && pick->feature && pick->feature->surface.get_type() == Measure::SurfaceFeatureType::Plane);
+    CHECK(pick->feature->surface.plane_indices->size() > 65536);
+    session.choose(model, feature_item(id, *pick->feature));
+    auto hit = session.pick_gripper(model, top(10.05, 18.05));
+    CHECK(hit && hit->point_on_feature.isApprox(Vec3d(10.05, 18.05, 1.05), 1e-4));
+}
+
+void upstream_mesh_pick_rules()
+{
+    Model open_model; auto* open_object = open_model.add_object();
+    auto open_mesh = its_make_cube(10., 10., 10.);
+    open_mesh.indices.erase(open_mesh.indices.begin() + 2, open_mesh.indices.begin() + 4);
+    auto* open_volume = open_object->add_volume(TriangleMesh(open_mesh)); auto* open_instance = open_object->add_instance();
+    const TargetId open_id{open_object->id().id, open_instance->id().id, open_volume->id().id};
+    Session open_session(open_model, {open_id});
+    CHECK(!open_session.pick_mesh(open_model, top(3, 4))); // Orca ignores an unpaired mesh hit.
+
+    Model sunk; auto* object = sunk.add_object();
+    auto* volume = object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));
+    auto* instance = object->add_instance(); instance->set_offset(Vec3d(0, 0, -5));
+    const TargetId id{object->id().id, instance->id().id, volume->id().id};
+    Session session(sunk, {id});
+    auto visible = session.pick_mesh(sunk, top(3, 4));
+    CHECK(visible && visible->world.isApprox(Vec3d(3, 4, 5), 1e-5));
+    auto below = top(3, 4); below.projection(2, 2) = .01; below.view(2, 3) = -50;
+    CHECK(!session.pick_mesh(sunk, below)); // Below-bed intersections are filtered before pairing.
 }
 }
 
@@ -288,6 +414,8 @@ int main()
         transformed_target_pick();
         selection_semantics();
         off_mesh_center_and_midpoint_picking();
+        large_plane_gripper();
+        upstream_mesh_pick_rules();
         std::cout << "Measure session tests passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

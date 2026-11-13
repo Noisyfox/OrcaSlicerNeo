@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <optional>
+#include <variant>
 #include <vector>
 
 #include "MeasureGeometry.hpp"
@@ -52,7 +53,17 @@ struct Marker {
 struct MarkerHit {
     std::size_t index;
     Marker marker;
+    double distance;
 };
+
+struct GripperHit {
+    TargetId target;
+    Feature source;
+    Vec3d point_on_feature;
+    double distance;
+};
+
+using InteractionHit = std::variant<MarkerHit, GripperHit, MeshPick>;
 
 SelectionItem feature_item(TargetId target, Feature source);
 SelectionItem center_item(TargetId target, Feature source);
@@ -92,6 +103,10 @@ public:
     std::vector<Marker> markers(const Model& model, const std::optional<MeshPick>& hover = std::nullopt) const;
     std::optional<MarkerHit> pick_marker(const Model& model, const PointerEvent& event,
         const std::optional<MeshPick>& hover = std::nullopt, std::optional<std::size_t> preferred = std::nullopt) const;
+    std::optional<GripperHit> pick_gripper(const Model& model, const PointerEvent& event,
+        const std::optional<MeshPick>& hover = std::nullopt) const;
+    std::optional<InteractionHit> pick(const Model& model, const PointerEvent& event,
+        const std::optional<MeshPick>& hover = std::nullopt, std::optional<std::size_t> preferred_marker = std::nullopt) const;
     const SelectionState& selection() const { return m_selection; }
     void choose(const Model& model, SelectionItem item);
     void clear_first() { m_selection.clear_first(); }
