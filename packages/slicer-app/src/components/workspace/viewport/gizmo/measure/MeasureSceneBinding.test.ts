@@ -37,6 +37,7 @@ function fixture() {
     openMeasureSession: vi.fn<MeasureApi['openMeasureSession']>(async () => status(`ms-${++count}`)),
     closeMeasureSession: vi.fn<MeasureApi['closeMeasureSession']>(async request => ({ ok: true, version: 1, sessionId: request.sessionId })),
     resetMeasure: vi.fn<MeasureApi['resetMeasure']>(async request => ({ ...status(request.sessionId), outcome: 'close' })),
+    rebaseMeasure: vi.fn<MeasureApi['rebaseMeasure']>(async request => ({ ...status(request.sessionId), targetRevision: 2 })),
   };
   const measure = new MeasureController({ api: api as unknown as MeasureApi, coordinate: async operation => operation(),
     canMeasure: () => allowed, admissionKey: () => 'serial:0', invalidate: () => {} });
@@ -108,5 +109,36 @@ describe('Measure scene binding', () => {
     expect(api.openMeasureSession).toHaveBeenCalledTimes(1);
     expect(api.closeMeasureSession).toHaveBeenCalledWith({ version: 1, sessionId: 'ms-1' });
     binding.dispose();
+  });
+
+  it('reopens only when a measured source geometry or transform changes', async () => {
+    const { scene, measure, binding, api, volumes } = fixture();
+    scene.selectVolumeIds([volumes[0].id]); scene.toggleGizmo('measure'); await measure.settled();
+    volumes[1].instanceTransform = { ...volumes[1].instanceTransform, offset: [9, 0, 0] };
+    scene.notifyTransformsChanged(); await tick();
+    expect(api.openMeasureSession).toHaveBeenCalledTimes(1);
+    volumes[0].instanceTransform = { ...volumes[0].instanceTransform, offset: [3, 0, 0] };
+    scene.notifyTransformsChanged(); await measure.settled();
+    expect(api.openMeasureSession).toHaveBeenCalledTimes(2);
+    expect(measure.getSnapshot().status).toMatchObject({ sessionId: 'ms-2', first: null, second: null });
+    const previous = volumes[0]; volumes[0] = volume(0);
+    binding.refreshTargets(); await measure.settled();
+    expect(api.openMeasureSession).toHaveBeenCalledTimes(3);
+    previous.dispose(); await binding.close(); binding.dispose();
+  });
+
+  it('retains the session during a scale rebase even when its target transform changes', async () => {
+    const { scene, measure, binding, api, volumes } = fixture();
+    scene.selectVolumeIds([volumes[0].id]); scene.toggleGizmo('measure'); await measure.settled();
+    const token = measure.beginScale(measure.getSnapshot().status!);
+    expect(token).not.toBeNull();
+    volumes[0].instanceTransform = { ...volumes[0].instanceTransform, scale: [2, 2, 2] };
+    scene.notifyTransformsChanged();
+    expect(await measure.finishScale(token!, true)).toBe(true);
+    scene.notifyTransformsChanged(); await tick();
+    expect(api.openMeasureSession).toHaveBeenCalledOnce();
+    expect(api.rebaseMeasure).toHaveBeenCalledOnce();
+    expect(measure.getSnapshot().status?.sessionId).toBe('ms-1');
+    await binding.close(); binding.dispose();
   });
 });

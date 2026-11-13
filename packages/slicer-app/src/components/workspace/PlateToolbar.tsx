@@ -47,6 +47,7 @@ export function PlateToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
         },
         publish: async (result) => {
           applyPlateSessionResponse(platform, result);
+          if (result.ok && result.instanceTransforms?.length) sceneInteraction.notifyTransformsChanged();
         },
       });
     } catch (error) {
@@ -64,6 +65,7 @@ export function PlateToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
       await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId), null, {
         publish: async (result) => {
           applyPlateSessionResponse(platform, result);
+          if (result.ok && result.instanceTransforms?.length) sceneInteraction.notifyTransformsChanged();
         },
       });
     } catch (error) {

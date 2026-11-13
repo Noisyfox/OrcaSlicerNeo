@@ -337,6 +337,7 @@ export function Workspace({
   // not remain selected through stale positional indices.
   useEffect(() => {
     sceneInteraction.pruneSelection();
+    measureBindingRef.current?.refreshTargets();
   }, [glVolumes, sceneInteraction]);
   const transformHistoryRef = useRef<TransformHistoryCoordinator | null>(null);
   if (!transformHistoryRef.current) {

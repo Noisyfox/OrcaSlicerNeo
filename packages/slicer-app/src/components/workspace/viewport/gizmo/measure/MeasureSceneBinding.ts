@@ -1,5 +1,7 @@
 import type { MeasureTarget } from '@slicer/client';
+import * as THREE from 'three';
 import { WipeTowerVolume } from '../../WipeTowerVolume';
+import { matrixFromTransform } from '../../transformDeltaMath';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import type { MeasureController } from './MeasureController';
 
@@ -20,12 +22,29 @@ function sameTargets(a: readonly MeasureTarget[], b: readonly MeasureTarget[]): 
   return left.size === right.size && [...left].every(value => right.has(value));
 }
 
+type Projection = Map<string, { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 }>;
+function projection(scene: SceneInteractionController): Projection {
+  return new Map(scene.selectedVolumes().filter(volume => !(volume instanceof WipeTowerVolume)).map(volume => [key(volume.buffer), {
+    geometry: volume.geometry,
+    matrix: matrixFromTransform(volume.instanceTransform).multiply(matrixFromTransform(volume.volumeTransform)),
+  }]));
+}
+function sameProjection(a: Projection, b: Projection): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, current] of a) {
+    const previous = b.get(id);
+    if (!previous || current.geometry !== previous.geometry || !current.matrix.equals(previous.matrix)) return false;
+  }
+  return true;
+}
+
 /** Bridges scene-tool changes to the ordered Measure session. Restoration is
  * suspended until the native history operation and projection have finished. */
 export class MeasureSceneBinding {
   private readonly unsubscribeScene: () => void;
   private readonly unsubscribeMeasure: () => void;
   private request = 0;
+  private projection: Projection = new Map();
 
   constructor(
     private readonly scene: SceneInteractionController,
@@ -33,7 +52,11 @@ export class MeasureSceneBinding {
     private readonly suspended: () => boolean,
   ) {
     this.unsubscribeScene = scene.subscribe(() => this.sync());
+    let previousPhase = measure.getSnapshot().phase;
     this.unsubscribeMeasure = measure.subscribe(() => {
+      const phase = measure.getSnapshot().phase;
+      if (previousPhase === 'rebasing' && phase === 'idle' && scene.gizmo === 'measure') this.projection = projection(scene);
+      previousPhase = phase;
       if (!this.suspended() && !measure.active && scene.gizmo === 'measure') scene.closeGizmo();
     });
     this.sync();
@@ -43,18 +66,26 @@ export class MeasureSceneBinding {
     if (this.suspended()) return;
     if (this.scene.gizmo !== 'measure') {
       this.request++;
+      this.projection = new Map();
       if (this.measure.active) void this.measure.close();
       return;
     }
     const targets = measureTargets(this.scene);
     if (!targets.length) { this.scene.closeGizmo(); return; }
-    if (!this.measure.active || !sameTargets(targets, this.measure.getSnapshot().targets)) {
+    const current = projection(this.scene);
+    const targetChanged = !sameTargets(targets, this.measure.getSnapshot().targets);
+    const projectionChanged = !sameProjection(current, this.projection);
+    this.projection = current;
+    if (!this.measure.active || targetChanged || (projectionChanged && this.measure.getSnapshot().phase !== 'rebasing')) {
       const request = ++this.request;
       void this.measure.open(targets).then(opened => {
         if (!opened && request === this.request && !this.suspended() && this.scene.gizmo === 'measure') this.scene.closeGizmo();
       });
     }
   }
+
+  /** Recheck after a renderer projection changes without a selection event. */
+  refreshTargets(): void { this.sync(); }
 
   /** Native history resets its Measure sessions. Reopen with empty slots only
    * after a successful restore; failed history operations leave it intact. */
@@ -65,6 +96,7 @@ export class MeasureSceneBinding {
     }
     const targets = measureTargets(this.scene);
     if (!targets.length) { this.scene.closeGizmo(); return; }
+    this.projection = projection(this.scene);
     const request = ++this.request;
     const opened = await this.measure.open(targets);
     if (!opened && request === this.request && this.scene.gizmo === 'measure') this.scene.closeGizmo();
