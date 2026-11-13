@@ -9,6 +9,7 @@ import { installMeasureInput } from './MeasureInput';
 import { MeasurePlaneResources } from './MeasurePlaneResources';
 import { MeasureSurfacePicker } from './MeasureSurfacePicker';
 import { MeasureDimensions } from './MeasureDimensions';
+import type { MeasureScaleRequest } from './measureScale';
 
 const noRaycast: THREE.Object3D['raycast'] = () => undefined;
 const firstColor = '#32a7ff', secondColor = '#ffab4d', hoverColor = '#72e8ff';
@@ -58,7 +59,9 @@ function planeIds(features: readonly (MeasureFeature | null | undefined)[]): Set
 }
 
 /** Draw compact native features and connect captured input to the shared lane. */
-export function MeasureViewport({ sceneInteraction }: { sceneInteraction: SceneInteractionController }) {
+export function MeasureViewport({ sceneInteraction, onEdit }: {
+  sceneInteraction: SceneInteractionController; onEdit: (request: MeasureScaleRequest) => void;
+}) {
   const controller = useMeasureController()!;
   const state = useMeasureState()!;
   const camera = useThree(value => value.camera);
@@ -96,6 +99,7 @@ export function MeasureViewport({ sceneInteraction }: { sceneInteraction: SceneI
     {second && <FeatureVisual feature={second.value} color={secondColor} planes={resources} />}
     {hover && <FeatureVisual feature={hover} color={hoverColor} planes={resources} />}
     {display?.markers.map(marker => <ScreenMarker key={marker.index} position={marker.position} color={hoverColor} />)}
-    <MeasureDimensions status={display ?? state.status} />
+    <MeasureDimensions status={display ?? state.status} canEdit={state.phase === 'idle' && !!state.status &&
+      (!display || display.selectionRevision === state.status.selectionRevision)} onEdit={onEdit} />
   </>;
 }

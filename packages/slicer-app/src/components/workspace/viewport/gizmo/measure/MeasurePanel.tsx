@@ -20,7 +20,7 @@ export function MeasurePanel({ sceneInteraction: scene }: { sceneInteraction: Sc
       void navigator.clipboard.writeText(`${row.label}: ${row.value}`).catch(() => setCopyError('Could not copy measurement.'));
     } catch { setCopyError('Could not copy measurement.'); }
   };
-  return <section className="space-y-3" aria-label="Measure" data-testid="measure-panel">
+  return <section className="space-y-3" aria-label="Measure" data-testid="measure-panel" data-phase={state.phase} data-session-id={status?.sessionId}>
     <div className="flex items-center justify-between">
       <h2 className="text-module font-semibold uppercase tracking-wide text-muted-foreground">Measure</h2>
       <Button size="icon" variant="ghost" aria-label="Close Measure" onClick={() => scene.closeGizmo()}><X /></Button>

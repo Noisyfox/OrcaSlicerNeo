@@ -30,7 +30,8 @@ function fixture() {
     instanceTransform: { offset: [...transform.offset], rotation: [...transform.rotation], scale: [...transform.scale], mirror: [...transform.mirror] },
     volumeTransform: { offset: [...transform.offset], rotation: [...transform.rotation], scale: [...transform.scale], mirror: [...transform.mirror] } };
   const volume = new GLVolume(buffer, { kind: 'exclusive' });
-  const scene = new SceneInteractionController(() => [volume]); scene.selectVolumeIds([volume.id]); scene.toggleGizmo('measure');
+  const volumes = [volume];
+  const scene = new SceneInteractionController(() => volumes); scene.selectVolumeIds([volume.id]); scene.toggleGizmo('measure');
   const api = {
     openMeasureSession: vi.fn<MeasureApi['openMeasureSession']>(async () => status()),
     rebaseMeasure: vi.fn<MeasureApi['rebaseMeasure']>(async request => ({ ...status(request.sessionId), targetRevision: 2 })),
@@ -46,7 +47,7 @@ function fixture() {
     abort: vi.fn(async () => ({ outcome: 'cancelled' })) };
   scene.setTransformHistoryPort(port);
   const request = { sessionId: 'ms-1', targetRevision: 1, selectionRevision: 1, value: original };
-  return { scene, measure, volume, api, port, request };
+  return { scene, measure, volume, volumes, api, port, request };
 }
 
 describe('Measure edit to scale', () => {
@@ -80,6 +81,19 @@ describe('Measure edit to scale', () => {
     expect(await applyMeasureScale(scene, measure, request, 1e-8, true)).toEqual({ outcome: 'committed' });
     expect(volume.instanceTransform.scale).toEqual([.001, .001, .001]);
     expect(measure.getSnapshot().status?.result?.strict?.value).toBe(actual);
+  });
+
+  it('scales the entire selected group even when both features belong to one volume', async () => {
+    const { scene, measure, volume, volumes, port, request } = fixture();
+    const other = new GLVolume({ ...volume.buffer, objectId: 4, instanceId: 5, volumeId: 6, objectIdx: 1,
+      instanceTransform: { ...volume.buffer.instanceTransform, offset: [10, 0, 0] }, offset: [10, 0, 0] }, { kind: 'exclusive' });
+    volumes.push(other); scene.selectVolumeIds([volume.id, other.id]);
+    await measure.open([target, { objectId: 4, instanceId: 5, volumeId: 6 }]);
+    expect(await applyMeasureScale(scene, measure, request, original * 2, true)).toEqual({ outcome: 'committed' });
+    expect(volume.instanceTransform.scale).toEqual([2, 2, 2]);
+    expect(other.instanceTransform.scale).toEqual([2, 2, 2]);
+    expect(port.commit).toHaveBeenCalledOnce();
+    other.dispose();
   });
 
   it('rejects a cross-volume or obsolete result before starting a scale', async () => {

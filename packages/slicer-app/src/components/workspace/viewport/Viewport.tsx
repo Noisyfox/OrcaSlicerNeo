@@ -39,6 +39,8 @@ import { usePaintingController, usePaintingState } from './gizmo/painting/Painti
 import { useMeasureController, useMeasureState } from './gizmo/measure/MeasureProvider';
 import { MeasurePanel } from './gizmo/measure/MeasurePanel';
 import { MeasureViewport } from './gizmo/measure/MeasureViewport';
+import { MeasureScaleDialog } from './gizmo/measure/MeasureScaleDialog';
+import type { MeasureScaleRequest } from './gizmo/measure/measureScale';
 import { FuzzyPaintingPanel } from './gizmo/painting/FuzzyPaintingPanel';
 import { SeamPaintingPanel } from './gizmo/painting/SeamPaintingPanel';
 import { SupportPaintingPanel } from './gizmo/painting/SupportPaintingPanel';
@@ -124,6 +126,12 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   const showGcodeText = useSlicerStore((s) => s.showGcodeText);
   const setShowGcodeText = useSlicerStore((s) => s.setShowGcodeText);
   const [arrangementOpen, setArrangementOpen] = useState(false);
+  const [measureScaleRequest, setMeasureScaleRequest] = useState<MeasureScaleRequest | null>(null);
+  const openMeasureScale = useCallback((request: MeasureScaleRequest) => setMeasureScaleRequest(request), []);
+  useEffect(() => {
+    if (measureScaleRequest && (!measureState?.status || measureState.status.sessionId !== measureScaleRequest.sessionId))
+      setMeasureScaleRequest(null);
+  }, [measureScaleRequest, measureState?.status]);
   const closeArrangement = useCallback(() => setArrangementOpen(false), []);
   const [plateActionPending, setPlateActionPending] = useState(false);
   // The controls ref is consumed as a prop target (drei Stats `parent`),
@@ -198,6 +206,27 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
     updateRaycastingEnabled();
   }, [updateRaycastingEnabled]);
 
+  // Tooltip/popover layers may consume Escape before a bubbling window
+  // listener sees it. Measure owns these keys ahead of non-modal overlays;
+  // editable controls and dialogs retain their normal keyboard handling.
+  useEffect(() => {
+    if (previewTab || !measure) return;
+    const onMeasureKey = (event: KeyboardEvent) => {
+      if (sceneInteraction.gizmo !== 'measure' || measureScaleRequest || painting?.active || useSetupWizardStore.getState().active) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]') || document.querySelector('[role="dialog"]')) return;
+      if (event.key !== 'Escape' && event.key !== 'Delete' && event.key !== 'Backspace') return;
+      event.preventDefault(); event.stopPropagation();
+      if (event.key === 'Escape') {
+        if (measure.getSnapshot().phase === 'opening') sceneInteraction.closeGizmo();
+        else measure.reset('escape');
+      } else measure.reset('all');
+    };
+    window.addEventListener('keydown', onMeasureKey, true);
+    return () => window.removeEventListener('keydown', onMeasureKey, true);
+  }, [measure, measureScaleRequest, painting, previewTab, sceneInteraction]);
+
   // Scene keyboard shortcuts (OrcaSlicer bindings): Del/Backspace delete the
   // complete objects behind the current selection, M / R / S toggle the move /
   // rotate / scale gizmo (they refuse with an empty selection), Esc deselects
@@ -207,6 +236,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
     if (!sceneInteraction || previewTab) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (useSetupWizardStore.getState().active) return;
+      if (measureScaleRequest) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -220,17 +250,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       }
       if (event.key === 'Escape' && sceneInteraction.gizmo === 'mesh-boolean') {
         event.preventDefault(); sceneInteraction.closeGizmo(); return;
-      }
-      if (sceneInteraction.gizmo === 'measure') {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          if (measure?.getSnapshot().phase === 'opening') sceneInteraction.closeGizmo();
-          else measure?.reset('escape');
-          return;
-        }
-        if (event.key === 'Delete' || event.key === 'Backspace') {
-          event.preventDefault(); measure?.reset('all'); return;
-        }
       }
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -253,7 +272,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [platform.runtime, previewTab, sceneInteraction, slicing, painting, measure]);
+  }, [platform.runtime, previewTab, sceneInteraction, slicing, painting, measure, measureScaleRequest]);
 
   // Preview inspection shortcuts are scoped to the viewport focus and are
   // separate from Prepare's object-editing bindings above.
@@ -517,7 +536,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
               plateSession={plateSession}
               onGestureActive={setCameraGestureActive}
             />
-            {measureActive && <MeasureViewport sceneInteraction={sceneInteraction} />}
+            {measureActive && <MeasureViewport sceneInteraction={sceneInteraction} onEdit={openMeasureScale} />}
             <CameraFraming
               bounds={bedBounds}
               mode={previewTab ? 'preview' : 'prepare'}
@@ -575,6 +594,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         </div>}
         {actionControls && <div className="pointer-events-auto absolute top-0 -left-0.5 z-40 max-w-full" data-testid="viewport-actions">{actionControls}</div>}
       </div>
+      {measureScaleRequest && measure && <MeasureScaleDialog scene={sceneInteraction} measure={measure}
+        request={measureScaleRequest} onClose={() => setMeasureScaleRequest(null)} />}
     </div>
   );
 }

@@ -68,9 +68,50 @@ test('real Electron Measure selects native features and preserves scene/history 
     expect(Number.parseFloat(displayedDistance)).toBeCloseTo(Math.sqrt(128), 2);
     await expect(panel.getByTestId('measure-result').filter({ hasText: displayedDistance })).toContainText('distance');
     await page.screenshot({ path: info.outputPath('measure-distance.png') });
-    await page.keyboard.press('Escape'); await expect(page.getByTestId('measure-second')).toContainText('None');
-    await page.keyboard.press('Escape'); await expect(page.getByTestId('measure-first')).toContainText('None');
-    await page.keyboard.press('Escape'); await expect(panel).toBeHidden();
+    const openScale = async () => {
+      await page.getByTestId('measure-edit-scale').click();
+      await expect(page.getByTestId('measure-scale-dialog')).toBeVisible();
+    };
+    const scaleHistory = await history(page);
+    await openScale(); await page.getByTestId('measure-scale-value').press('Enter');
+    await expect(page.getByTestId('measure-scale-dialog')).toBeHidden();
+    expect((await history(page)).undoEntries).toEqual(scaleHistory.undoEntries);
+    for (const value of ['0', '-1']) {
+      await openScale(); await page.getByTestId('measure-scale-value').fill(value);
+      await page.getByTestId('measure-scale-value').press('Enter');
+      await expect(page.getByTestId('measure-scale-dialog')).toBeHidden();
+      expect((await history(page)).undoEntries).toEqual(scaleHistory.undoEntries);
+    }
+    await openScale(); await page.getByTestId('measure-scale-value').fill('300');
+    await page.getByTestId('measure-scale-value').press('Backspace');
+    await expect(page.getByTestId('measure-scale-value')).toHaveValue('30');
+    await page.keyboard.press('Escape'); await expect(page.getByTestId('measure-scale-dialog')).toBeHidden();
+    await expect(page.getByTestId('measure-second')).toContainText('Point on plane');
+    expect((await history(page)).undoEntries).toEqual(scaleHistory.undoEntries);
+    await openScale(); await page.getByTestId('measure-scale-value').fill('20');
+    await page.getByTestId('measure-scale-value').press('Enter');
+    await expect(page.getByTestId('measure-scale-dialog')).toBeHidden({ timeout: 60_000 });
+    await expect(page.getByTestId('measure-dimension')).toHaveText('20.000 mm', { timeout: 60_000 });
+    await expect(page.getByTestId('measure-first')).toContainText('Point on plane');
+    await expect(page.getByTestId('measure-second')).toContainText('Point on plane');
+    await expect.poll(async () => (await history(page)).undoEntries.length).toBe(scaleHistory.undoEntries.length + 1);
+    await page.screenshot({ path: info.outputPath('measure-scaled.png') });
+    const scaledSession = await panel.getAttribute('data-session-id');
+    await page.getByTestId('history-undo').click();
+    await expect.poll(async () => (await history(page)).undoEntries.length, { timeout: 60_000 }).toBe(scaleHistory.undoEntries.length);
+    await expect.poll(() => panel.getAttribute('data-session-id'), { timeout: 60_000 }).not.toBe(scaledSession);
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    const undoneSession = await panel.getAttribute('data-session-id');
+    await expect(page.getByTestId('measure-first')).toContainText('None', { timeout: 60_000 });
+    await expect(page.getByTestId('measure-second')).toContainText('None');
+    await page.getByTestId('history-redo').click();
+    await expect.poll(async () => (await history(page)).undoEntries.length, { timeout: 60_000 }).toBe(scaleHistory.undoEntries.length + 1);
+    await expect.poll(() => panel.getAttribute('data-session-id'), { timeout: 60_000 }).not.toBe(undoneSession);
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    await expect(page.getByTestId('measure-first')).toContainText('None', { timeout: 60_000 });
+    await expect(page.getByTestId('measure-second')).toContainText('None');
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
     expect(errors).toEqual([]);
   } finally { await app.close(); }
 });
