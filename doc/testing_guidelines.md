@@ -171,6 +171,9 @@ CMake test option. The real-WASM bridge smoke is separate:
 `node packages/slicer-wasm/harness/measure-bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
 For real threaded slice/measurement concurrency, run
 `node packages/slicer-wasm/harness/measure-slice-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js`.
+The real-host journey is `node scripts/run-measure-e2e.mjs`; use
+`--desktop-only` or `--web-only` for a host, and add `--serial` and/or
+`--wasm32` to the Web run to exercise the corresponding runtime selection.
 
 ## Test Quality and Maintenance
 
