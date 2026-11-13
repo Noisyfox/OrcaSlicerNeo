@@ -63,6 +63,11 @@ void multi_target_pick_and_staleness()
         CHECK(back && back->target == a && back->feature);
         CHECK(back->original_facet == 0 || back->original_facet == 1);
         CHECK(back->feature->geometry == front->feature->geometry); // sibling instances share the source cache
+        session.choose(model, point_item(b, *front->feature, front->world));
+        session.choose(model, point_item(a, *back->feature, back->world));
+        auto nearest_marker = session.pick_marker(model, top(3, 4), std::nullopt, 1);
+        CHECK(nearest_marker && nearest_marker->index == 0 && nearest_marker->marker.item.target == b);
+        session.clear_selection();
         auto part = session.pick_mesh(model, top(18, 4));
         CHECK(part && part->target == c && part->world.isApprox(Vec3d(18, 4, 10), 1e-5));
         CHECK(part->feature);
@@ -176,6 +181,104 @@ void selection_semantics()
     state.choose(feature_item(one, circle));
     CHECK(state.first()->kind == SelectionKind::Feature && !state.second());
 }
+
+indexed_triangle_set tube()
+{
+    constexpr int count = 36;
+    indexed_triangle_set mesh;
+    for (const auto [radius, height] : {std::pair{7.f, 0.f}, {7.f, 10.f}, {3.f, 0.f}, {3.f, 10.f}}) {
+        for (int i = 0; i < count; ++i) {
+            const float angle = float(2 * PI * i / count);
+            mesh.vertices.emplace_back(radius * std::cos(angle), radius * std::sin(angle), height);
+        }
+    }
+    for (int i = 0; i < count; ++i) {
+        const int j = (i + 1) % count;
+        const int ob = i, ob2 = j, ot = count + i, ot2 = count + j;
+        const int ib = 2 * count + i, ib2 = 2 * count + j, it = 3 * count + i, it2 = 3 * count + j;
+        mesh.indices.insert(mesh.indices.end(), {
+            Vec3i32(ob, ob2, ot), Vec3i32(ob2, ot2, ot),
+            Vec3i32(ib, it, ib2), Vec3i32(ib2, it, it2),
+            Vec3i32(ot, ot2, it), Vec3i32(ot2, it2, it),
+            Vec3i32(ob, ib, ob2), Vec3i32(ob2, ib, ib2),
+        });
+    }
+    return mesh;
+}
+
+void off_mesh_center_and_midpoint_picking()
+{
+    Model model; auto* object = model.add_object();
+    auto* volume = object->add_volume(TriangleMesh(tube())); auto* instance = object->add_instance();
+    const TargetId id{object->id().id, instance->id().id, volume->id().id};
+    Session session(model, {id});
+    auto hover = session.pick_mesh(model, top(3.1, .5));
+    CHECK(hover && hover->feature && hover->feature->surface.get_type() == Measure::SurfaceFeatureType::Circle);
+    CHECK(!session.pick_mesh(model, top(0, 0))); // The ring center lies in empty space.
+    auto visible = session.markers(model, hover);
+    CHECK(visible.size() == 1 && visible[0].item.kind == SelectionKind::Center);
+    auto center = session.pick_marker(model, top(0, 0), hover);
+    CHECK(center && center->marker.item.kind == SelectionKind::Center);
+    auto offset_viewport = top(0, 0);
+    offset_viewport.viewport = Eigen::Vector4d(20, 30, 120, 80);
+    offset_viewport.pointer = Vec2d(80, 70);
+    CHECK(session.pick_marker(model, offset_viewport, hover));
+    auto perspective = top(0, 0);
+    perspective.projection.setZero();
+    perspective.projection(0, 0) = 1.3; perspective.projection(1, 1) = 1.3;
+    perspective.projection(2, 2) = -201. / 199.; perspective.projection(2, 3) = -400. / 199.;
+    perspective.projection(3, 2) = -1.;
+    CHECK(session.pick_marker(model, perspective, hover));
+    CHECK(!session.pick_marker(model, top(10, 10), hover));
+    auto moved_camera = top(0, 0); moved_camera.view(0, 3) = -20;
+    CHECK(!session.pick_marker(model, moved_camera, hover)); // use the click's camera, not hover's
+    THROWS(session.pick_marker(model, top(0, 0), hover, 1));
+    session.choose(model, center->marker.item);
+    CHECK(session.selection().first()->kind == SelectionKind::Center);
+    auto selected_center = session.pick_marker(model, top(0, 0));
+    CHECK(selected_center);
+    session.choose(model, selected_center->marker.item);
+    CHECK(!session.selection().first());
+
+    Model box; auto* box_object = box.add_object();
+    auto* box_volume = box_object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));
+    auto* box_instance = box_object->add_instance();
+    const TargetId box_id{box_object->id().id, box_instance->id().id, box_volume->id().id};
+    Session box_session(box, {box_id});
+    auto edge = box_session.pick_mesh(box, top(.05, 4));
+    CHECK(edge && edge->feature && edge->feature->surface.get_type() == Measure::SurfaceFeatureType::Edge);
+    auto point = box_session.pick_mesh(box, top(9.95, 9.95));
+    CHECK(point && point->feature && point->feature->surface.get_type() == Measure::SurfaceFeatureType::Point);
+    box_session.choose(box, feature_item(box_id, *edge->feature));
+    box_session.choose(box, feature_item(box_id, *point->feature));
+    const auto [start, end] = edge->feature->surface.get_edge();
+    const Vec3d midpoint = (start + end) * .5;
+    const auto markers = box_session.markers(box, edge);
+    std::size_t midpoint_index = markers.size();
+    for (std::size_t i = 0; i < markers.size(); ++i)
+        if (markers[i].item.kind == SelectionKind::Midpoint) midpoint_index = i;
+    CHECK(midpoint_index < markers.size());
+    auto midpoint_hit = box_session.pick_marker(box, top(midpoint.x(), midpoint.y()), edge, midpoint_index);
+    CHECK(midpoint_hit && midpoint_hit->marker.item.kind == SelectionKind::Midpoint);
+    box_session.choose(box, midpoint_hit->marker.item);
+    CHECK(box_session.selection().first()->kind == SelectionKind::Midpoint && box_session.selection().second());
+
+    // Co-located polygon center and midpoint remain separate native identities.
+    auto overlapping = *edge;
+    auto same_position = Feature{edge->feature->geometry, Measure::SurfaceFeature(Measure::SurfaceFeatureType::Edge,
+        start, end, midpoint)};
+    same_position.surface.world_tran = edge->feature->surface.world_tran;
+    same_position.surface.origin_surface_feature = edge->feature->surface.origin_surface_feature;
+    overlapping.feature = same_position;
+    box_session.clear_selection();
+    auto candidates = box_session.markers(box, overlapping);
+    CHECK(candidates.size() == 2 && candidates[0].item.kind == SelectionKind::Center &&
+        candidates[1].item.kind == SelectionKind::Midpoint);
+    auto center_hint = box_session.pick_marker(box, top(midpoint.x(), midpoint.y()), overlapping, 0);
+    auto midpoint_hint = box_session.pick_marker(box, top(midpoint.x(), midpoint.y()), overlapping, 1);
+    CHECK(center_hint && center_hint->marker.item.kind == SelectionKind::Center);
+    CHECK(midpoint_hint && midpoint_hint->marker.item.kind == SelectionKind::Midpoint);
+}
 }
 
 int main()
@@ -184,6 +287,7 @@ int main()
         multi_target_pick_and_staleness();
         transformed_target_pick();
         selection_semantics();
+        off_mesh_center_and_midpoint_picking();
         std::cout << "Measure session tests passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

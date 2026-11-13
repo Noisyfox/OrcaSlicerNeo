@@ -1,6 +1,7 @@
 #include "MeasureSession.hpp"
 
 #include <cmath>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -232,16 +233,99 @@ void Session::validate(const Model& model) const
 void Session::choose(const Model& model, SelectionItem item)
 {
     validate(model);
+    const auto& target = require_source(item.target, item.source);
+    if (item.value.geometry != target.mesh->geometry)
+        throw std::invalid_argument("measurement feature is stale");
+    m_selection.choose(std::move(item));
+}
+
+const Session::Target& Session::require_source(const TargetId& id, const Feature& source) const
+{
     for (const auto& target : m_targets) {
-        if (!(target->id == item.target)) continue;
+        if (!(target->id == id)) continue;
         const Transform3d transform = target->instance_transform * target->volume_transform;
-        if (item.source.geometry != target->mesh->geometry || item.value.geometry != target->mesh->geometry ||
-            item.source.surface.world_tran.matrix() != transform.matrix())
+        if (source.geometry != target->mesh->geometry || source.surface.world_tran.matrix() != transform.matrix())
             throw std::invalid_argument("measurement feature is stale");
-        m_selection.choose(std::move(item));
-        return;
+        return *target;
     }
     throw std::invalid_argument("measurement feature target is stale");
+}
+
+std::vector<Marker> Session::markers(const Model& model, const std::optional<MeshPick>& hover) const
+{
+    validate(model);
+    std::vector<Marker> result;
+    auto add = [&](SelectionItem item) {
+        for (const auto& marker : result) if (same_item(marker.item, item)) return;
+        const Vec3d position = item.value.surface.get_point();
+        result.push_back({std::move(item), position});
+    };
+    auto add_source = [&](const TargetId& target, const Feature& source) {
+        const auto type = source.surface.get_type();
+        if (type == Measure::SurfaceFeatureType::Point) add(feature_item(target, source));
+        else if (type == Measure::SurfaceFeatureType::Circle) add(center_item(target, source));
+        else if (type == Measure::SurfaceFeatureType::Edge) {
+            if (source.surface.get_extra_point()) add(center_item(target, source));
+            add(midpoint_item(target, source));
+        }
+    };
+    auto add_selection = [&](const std::optional<SelectionItem>& item) {
+        if (!item) return;
+        if (item->value.surface.get_type() == Measure::SurfaceFeatureType::Point) add(*item);
+        if (item->kind != SelectionKind::PointOnFeature) add_source(item->target, item->source);
+    };
+    add_selection(m_selection.first());
+    add_selection(m_selection.second());
+    if (hover && hover->feature) {
+        require_source(hover->target, *hover->feature);
+        add_source(hover->target, *hover->feature);
+    }
+    return result;
+}
+
+std::optional<MarkerHit> Session::pick_marker(const Model& model, const PointerEvent& event,
+    const std::optional<MeshPick>& hover, std::optional<std::size_t> preferred) const
+{
+    const auto candidates = markers(model, hover);
+    if (preferred && *preferred >= candidates.size()) throw std::invalid_argument("measurement marker is stale");
+    if (!event.pointer.allFinite() || !event.viewport.allFinite() || event.viewport.z() <= 0 || event.viewport.w() <= 0)
+        throw std::invalid_argument("invalid measurement pointer/viewport");
+    inverse_checked(event.projection);
+    inverse_checked(event.view);
+    if (!event.view.row(3).isApprox(Eigen::RowVector4d(0, 0, 0, 1)))
+        throw std::invalid_argument("measurement view must be affine");
+    const double right = event.viewport.x() + event.viewport.z(), bottom = event.viewport.y() + event.viewport.w();
+    if (!std::isfinite(right) || !std::isfinite(bottom)) throw std::invalid_argument("invalid measurement viewport extent");
+    if (event.pointer.x() < event.viewport.x() || event.pointer.x() > right ||
+        event.pointer.y() < event.viewport.y() || event.pointer.y() > bottom) return std::nullopt;
+    const Eigen::Matrix4d camera = event.projection * event.view;
+    std::optional<MarkerHit> closest;
+    double depth = std::numeric_limits<double>::infinity();
+    double screen_distance = std::numeric_limits<double>::infinity();
+    bool preferred_hit = !preferred;
+    constexpr double radius = 7.5; // Native Measure's screen-sized sphere radius.
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        const auto& marker = candidates[i];
+        const Eigen::Vector4d clip = camera * Eigen::Vector4d(marker.position.x(), marker.position.y(), marker.position.z(), 1);
+        if (!clip.allFinite() || std::abs(clip.w()) < 1e-15) throw std::invalid_argument("invalid measurement display projection");
+        if (clip.w() < 0) continue;
+        const Vec3d ndc = clip.head<3>() / clip.w();
+        if (ndc.z() < -1 || ndc.z() > 1) continue;
+        const Vec2d screen(event.viewport.x() + (ndc.x() + 1) * event.viewport.z() * .5,
+            event.viewport.y() + (1 - ndc.y()) * event.viewport.w() * .5);
+        const double distance = (screen - event.pointer).squaredNorm();
+        if (distance > radius * radius) continue;
+        if (preferred && *preferred == i) preferred_hit = true;
+        const bool same_depth = std::abs(ndc.z() - depth) < 1e-12;
+        const bool same_distance = std::abs(distance - screen_distance) < 1e-12;
+        if (ndc.z() < depth - 1e-12 || (same_depth && (distance < screen_distance - 1e-12 ||
+            (same_distance && preferred && *preferred == i)))) {
+            depth = ndc.z();
+            screen_distance = distance;
+            closest = MarkerHit{i, marker};
+        }
+    }
+    return preferred_hit ? closest : std::nullopt;
 }
 
 std::optional<MeshPick> Session::pick_mesh(const Model& model, const PointerEvent& event) const

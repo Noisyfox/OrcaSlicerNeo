@@ -44,6 +44,16 @@ struct SelectionItem {
     SelectionKind kind;
 };
 
+struct Marker {
+    SelectionItem item;
+    Vec3d position;
+};
+
+struct MarkerHit {
+    std::size_t index;
+    Marker marker;
+};
+
 SelectionItem feature_item(TargetId target, Feature source);
 SelectionItem center_item(TargetId target, Feature source);
 SelectionItem midpoint_item(TargetId target, Feature source);
@@ -79,6 +89,9 @@ public:
     std::size_t target_count() const { return m_targets.size(); }
     void validate(const Model& model) const;
     std::optional<MeshPick> pick_mesh(const Model& model, const PointerEvent& event) const;
+    std::vector<Marker> markers(const Model& model, const std::optional<MeshPick>& hover = std::nullopt) const;
+    std::optional<MarkerHit> pick_marker(const Model& model, const PointerEvent& event,
+        const std::optional<MeshPick>& hover = std::nullopt, std::optional<std::size_t> preferred = std::nullopt) const;
     const SelectionState& selection() const { return m_selection; }
     void choose(const Model& model, SelectionItem item);
     void clear_first() { m_selection.clear_first(); }
@@ -88,6 +101,7 @@ public:
 
 private:
     struct Target;
+    const Target& require_source(const TargetId& id, const Feature& source) const;
     std::vector<std::unique_ptr<Target>> m_targets;
     SelectionState m_selection;
 };
