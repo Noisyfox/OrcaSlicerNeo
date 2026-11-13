@@ -155,6 +155,20 @@ void circle_measurements()
     CHECK(native && actual.surface == *native); // Keep Orca's affine circle behavior.
     (void)normal;
 }
+
+void extreme_coordinates_keep_orca_results()
+{
+    auto mesh = std::make_shared<TriangleMesh>(its_make_cube(10., 10., 10.));
+    auto geometry = Geometry::create(mesh);
+    Feature first{geometry, Measure::SurfaceFeature(Vec3d::Zero())};
+    Feature second{geometry, Measure::SurfaceFeature(Vec3d(1e308, 1e308, 1e308))};
+    const auto expected = Measure::get_measurement(first.surface, second.surface, true);
+    const auto actual = measurement(first, second);
+    // Finite coordinates can overflow Orca's distance calculation. The native
+    // adapter retains that result; the JSON boundary rejects non-finite data.
+    CHECK(expected.distance_strict && !std::isfinite(expected.distance_strict->dist));
+    CHECK(actual && actual->distance_strict && !std::isfinite(actual->distance_strict->dist));
+}
 }
 
 int main()
@@ -162,6 +176,7 @@ int main()
     try {
         cube_features_and_lifetime();
         circle_measurements();
+        extreme_coordinates_keep_orca_results();
         std::cout << "Measure geometry tests passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

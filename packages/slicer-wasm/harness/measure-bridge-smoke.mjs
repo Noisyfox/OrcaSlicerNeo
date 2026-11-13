@@ -66,6 +66,13 @@ for (const bad of [{ sessionId: 'ms-01' }, { sessionId: current.sessionId + 'x' 
 reject(call('orc_history_undo')); // A failed navigation retains the session.
 ok(command('orc_measure_read', handle()));
 
+for (const invalidEvent of [
+  { ...event(3, 4), pointer: [Infinity, 4] },
+  { ...event(3, 4), projection: [...identity.slice(0, 15), null] },
+  { ...event(3, 4), viewport: [0, 0, 0, 100] },
+]) reject(command('orc_measure_display', { ...handle(), event: invalidEvent }));
+assert.deepEqual(ok(command('orc_measure_read', handle())), current);
+
 const planeDisplay = ok(command('orc_measure_display', { ...handle(), event: event(3, 4) }));
 assert.equal(planeDisplay.hover.feature.type, 'plane');
 const planeRequest = { ...handle(), displayId: planeDisplay.displayId, role: 'hover',
