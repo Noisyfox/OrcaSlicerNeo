@@ -239,6 +239,21 @@ void off_mesh_center_and_midpoint_picking()
     auto click = session.pick(model, top(0, 0), hover);
     CHECK(click && std::holds_alternative<MarkerHit>(*click));
     CHECK(!session.pick(model, top(30, 30), hover)); // A stale hover cannot select a moved click.
+    const auto displayed = session.capture_display(model, hover);
+    CHECK(session.markers(model, displayed).at(0).item.kind == SelectionKind::Center);
+    session.choose(model, point_item(id, *hover->feature, hover->world));
+    CHECK(session.markers(model, hover).at(0).item.kind == SelectionKind::PointOnFeature);
+    auto ordered_click = session.pick_display(model, top(0, 0), displayed, 0);
+    CHECK(ordered_click && std::holds_alternative<MarkerHit>(*ordered_click));
+    CHECK(std::get<MarkerHit>(*ordered_click).marker.item.kind == SelectionKind::Center);
+    CHECK(!session.pick_display(model, top(6.5, 0), displayed, 0));
+    Session replacement(model, {id});
+    THROWS(replacement.pick_display(model, top(0, 0), displayed, 0));
+    const auto original_offset = volume->get_offset();
+    volume->set_offset(original_offset + Vec3d(0, 0, 1));
+    THROWS(session.pick_display(model, top(0, 0), displayed, 0));
+    volume->set_offset(original_offset);
+    session.clear_selection();
     auto offset_viewport = top(0, 0);
     offset_viewport.viewport = Eigen::Vector4d(20, 30, 120, 80);
     offset_viewport.pointer = Vec2d(80, 70);

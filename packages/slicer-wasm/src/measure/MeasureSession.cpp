@@ -517,7 +517,25 @@ const Session::Target& Session::require_source(const TargetId& id, const Feature
     throw std::invalid_argument("measurement feature target is stale");
 }
 
+DisplaySnapshot Session::capture_display(const Model& model, const std::optional<MeshPick>& hover) const
+{
+    validate(model);
+    if (hover && hover->feature) require_source(hover->target, *hover->feature);
+    return {*m_selection, hover};
+}
+
 std::vector<Marker> Session::markers(const Model& model, const std::optional<MeshPick>& hover) const
+{
+    return markers_for(model, *m_selection, hover);
+}
+
+std::vector<Marker> Session::markers(const Model& model, const DisplaySnapshot& display) const
+{
+    return markers_for(model, display.selection, display.hover);
+}
+
+std::vector<Marker> Session::markers_for(const Model& model, const SelectionState& selection,
+    const std::optional<MeshPick>& hover) const
 {
     validate(model);
     std::vector<Marker> result;
@@ -537,11 +555,14 @@ std::vector<Marker> Session::markers(const Model& model, const std::optional<Mes
     };
     auto add_selection = [&](const std::optional<SelectionItem>& item) {
         if (!item) return;
+        const auto& target = require_source(item->target, item->source);
+        if (item->value.geometry != target.mesh->geometry)
+            throw std::invalid_argument("measurement feature is stale");
         if (item->value.surface.get_type() == Measure::SurfaceFeatureType::Point) add(*item);
         if (item->kind != SelectionKind::PointOnFeature) add_source(item->target, item->source);
     };
-    add_selection(m_selection->first());
-    add_selection(m_selection->second());
+    add_selection(selection.first());
+    add_selection(selection.second());
     if (hover && hover->feature) {
         require_source(hover->target, *hover->feature);
         add_source(hover->target, *hover->feature);
@@ -552,7 +573,13 @@ std::vector<Marker> Session::markers(const Model& model, const std::optional<Mes
 std::optional<MarkerHit> Session::pick_marker(const Model& model, const PointerEvent& event,
     const std::optional<MeshPick>& hover, std::optional<std::size_t> preferred) const
 {
-    const auto candidates = markers(model, hover);
+    return pick_marker_for(model, event, *m_selection, hover, preferred);
+}
+
+std::optional<MarkerHit> Session::pick_marker_for(const Model& model, const PointerEvent& event,
+    const SelectionState& selection, const std::optional<MeshPick>& hover, std::optional<std::size_t> preferred) const
+{
+    const auto candidates = markers_for(model, selection, hover);
     if (preferred && *preferred >= candidates.size()) throw std::invalid_argument("measurement marker is stale");
     const auto ray = pointer_ray(event);
     if (!ray) return std::nullopt;
@@ -577,6 +604,12 @@ std::optional<MarkerHit> Session::pick_marker(const Model& model, const PointerE
 std::optional<GripperHit> Session::pick_gripper(const Model& model, const PointerEvent& event,
     const std::optional<MeshPick>& hover) const
 {
+    return pick_gripper_for(model, event, *m_selection, hover);
+}
+
+std::optional<GripperHit> Session::pick_gripper_for(const Model& model, const PointerEvent& event,
+    const SelectionState& selection, const std::optional<MeshPick>& hover) const
+{
     validate(model);
     const auto ray = pointer_ray(event);
     if (!ray) {
@@ -594,7 +627,7 @@ std::optional<GripperHit> Session::pick_gripper(const Model& model, const Pointe
     auto selected = [&](const std::optional<SelectionItem>& item) {
         if (item && item->kind == SelectionKind::Feature) add(item->target, item->source);
     };
-    selected(m_selection->first()); selected(m_selection->second());
+    selected(selection.first()); selected(selection.second());
     if (hover && hover->feature) add(hover->target, *hover->feature);
 
     std::optional<GripperHit> closest;
@@ -645,11 +678,20 @@ std::optional<GripperHit> Session::pick_gripper(const Model& model, const Pointe
 std::optional<InteractionHit> Session::pick(const Model& model, const PointerEvent& event,
     const std::optional<MeshPick>& hover, std::optional<std::size_t> preferred_marker) const
 {
+    return pick_display(model, event, capture_display(model, hover), preferred_marker);
+}
+
+std::optional<InteractionHit> Session::pick_display(const Model& model, const PointerEvent& event,
+    const DisplaySnapshot& display, std::optional<std::size_t> preferred_marker) const
+{
     // Displayed markers and grippers are checked against this press before
     // source-mesh picking, as in Orca. This also avoids extracting an
     // unrelated mesh feature merely to select an off-mesh marker.
-    auto marker_hit = pick_marker(model, event, hover, preferred_marker);
-    auto gripper = pick_gripper(model, event, hover);
+    auto marker_hit = pick_marker_for(model, event, display.selection, display.hover, preferred_marker);
+    // A renderer-provided marker identity must actually be hit at this press.
+    // Never fall through to an unrelated gripper when its hint is stale.
+    if (preferred_marker && !marker_hit) return std::nullopt;
+    auto gripper = pick_gripper_for(model, event, display.selection, display.hover);
     if (marker_hit && (!gripper || marker_hit->distance <= gripper->distance)) return InteractionHit{std::move(*marker_hit)};
     if (gripper) return InteractionHit{std::move(*gripper)};
 
@@ -660,10 +702,10 @@ std::optional<InteractionHit> Session::pick(const Model& model, const PointerEve
         // shapes handled by pick_gripper. A click can arrive before a hover
         // response, so also test the newly found point against this press.
         if (mesh->feature->surface.get_type() == Measure::SurfaceFeatureType::Point) {
-            if (auto fresh_marker = pick_marker(model, event, mesh))
+            if (auto fresh_marker = pick_marker_for(model, event, display.selection, mesh, std::nullopt))
                 return InteractionHit{std::move(*fresh_marker)};
         }
-        auto fresh = pick_gripper(model, event, mesh);
+        auto fresh = pick_gripper_for(model, event, display.selection, mesh);
         if (fresh) return InteractionHit{std::move(*fresh)};
     }
     if (mesh) return InteractionHit{std::move(*mesh)};
