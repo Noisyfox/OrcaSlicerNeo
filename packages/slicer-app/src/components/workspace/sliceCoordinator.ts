@@ -1,4 +1,5 @@
 import { paintingCommandAllowed, closePaintingForCommand } from './viewport/gizmo/painting/projectCommands';
+import { closeMeasureForCommand } from './viewport/gizmo/measure/projectCommands';
 import type { SliceStatus } from '@/stores/useSlicerStore';
 
 export interface WorkspaceSliceCoordinator {
@@ -52,6 +53,7 @@ export function createWorkspaceSliceCoordinator({
     ensureSlice,
     requestPreviewSlice: async () => {
       if (!paintingCommandAllowed() || !await closePaintingForCommand()) return;
+      await closeMeasureForCommand();
       requestPreview();
       return ensureSlice();
     },

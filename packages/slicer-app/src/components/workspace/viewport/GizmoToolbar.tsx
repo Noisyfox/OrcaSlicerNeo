@@ -6,7 +6,8 @@ import { meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
 // overlays the canvas (outside the R3F tree). Selection and the armed gizmo
 // are observed separately so transform frames do not rerender the toolbar.
-import { FolderPlus, Move, Rotate3d, Scaling, Combine, Paintbrush, Scissors, Sparkles, Blocks } from 'lucide-react';
+import { FolderPlus, Move, Rotate3d, Scaling, Combine, Paintbrush, Scissors, Sparkles, Blocks, Ruler } from 'lucide-react';
+import type { PaintingChannel } from '@slicer/client';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import type { OpenGizmo, SceneInteractionController } from './SceneInteractionCo
 import { paintingTarget, usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { ArrangementButton } from '../arrangement/ArrangementControls';
+import { closeMeasureForCommand, measureSessionActive } from './gizmo/measure/projectCommands';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
   mode: Exclude<OpenGizmo, null>;
@@ -29,6 +31,7 @@ const GIZMO_BUTTONS: ReadonlyArray<{
   { mode: 'rotate', label: 'Rotate', icon: Rotate3d, testId: 'gizmo-btn-rotate' },
   { mode: 'scale', label: 'Scale', icon: Scaling, testId: 'gizmo-btn-scale' },
   { mode: 'mesh-boolean', label: 'Mesh Boolean', icon: Combine, testId: 'gizmo-btn-mesh-boolean' },
+  { mode: 'measure', label: 'Measure', icon: Ruler, testId: 'gizmo-btn-measure' },
 ];
 
 export function GizmoToolbar({
@@ -71,6 +74,19 @@ export function GizmoToolbar({
   );
   if (!sceneInteraction) return null;
   const towerSelected = sceneInteraction.hasWipeTowerSelection;
+  const openPainting = (channel: PaintingChannel) => {
+    if (!painting) return;
+    const target = paintingTarget(sceneInteraction);
+    if (!target) return;
+    const closingMeasure = sceneInteraction.gizmo === 'measure' || measureSessionActive();
+    sceneInteraction.closeGizmo();
+    if (!closingMeasure) { void painting.open(target.objectId, target.instanceId, channel); return; }
+    void closeMeasureForCommand().then(() => {
+      const current = paintingTarget(sceneInteraction);
+      if (sceneInteraction.gizmo === null && current?.objectId === target.objectId && current.instanceId === target.instanceId)
+        void painting.open(target.objectId, target.instanceId, channel);
+    });
+  };
   // The tower is a tagged shared scene volume.  Its identity restricts the
   // ordinary toolbar to Move; Rotate and Scale remain unavailable.
   return (
@@ -99,6 +115,7 @@ export function GizmoToolbar({
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
         const disabled = (towerSelected ? !towerMode : sceneInteraction.selection.empty) || (paintActive && paintState?.phase !== 'idle') ||
+          (mode === 'measure' && !armed && !!platform.runtime.getRuntimeExecutionState?.().serialSliceActive) ||
           (mode === 'mesh-boolean' && ((!armed && !meshBooleanTarget(sceneInteraction.selectedVolumes(), glVolumeCollection.volumes)) ||
             !!platform.runtime.getRuntimeExecutionState?.().sliceActive));
         return (
@@ -128,8 +145,7 @@ export function GizmoToolbar({
             if (!painting) return;
             onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'support') { void painting.close(); return; }
-            const target = paintingTarget(sceneInteraction);
-            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'support'); }
+            openPainting('support');
           }}><Blocks /></Button>
       </TooltipFor>
       <TooltipFor content="Seam painting">
@@ -139,8 +155,7 @@ export function GizmoToolbar({
             if (!painting) return;
             onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'seam') { void painting.close(); return; }
-            const target = paintingTarget(sceneInteraction);
-            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'seam'); }
+            openPainting('seam');
           }}><Scissors /></Button>
       </TooltipFor>
       <TooltipFor content="Fuzzy skin painting">
@@ -150,8 +165,7 @@ export function GizmoToolbar({
             if (!painting) return;
             onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'fuzzy') { void painting.close(); return; }
-            const target = paintingTarget(sceneInteraction);
-            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'fuzzy'); }
+            openPainting('fuzzy');
           }}><Sparkles /></Button>
       </TooltipFor>
       <TooltipFor content="Surface painting">
@@ -161,8 +175,7 @@ export function GizmoToolbar({
             if (!painting) return;
             onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'mmu') { void painting.close(); return; }
-            const target = paintingTarget(sceneInteraction);
-            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'mmu'); }
+            openPainting('mmu');
           }}><Paintbrush /></Button>
       </TooltipFor>
     </div>

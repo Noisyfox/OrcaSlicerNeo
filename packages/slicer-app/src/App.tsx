@@ -52,6 +52,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppE2eProbe } from './e2e/AppE2eProbe';
 import { FileManagerWindow } from './components/fileManager/FileManagerWindow';
 import { usePaintingPhase, PaintingProvider } from './components/workspace/viewport/gizmo/painting/PaintingProvider';
+import { MeasureProvider } from './components/workspace/viewport/gizmo/measure/MeasureProvider';
+import { closeMeasureForCommand, measureSessionActive } from './components/workspace/viewport/gizmo/measure/projectCommands';
 import { useArrangementStore } from './stores/useArrangementStore';
 import { ArrangementEditBoundary } from './components/workspace/ArrangementEditBoundary';
 import { useSetupWizardStore } from './stores/useSetupWizardStore';
@@ -80,7 +82,7 @@ export function handleMenuKeyDown(
 }
 
 export default function App() {
-  return <TooltipProvider><PaintingProvider><AppContent /></PaintingProvider></TooltipProvider>;
+  return <TooltipProvider><PaintingProvider><MeasureProvider><AppContent /></MeasureProvider></PaintingProvider></TooltipProvider>;
 }
 
 function AppContent() {
@@ -199,7 +201,9 @@ function AppContent() {
       }
       setActiveTab(tab);
     };
-    if (tab === 'preview' && paintingSessionActive()) {
+    if (tab === 'preview' && measureSessionActive()) {
+      void closeMeasureForCommand().then(() => navigate());
+    } else if (tab === 'preview' && paintingSessionActive()) {
       void closePaintingForCommand().then((closed) => { if (closed) navigate(); });
     } else navigate();
   }, []);

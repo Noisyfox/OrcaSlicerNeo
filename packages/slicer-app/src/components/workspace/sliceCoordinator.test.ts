@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createWorkspaceSliceCoordinator } from './sliceCoordinator';
+import { registerMeasureCommands } from './viewport/gizmo/measure/projectCommands';
+import type { MeasureController } from './viewport/gizmo/measure/MeasureController';
 
 function deferred() {
   let resolve!: () => void;
@@ -8,6 +10,19 @@ function deferred() {
 }
 
 describe('Workspace slice coordinator', () => {
+  it('waits for Measure cleanup before navigating to Preview and slicing', async () => {
+    const events: string[] = []; const gate = deferred();
+    const owner = { active: true, close: vi.fn(async () => { events.push('close'); await gate.promise; }) } as unknown as MeasureController;
+    const unregister = registerMeasureCommands(owner);
+    try {
+      const coordinator = createWorkspaceSliceCoordinator({ isModelLoaded: () => true, getStatus: () => 'idle',
+        slice: async () => { events.push('slice'); }, requestPreview: () => { events.push('preview'); } });
+      const task = coordinator.requestPreviewSlice();
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      expect(events).toEqual(['close']); gate.resolve(); await task;
+      expect(events).toEqual(['close', 'preview', 'slice']);
+    } finally { unregister(); }
+  });
   it('starts a slice when entering Preview and navigates first', async () => {
     const events: string[] = [];
     const slice = vi.fn(async () => { events.push('slice'); });

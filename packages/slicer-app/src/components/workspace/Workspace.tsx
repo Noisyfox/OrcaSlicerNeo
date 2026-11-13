@@ -56,6 +56,9 @@ import type { PrimeTowerMoveResultOrError } from '@slicer/client';
 import { historyDiagnosticNow, useHistoryDiagnosticsStore } from '@/history/historyDiagnostics';
 import { isSerialSliceBusy } from '@/runtimeExecution';
 import { paintingTarget, usePaintingController, usePaintingPhase } from './viewport/gizmo/painting/PaintingProvider';
+import { useMeasureController } from './viewport/gizmo/measure/MeasureProvider';
+import { MeasureSceneBinding } from './viewport/gizmo/measure/MeasureSceneBinding';
+import { registerMeasureScene } from './viewport/gizmo/measure/projectCommands';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -158,6 +161,7 @@ export function Workspace({
   const platform = usePlatform();
   const painting = usePaintingController();
   const paintingPhase = usePaintingPhase();
+  const measure = useMeasureController();
   const [presetEditorTarget, setPresetEditorTarget] = useState<PresetDraftTarget | null>(null);
   useEffect(() => { onEditingSessionChange?.(presetEditorTarget !== null); return () => onEditingSessionChange?.(false); }, [onEditingSessionChange, presetEditorTarget]);
   const plateSession = usePlateSessionStore((s) => s.snapshot);
@@ -234,6 +238,14 @@ export function Workspace({
     sceneInteractionRef.current.setSceneEntityCommitPort({ commit: (volume) => wipeTowerVolumes.commit(volume), busy: () => wipeTowerVolumes.busy });
   }
   const sceneInteraction = sceneInteractionRef.current;
+  const measureBindingRef = useRef<MeasureSceneBinding | null>(null);
+  useEffect(() => {
+    if (!measure) return;
+    const binding = new MeasureSceneBinding(sceneInteraction, measure, () => useHistoryRestoreStore.getState().phase !== 'idle');
+    measureBindingRef.current = binding;
+    const unregister = registerMeasureScene(binding);
+    return () => { unregister(); measureBindingRef.current = null; binding.dispose(); };
+  }, [measure, sceneInteraction]);
   useEffect(() => {
     if (!painting) return;
     sceneInteraction.selection.setAdmissionGuard(() => painting.selectionAllowed(useHistoryRestoreStore.getState().phase === 'restoring'));
@@ -463,14 +475,14 @@ export function Workspace({
   const historyRestore = useMemo<HistoryRestoreCoordinator>(() => ({
     currentRevision: () => baseHistoryRestore.currentRevision(),
     restore: async (action) => {
-      if (!painting) return baseHistoryRestore.restore(action);
-      if (!painting.selectionAllowed()) return false;
+      if (painting && !painting.selectionAllowed()) return false;
       const restored = await baseHistoryRestore.restore(action);
-      if (restored && painting.getSnapshot().phase === 'idle') {
+      if (restored && painting?.getSnapshot().phase === 'idle') {
         const target = paintingTarget(sceneInteraction);
         if (target) await painting.target(target.objectId, target.instanceId);
         else await painting.close();
       }
+      if (restored) await measureBindingRef.current?.historyRestored();
       return restored;
     },
   }), [baseHistoryRestore, painting, sceneInteraction]);

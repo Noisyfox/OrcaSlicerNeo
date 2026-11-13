@@ -1,6 +1,7 @@
 import { configurePrinterProjectPreferences } from './preferences';
 import { captureProjectThumbnails } from './components/workspace/projectThumbnails';
 import { paintingCommandAllowed, closePaintingForCommand, resetPaintingProjectPalette, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
+import { closeMeasureForCommand } from './components/workspace/viewport/gizmo/measure/projectCommands';
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
 import type { PlateSessionMutation, ProjectLoadResult, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
@@ -193,6 +194,8 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
   const gate = await gateDirty(platform, 'new', undefined, options); if (gate) return gate;
   if (options.signal?.aborted || !await closePaintingForCommand()) return { status: 'cancelled' };
+  if (options.signal?.aborted) return { status: 'cancelled' };
+  await closeMeasureForCommand();
   resetPaintingProjectPalette();
   const previous = useProjectStore.getState(); setOperation('loading', 0, 'Creating project');
   try {
@@ -288,6 +291,8 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
   }
   const gate = await gateDirty(platform, 'open', input, options); if (gate) return gate;
   if (options.signal?.aborted || !await closePaintingForCommand()) return { status: 'cancelled' };
+  if (options.signal?.aborted) return { status: 'cancelled' };
+  await closeMeasureForCommand();
   resetPaintingProjectPalette();
   setOperation('loading', 0, 'Opening project');
   try {

@@ -36,6 +36,7 @@ import { selectPlateSessionAndClearSelection } from '../plateSessionActions';
 import { useArrangementStore } from '@/stores/useArrangementStore';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
+import { useMeasureController } from './gizmo/measure/MeasureProvider';
 import { FuzzyPaintingPanel } from './gizmo/painting/FuzzyPaintingPanel';
 import { SeamPaintingPanel } from './gizmo/painting/SeamPaintingPanel';
 import { SupportPaintingPanel } from './gizmo/painting/SupportPaintingPanel';
@@ -99,6 +100,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
 }) {
   const platform = usePlatform();
   const painting = usePaintingController();
+  const measure = useMeasureController();
   const paintState = usePaintingState();
   const paintingActive = activeTab === 'prepare' && paintState != null && paintState.phase !== 'closed';
   const plateSession = usePlateSessionStore((s) => s.snapshot);
@@ -201,13 +203,31 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
     if (!sceneInteraction || previewTab) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (useSetupWizardStore.getState().active) return;
-      if (painting?.active) return;
-      if (event.key === 'Escape' && sceneInteraction.gizmo === 'mesh-boolean') {
-        event.preventDefault(); sceneInteraction.closeGizmo(); return;
-      }
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (painting?.active) {
+        if (key === 'u' && painting.getSnapshot().phase === 'idle' && !platform.runtime.getRuntimeExecutionState?.().serialSliceActive) {
+          event.preventDefault();
+          void painting.close().then(closed => { if (closed) sceneInteraction.toggleGizmo('measure'); });
+        }
+        return;
+      }
+      if (event.key === 'Escape' && sceneInteraction.gizmo === 'mesh-boolean') {
+        event.preventDefault(); sceneInteraction.closeGizmo(); return;
+      }
+      if (sceneInteraction.gizmo === 'measure') {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          if (measure?.getSnapshot().phase === 'opening') sceneInteraction.closeGizmo();
+          else measure?.reset('escape');
+          return;
+        }
+        if (event.key === 'Delete' || event.key === 'Backspace') {
+          event.preventDefault(); measure?.reset('all'); return;
+        }
+      }
       if (event.key === 'Escape') {
         event.preventDefault();
         sceneInteraction.clearSelection();
@@ -220,14 +240,16 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         void deleteSelection(platform.runtime, sceneInteraction);
         return;
       }
-      const key = event.key.toLowerCase();
       if (key === 'm') sceneInteraction.toggleGizmo('move');
       else if (key === 'r') sceneInteraction.toggleGizmo('rotate');
       else if (key === 's') sceneInteraction.toggleGizmo('scale');
+      else if (key === 'u' && (sceneInteraction.gizmo === 'measure' || !platform.runtime.getRuntimeExecutionState?.().serialSliceActive)) {
+        event.preventDefault(); sceneInteraction.toggleGizmo('measure');
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [platform.runtime, previewTab, sceneInteraction, slicing, painting]);
+  }, [platform.runtime, previewTab, sceneInteraction, slicing, painting, measure]);
 
   // Preview inspection shortcuts are scoped to the viewport focus and are
   // separate from Prepare's object-editing bindings above.
@@ -410,7 +432,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         // Shift+drag is box selection: claim the press before OrbitControls
         // or DragControls can start their own gesture. A gizmo grab keeps
         // strict priority, and overlay DOM is never hijacked.
-        if (sceneInteractionRef.current?.gizmo !== 'mesh-boolean' && canStartBoxSelect(native, grabbedGizmo)) {
+        if (sceneInteractionRef.current?.gizmo !== 'mesh-boolean' && sceneInteractionRef.current?.gizmo !== 'measure' && canStartBoxSelect(native, grabbedGizmo)) {
           startBoxSelectGesture(native);
           native.stopImmediatePropagation();
           native.preventDefault();
@@ -451,6 +473,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
               if (event.button !== 0) return;
               if (useArrangementStore.getState().active) return;
               if (sceneInteractionRef.current?.gizmo === 'mesh-boolean') return;
+              if (sceneInteractionRef.current?.gizmo === 'measure') return;
               if (!previewTab && !paintingActive) {
                 const rect = viewportRef.current.getBoundingClientRect();
                 const plateId = pickBuildPlateId(sceneStateRef.current, {
