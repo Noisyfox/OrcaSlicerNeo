@@ -1,7 +1,8 @@
 # Viewport Interaction
 
 **Updated:** 2026-11-13
-**Status:** Delivered behavior; Measure is an accepted design pending implementation.
+**Status:** Delivered behavior, including Measure; release-wide qualification
+is separate.
 **Scope:** Shared Electron/Web model selection, transforms, camera and rendering.
 
 ## Coordinates and rendering
