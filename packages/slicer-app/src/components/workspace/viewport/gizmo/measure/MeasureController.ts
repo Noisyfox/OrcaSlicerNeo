@@ -23,6 +23,7 @@ export interface MeasurePorts {
 }
 interface DisplayOwner { readonly display: MeasureDisplay; visible: boolean; references: number; released: boolean }
 interface HoverRequest { readonly event: MeasurePointerEvent; readonly generation: number; readonly serial: number; readonly admission: string }
+export interface MeasureScaleToken { readonly generation: number; readonly sessionId: MeasureSessionId }
 
 function copyEvent(event: MeasurePointerEvent): MeasurePointerEvent {
   return { pointer: [...event.pointer], viewport: [...event.viewport], projection: [...event.projection], view: [...event.view] };
@@ -244,6 +245,26 @@ export class MeasureController {
   private refreshHover(): void {
     if (this.lastEvent) this.hover(this.lastEvent);
     else { this.hoverSerial++; this.pendingHover = null; this.retireDisplay(); this.update({ display: null }); }
+  }
+
+  /** Freeze interaction only after previously admitted clicks have settled. */
+  beginScale(expected: Pick<MeasureStatus, 'sessionId' | 'targetRevision' | 'selectionRevision'>): MeasureScaleToken | null {
+    const current = this.state.status;
+    if (this.state.phase !== 'idle' || !current || !this.ports.canMeasure() || current.sessionId !== expected.sessionId ||
+        current.targetRevision !== expected.targetRevision || current.selectionRevision !== expected.selectionRevision) return null;
+    const generation = ++this.generation;
+    this.hoverSerial++; this.pendingHover = null; this.retireDisplay(); this.planeLoads.clear();
+    this.update({ phase: 'rebasing', display: null, planes: new Map(), error: null });
+    return { generation, sessionId: current.sessionId };
+  }
+
+  /** A retarget/close invalidates the token and cannot rebase a successor. */
+  async finishScale(token: MeasureScaleToken, committed: boolean): Promise<boolean> {
+    if (token.generation !== this.generation || this.state.phase !== 'rebasing' || this.state.status?.sessionId !== token.sessionId) return false;
+    this.update({ phase: 'idle' });
+    if (committed) return this.rebase();
+    this.refreshHover();
+    return true;
   }
 
   /** Called after the shared transform transaction has settled successfully. */
