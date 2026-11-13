@@ -174,6 +174,10 @@ For real threaded slice/measurement concurrency, run
 The real-host journey is `node scripts/run-measure-e2e.mjs`; use
 `--desktop-only` or `--web-only` for a host, and add `--serial` and/or
 `--wasm32` to the Web run to exercise the corresponding runtime selection.
+`node packages/slicer-wasm/harness/measure-profile.mjs packages/slicer-wasm/out/serial/orca_slice.js 6`
+samples three open/hover/close cycles on an 81,920-triangle synthetic sphere.
+It reports process peak RSS and WASM heap capacity, which include initialization
+and model resources and do not shrink simply because a session is released.
 
 ## Test Quality and Maintenance
 
