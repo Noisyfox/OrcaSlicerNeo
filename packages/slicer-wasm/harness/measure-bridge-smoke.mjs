@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, fixtureProfileOptions, installProfilePackages } from './profile-installer.mjs';
+import { meshBooleanSphereFixture } from './mesh-boolean-fixtures.mjs';
 
 const modulePath = process.argv[2];
 if (!modulePath) throw new Error('usage: measure-bridge-smoke.mjs <orca_slice.js>');
@@ -151,4 +152,24 @@ reject(command('orc_measure_read', handle()));
 current = ok(command('orc_measure_open', { version: 1, targets: [target] }));
 ok(call('orc_close_project'));
 reject(command('orc_measure_read', handle()));
+
+// Exercise the existing import path with an otherwise closed sphere plus one
+// zero-area triangle. Orca's importer removes that triangle before Measure
+// sees the mesh; this is not a Measure-specific repair or detection policy.
+const sphere = meshBooleanSphereFixture(1);
+const damaged = new Uint8Array(sphere.bytes.length + 50); damaged.set(sphere.bytes);
+new DataView(damaged.buffer).setUint32(80, sphere.triangles + 1, true);
+const input = Number(module._malloc(damaged.length)); module.HEAPU8.set(damaged, input);
+try { ok(call('orc_add_model', ['pointer', 'number', 'string', 'string'], [input, damaged.length, 'stl', 'degenerate.stl'])); }
+finally { module._free(input); }
+const repaired = ok(call('orc_get_model_structure')).objects[0];
+const repairedMesh = ok(call('orc_get_model_mesh'));
+assert.equal(repairedMesh.geometries[0].index_count / 3, sphere.triangles);
+for (const geometry of [...repairedMesh.geometries, ...repairedMesh.paint_geometries]) {
+  if (geometry.vertex_ptr) module._free(Number(geometry.vertex_ptr));
+  if (geometry.index_ptr) module._free(Number(geometry.index_ptr));
+}
+const repairedSession = ok(command('orc_measure_open', { version: 1, targets: [{ objectId: repaired.id,
+  instanceId: repaired.instances[0].id, volumeId: repaired.volumes[0].id }] }));
+ok(command('orc_measure_close', { version: 1, sessionId: repairedSession.sessionId }));
 console.log('Measure bridge smoke passed');
