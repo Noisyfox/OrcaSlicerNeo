@@ -67,6 +67,10 @@ export interface TransformHistoryPort {
   abort(): Promise<unknown>;
 }
 
+export type SettledScaleResult =
+  | { outcome: 'committed' | 'cancelled' | 'unavailable' }
+  | { outcome: 'stale' | 'failed'; error: string };
+
 /** Commit boundary for a scene entity after its local draft has changed. */
 export interface SceneEntityCommitPort<Entity extends GLVolume = GLVolume> {
   commit(entity: Entity): Promise<void>;
@@ -887,6 +891,29 @@ export class SceneInteractionController {
 
   /** Multiply every selected instance's scale by `factor` (clamped > 0). */
   scaleSelectionBy(factor: Vec3): boolean {
+    return this.startScaleSelection(factor);
+  }
+
+  /** Measure must wait for the same ordinary scale transaction to settle
+   * before rebasing its retained native feature pointers. */
+  async scaleSelectionByAndWait(factor: Vec3): Promise<SettledScaleResult> {
+    if (!this.transformHistory) return { outcome: 'unavailable' };
+    let completion: Promise<unknown> | null = null, changed = false;
+    const started = this.startScaleSelection(factor, (result, effective) => { completion = result; changed = effective; });
+    if (!started || !completion) return { outcome: 'unavailable' };
+    try {
+      const result = await completion;
+      if (!changed) return { outcome: 'cancelled' };
+      if (result && typeof result === 'object' && 'outcome' in result) {
+        const candidate = result as SettledScaleResult;
+        if (candidate.outcome === 'committed' || candidate.outcome === 'cancelled') return candidate;
+        if ((candidate.outcome === 'stale' || candidate.outcome === 'failed') && typeof candidate.error === 'string') return candidate;
+      }
+      return { outcome: 'failed', error: 'Scale transaction did not report its result' };
+    } catch (error) { return { outcome: 'failed', error: error instanceof Error ? error.message : String(error) }; }
+  }
+
+  private startScaleSelection(factor: Vec3, settled?: (completion: Promise<unknown>, changed: boolean) => void): boolean {
     if (this.hasWipeTowerSelection) return false;
     if (this.selection.empty) return false;
     const pivot = this.selectionPivot();
@@ -896,7 +923,7 @@ export class SceneInteractionController {
     // changes — the same semantics as the size edit and the gizmo drag.
     return this.applyDiscreteTransform('Scale', () => {
       this.applyScaleDeltaToSnapshot(this.captureDragTargets(), pivot, factor, new THREE.Quaternion());
-    });
+    }, settled);
   }
 
   /** Scale the selection so its bounding-box `axis` size becomes `size` mm. */
@@ -1020,13 +1047,14 @@ export class SceneInteractionController {
     }));
   }
 
-  private applyDiscreteTransform(label: string, apply: () => void): boolean {
+  private applyDiscreteTransform(label: string, apply: () => void, settled?: (completion: Promise<unknown>, changed: boolean) => void): boolean {
     const before = this.captureDragTargets();
     if (before.length === 0) return false;
     if (this.transformHistory?.begin(label) === false) return false;
     apply();
-    if (this.targetsEqual(before)) void this.transformHistory?.abort();
-    else void this.transformHistory?.commit();
+    const changed = !this.targetsEqual(before);
+    const completion = changed ? this.transformHistory?.commit() : this.transformHistory?.abort();
+    if (settled && completion) settled(completion, changed);
     this.emit();
     return true;
   }

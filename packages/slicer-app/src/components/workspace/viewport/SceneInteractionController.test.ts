@@ -944,6 +944,32 @@ describe('SceneInteractionController', () => {
     expect(controller.scaleSelectionToSize(1, 0)).toBe(false);
   });
 
+  it('exposes the settled result of a Measure scale and aborts a no-op', async () => {
+    let resolve!: (result: { outcome: 'committed' }) => void;
+    const pending = new Promise<{ outcome: 'committed' }>(done => { resolve = done; });
+    const port = { begin: vi.fn(() => true), commit: vi.fn(() => pending),
+      abort: vi.fn(async () => ({ outcome: 'cancelled' })) };
+    controller.setTransformHistoryPort(port);
+    controller.selectFromHit(volumes[0], false); controller.toggleGizmo('measure');
+    const settled = controller.scaleSelectionByAndWait([2, 2, 2]);
+    expect(port.begin).toHaveBeenCalledWith('Scale'); expect(port.commit).toHaveBeenCalledOnce();
+    expect(volumes[0].instanceTransform.scale).toEqual([2, 2, 2]);
+    let completed = false; void settled.then(() => { completed = true; }); await Promise.resolve();
+    expect(completed).toBe(false); resolve({ outcome: 'committed' });
+    await expect(settled).resolves.toEqual({ outcome: 'committed' });
+    await expect(controller.scaleSelectionByAndWait([1, 1, 1])).resolves.toEqual({ outcome: 'cancelled' });
+    expect(port.abort).toHaveBeenCalledOnce(); expect(port.commit).toHaveBeenCalledOnce();
+  });
+
+  it('returns the failed or unavailable scale transaction without inventing a commit', async () => {
+    controller.selectFromHit(volumes[0], false); controller.toggleGizmo('measure');
+    await expect(controller.scaleSelectionByAndWait([2, 2, 2])).resolves.toEqual({ outcome: 'unavailable' });
+    controller.setTransformHistoryPort({ begin: () => true, commit: async () => ({ outcome: 'stale', error: 'stale target' }), abort: async () => undefined });
+    await expect(controller.scaleSelectionByAndWait([2, 2, 2])).resolves.toEqual({ outcome: 'stale', error: 'stale target' });
+    controller.setTransformHistoryPort({ begin: () => true, commit: async () => undefined, abort: async () => undefined });
+    await expect(controller.scaleSelectionByAndWait([2, 2, 2])).resolves.toEqual({ outcome: 'failed', error: 'Scale transaction did not report its result' });
+  });
+
   it('resets rotation and scale to the load-time transform', () => {
     volumes[0].instanceTransform.rotation = [0, 0, Math.PI / 2];
     volumes[0].instanceTransform.scale = [3, 3, 3];

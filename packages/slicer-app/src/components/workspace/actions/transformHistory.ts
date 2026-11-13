@@ -10,6 +10,7 @@ import { applySettledTransformSyncResult } from './persistModelTransforms';
 import {
   captureTransformReservationState,
   executeProjectHistoryTransaction,
+  historyContextForStructure,
   readTransformReservationState,
 } from './historyMutation';
 
@@ -20,6 +21,9 @@ type TransformHistoryRuntime = Pick<SlicerClient,
 
 /** Build the Worker-owned context projection without retaining renderer state. */
 export function historyContextForScene(sceneInteraction: SceneInteractionController): HistoryContext {
+  // Measure permits a part picked in a non-default instance. Preserve both
+  // stable IDs so restoring its scale edit reopens the exact measured scope.
+  if (sceneInteraction.gizmo === 'measure') return historyContextForStructure(sceneInteraction);
   const objectList = useObjectListStore.getState();
   const selection = projectSelection(
     objectList.structure,
