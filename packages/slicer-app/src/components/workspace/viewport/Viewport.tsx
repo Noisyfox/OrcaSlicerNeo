@@ -38,6 +38,7 @@ import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
 import { useMeasureController, useMeasureState } from './gizmo/measure/MeasureProvider';
 import { MeasurePanel } from './gizmo/measure/MeasurePanel';
+import { MeasureViewport } from './gizmo/measure/MeasureViewport';
 import { FuzzyPaintingPanel } from './gizmo/painting/FuzzyPaintingPanel';
 import { SeamPaintingPanel } from './gizmo/painting/SeamPaintingPanel';
 import { SupportPaintingPanel } from './gizmo/painting/SupportPaintingPanel';
@@ -105,6 +106,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   const measureState = useMeasureState();
   const paintState = usePaintingState();
   const paintingActive = activeTab === 'prepare' && paintState != null && paintState.phase !== 'closed';
+  const measureActive = activeTab === 'prepare' && measureState != null && measureState.phase !== 'closed';
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const printableArea = useSettingsStore((s) => s.printableArea);
   const bedBounds = useMemo(
@@ -416,7 +418,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         // mode. Prepare's SceneContextMenu still handles its own custom menu;
         // Preview stops propagation so no model/scene menu can open.
         event.preventDefault();
-        if (previewTab || paintingActive) event.stopPropagation();
+        if (previewTab || paintingActive || measureActive) event.stopPropagation();
       }}
       onPointerDownCapture={(event) => {
         if ((event.target as HTMLElement).closest('canvas')) closeArrangement();
@@ -508,13 +510,14 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             />
             <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />
             <CameraControls
-              enabled={!paintingActive}
+              enabled={!paintingActive && !measureActive}
               mode={previewTab ? 'preview' : 'prepare'}
               sceneInteraction={sceneInteraction}
               bounds={bedBounds}
               plateSession={plateSession}
               onGestureActive={setCameraGestureActive}
             />
+            {measureActive && <MeasureViewport sceneInteraction={sceneInteraction} />}
             <CameraFraming
               bounds={bedBounds}
               mode={previewTab ? 'preview' : 'prepare'}
