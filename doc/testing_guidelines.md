@@ -169,6 +169,8 @@ tree and `--jobs N` to set build parallelism. The runner builds and executes
 the geometry, selection-session and service suites, then restores the previous
 CMake test option. The real-WASM bridge smoke is separate:
 `node packages/slicer-wasm/harness/measure-bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
+For real threaded slice/measurement concurrency, run
+`node packages/slicer-wasm/harness/measure-slice-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js`.
 
 ## Test Quality and Maintenance
 
