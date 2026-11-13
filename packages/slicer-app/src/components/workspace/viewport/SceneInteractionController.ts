@@ -27,7 +27,7 @@ import {
   type BoxRect,
 } from './boxSelectionMath';
 
-export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | null;
+export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | 'measure' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box' | 'external';
@@ -84,6 +84,7 @@ export class SceneInteractionController {
   readonly instanceHider = new InstanceHider();
   readonly meshBoolean = new MeshBooleanSession(() => this.getVolumes(), () => this.emit());
   private booleanIsolation: InstanceHiderLease | null = null;
+  private measureIsolation: InstanceHiderLease | null = null;
 
   private readonly listeners = new Set<() => void>();
   private selectionModeState: SelectionMode = 'instance';
@@ -216,7 +217,8 @@ export class SceneInteractionController {
     // The initiating DragControls must stay enabled for the rest of its own
     // gesture. A gizmo remains exclusive; other body wrappers are still
     // blocked synchronously by tryBeginBodyDrag/update ownership checks.
-    return this.openGizmo !== 'mesh-boolean' && (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
+    return this.openGizmo !== 'mesh-boolean' && this.openGizmo !== 'measure'
+      && (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
       && (this.pointerOwner === 'none' || this.pointerOwner === 'body')
       // An unselected body must be able to start the same press that selects
       // it. GLVolumeMesh selects synchronously at pointer-down, before
@@ -388,6 +390,7 @@ export class SceneInteractionController {
   }
 
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (this.meshBoolean.publishing || !this.instanceHider.isVisible(hit)) return false;
     if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (!hit.selectable) return false;
@@ -450,6 +453,7 @@ export class SceneInteractionController {
    * a model mesh.
    */
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (!this.instanceHider.isVisible(hit)) return false;
     if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
@@ -502,6 +506,7 @@ export class SceneInteractionController {
    * (body/gizmo/box gesture) is never preempted.
    */
   beginBoxSelect(start: BoxPoint, additive: boolean): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
     this.pointerOwner = 'box';
     this.boxSelect = { start, current: { ...start }, additive };
@@ -637,6 +642,7 @@ export class SceneInteractionController {
    * returns true.
    */
   tryBeginBodyDrag(hit?: GLVolume): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (hit && !this.instanceHider.isVisible(hit)) return false;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty) return false;
     // DragControls are always armed so the synchronous first move is not lost
@@ -652,6 +658,7 @@ export class SceneInteractionController {
 
   /** Called synchronously by TransformControls on a confirmed grabber press. */
   beginGizmoDrag(): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (this.pointerOrigin !== 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty || this.openGizmo === null) return false;
     if (this.hasWipeTowerSelection && this.openGizmo !== 'move') return false;
     if (this.activeCommitBusy) return false;
@@ -791,7 +798,7 @@ export class SceneInteractionController {
     // pick individual Parts. Alt remains the explicit per-click Part override.
     this.selectionModeState = context.selection.mode === 'part' ? 'instance' : context.selection.mode;
     this.selection.replaceIds([...selected]);
-    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale'
+    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale' || context.gizmo?.type === 'measure'
       ? context.gizmo.type : null;
     this.syncGizmoToSelection();
     this.emit();
@@ -1368,6 +1375,9 @@ export class SceneInteractionController {
   private syncGizmoToSelection(): void {
     if (this.openGizmo === 'mesh-boolean') {
       if (!this.meshBoolean.reconcile(this.selectedVolumes())) this.closeGizmo();
+    } else if (this.openGizmo === 'measure') {
+      const selected = this.selectedVolumes();
+      if (selected.length === 0 || selected.some(volume => volume instanceof WipeTowerVolume)) this.openGizmo = null;
     } else if (this.selection.empty) this.openGizmo = null;
   }
 
@@ -1379,6 +1389,14 @@ export class SceneInteractionController {
     } else {
       this.booleanIsolation?.release();
       this.booleanIsolation = null;
+    }
+    if (this.openGizmo === 'measure') {
+      const scope = { kind: 'volumes' as const, volumes: this.selectedVolumes().map(volume => volume.buffer) };
+      if (this.measureIsolation) this.measureIsolation.update(scope);
+      else this.measureIsolation = this.instanceHider.acquire(scope);
+    } else {
+      this.measureIsolation?.release();
+      this.measureIsolation = null;
     }
     for (const listener of this.listeners) listener();
   }
