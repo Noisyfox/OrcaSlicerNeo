@@ -5,6 +5,7 @@ import { installUserPresets, validateUserPresetPath } from './userPresets';
 import type { UserPresetStorage, UserPresetKind, UserPresetRequest, UserPresetMutation } from './userPresets';
 import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
+import { createMeasureApi } from './measureClient';
 import { decodeModelGeometry } from './modelGeometry';
 import type { DeviceMaterialContext, NozzleMappingMutationResult, NozzleMappingRequest } from './nozzleMapping';
 import { decodeNozzleMapping } from './nozzleMapping';
@@ -2267,6 +2268,7 @@ export function createClient(
       return value;
     },
     ...createPaintingApi(module, normalizeHistoryStatus),
+    ...createMeasureApi(module),
     async init(activation: ProfileActivation | null): Promise<InitResult> {
       if (activation === undefined) throw new Error('explicit nullable activation is required');
       await client.getBuildInfo();

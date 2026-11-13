@@ -405,6 +405,11 @@ describe('worker protocol', () => {
     await expect(workerClient.commitPaintingStroke({ version: 1, channel: 'mmu', sessionId: 'p1', revision: 0, strokeId: 's1' }))
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.settlePainting()).resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.openMeasureSession({ version: 1, targets: [{ objectId: 1, instanceId: 2, volumeId: 3 }] }))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.getMeasureDisplay({ version: 1, sessionId: 'ms-1', targetRevision: 1,
+      event: { pointer: [0, 0], viewport: [0, 0, 100, 100], projection: [], view: [] } }))
+      .resolves.toMatchObject({ error: 'slice_busy' });
 
     const requests = transport.posted.filter((message) => message.type === 'request');
     expect(requests).toHaveLength(1);
@@ -430,13 +435,16 @@ describe('worker protocol', () => {
       threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0',
     });
     const undo = workerClient.undoHistory();
+    const measure = workerClient.openMeasureSession({ version: 1, targets: [{ objectId: 1, instanceId: 2, volumeId: 3 }] });
     const requests = transport.posted.filter((message) => message.type === 'request');
-    expect(requests.map((message) => message.type === 'request' ? message.op : '')).toEqual(['slice', 'undoHistory']);
-    if (requests[0]?.type !== 'request' || requests[1]?.type !== 'request')
+    expect(requests.map((message) => message.type === 'request' ? message.op : '')).toEqual(['slice', 'undoHistory', 'openMeasureSession']);
+    if (requests[0]?.type !== 'request' || requests[1]?.type !== 'request' || requests[2]?.type !== 'request')
       throw new Error('threaded requests were not posted');
     transport.emit({ type: 'response', id: requests[1].id, ok: true,
       result: { ok: false, error: 'unused' } });
     await expect(undo).resolves.toMatchObject({ error: 'unused' });
+    transport.emit({ type: 'response', id: requests[2].id, ok: true, result: { error: 'unused' } });
+    await expect(measure).resolves.toMatchObject({ error: 'unused' });
     expect(workerClient.getRuntimeExecutionState().sliceActive).toBe(true);
     const rejectedSlice = workerClient.slice({});
     const overlapping = transport.posted.at(-1);
