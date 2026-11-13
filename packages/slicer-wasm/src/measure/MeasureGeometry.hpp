@@ -26,9 +26,11 @@ public:
     const std::shared_ptr<const TriangleMesh>& mesh() const { return m_mesh; }
     std::optional<Feature> feature(std::size_t face, const Vec3d& local_point,
         const Transform3d& world_transform, bool only_plane = false) const;
+    Feature reproject(const Feature& feature, const Transform3d& world_transform) const;
 
 private:
     explicit Geometry(std::shared_ptr<const TriangleMesh> mesh);
+    Feature attach(Measure::SurfaceFeature surface, const Transform3d& world_transform) const;
     std::shared_ptr<const TriangleMesh> m_mesh;
     Measure::Measuring m_measuring;
 };

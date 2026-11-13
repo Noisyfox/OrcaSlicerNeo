@@ -25,22 +25,38 @@ std::optional<Feature> Geometry::feature(std::size_t face, const Vec3d& local_po
 {
     auto surface = m_measuring.get_feature(face, local_point, world_transform, only_plane);
     if (!surface) return std::nullopt;
-    surface->world_tran = world_transform;
-    if (surface->get_type() == Measure::SurfaceFeatureType::Plane) {
-        const int plane = std::get<0>(surface->get_plane());
+    return attach(std::move(*surface), world_transform);
+}
+
+Feature Geometry::reproject(const Feature& feature, const Transform3d& world_transform) const
+{
+    if (feature.geometry.get() != this || !feature.surface.origin_surface_feature)
+        throw std::invalid_argument("measurement feature has no valid source");
+    auto surface = *feature.surface.origin_surface_feature;
+    surface.origin_surface_feature = feature.surface.origin_surface_feature;
+    surface.volume = feature.surface.volume;
+    surface.translate(world_transform);
+    return attach(std::move(surface), world_transform);
+}
+
+Feature Geometry::attach(Measure::SurfaceFeature surface, const Transform3d& world_transform) const
+{
+    surface.world_tran = world_transform;
+    if (surface.get_type() == Measure::SurfaceFeatureType::Plane) {
+        const int plane = std::get<0>(surface.get_plane());
         // Orca's GUI associates the plane with its source triangle indices and
         // transformed boundary features before asking for pair measurements.
-        surface->plane_indices = const_cast<std::vector<int>*>(&m_measuring.get_plane_triangle_indices(plane));
-        surface->world_plane_features = std::make_shared<std::vector<Measure::SurfaceFeature>>();
+        surface.plane_indices = const_cast<std::vector<int>*>(&m_measuring.get_plane_triangle_indices(plane));
+        surface.world_plane_features = std::make_shared<std::vector<Measure::SurfaceFeature>>();
         const auto& boundary = m_measuring.get_plane_features(plane);
-        surface->world_plane_features->reserve(boundary.size());
+        surface.world_plane_features->reserve(boundary.size());
         for (const auto& source : boundary) {
             auto transformed = source;
             transformed.translate(world_transform);
-            surface->world_plane_features->push_back(std::move(transformed));
+            surface.world_plane_features->push_back(std::move(transformed));
         }
     }
-    return Feature{shared_from_this(), std::move(*surface)};
+    return Feature{shared_from_this(), std::move(surface)};
 }
 
 Feature edge_midpoint(const Feature& edge)

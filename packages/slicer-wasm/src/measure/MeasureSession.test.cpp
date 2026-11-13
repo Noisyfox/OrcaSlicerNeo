@@ -405,6 +405,48 @@ void upstream_mesh_pick_rules()
     auto below = top(3, 4); below.projection(2, 2) = .01; below.view(2, 3) = -50;
     CHECK(!session.pick_mesh(sunk, below)); // Below-bed intersections are filtered before pairing.
 }
+
+void scale_rebases_selections()
+{
+    Model model; auto* object = model.add_object();
+    auto* volume = object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));
+    auto* instance = object->add_instance();
+    auto* other_instance = object->add_instance(); other_instance->set_offset(Vec3d(20, 0, 0));
+    const TargetId id{object->id().id, instance->id().id, volume->id().id};
+    const TargetId other_id{object->id().id, other_instance->id().id, volume->id().id};
+    Session session(model, {id, other_id});
+    auto edge = session.pick_mesh(model, top(.05, 4));
+    auto point = session.pick_mesh(model, top(9.95, 9.95));
+    CHECK(edge && edge->feature && edge->feature->surface.get_type() == Measure::SurfaceFeatureType::Edge);
+    CHECK(point && point->feature && point->feature->surface.get_type() == Measure::SurfaceFeatureType::Point);
+    session.choose(model, midpoint_item(id, *edge->feature));
+    session.choose(model, feature_item(id, *point->feature));
+    const auto old_first = *session.selection().first();
+    const auto old_second = *session.selection().second();
+    CHECK(old_first.value.surface.origin_surface_feature && old_second.value.surface.origin_surface_feature);
+    const Vec3d local_midpoint = old_first.value.surface.origin_surface_feature->get_point();
+    const Vec3d local_point = old_second.value.surface.origin_surface_feature->get_point();
+
+    volume->set_scaling_factor(Vec3d(2, .5, 1.5)); volume->set_mirror(Vec3d(-1, 1, 1));
+    instance->set_offset(Vec3d(3, 4, 5));
+    other_instance->set_scaling_factor(Vec3d(.75, .75, .75));
+    THROWS(session.validate(model));
+    auto staged = session.rebase_after_scale(model);
+    staged->validate(model);
+    CHECK(staged->target_count() == 2);
+    const Transform3d transform = instance->get_matrix() * volume->get_matrix();
+    CHECK(staged->selection().first()->kind == SelectionKind::Midpoint && staged->selection().second());
+    CHECK(staged->selection().first()->value.surface.get_point().isApprox(transform * local_midpoint));
+    CHECK(staged->selection().second()->value.surface.get_point().isApprox(transform * local_point));
+    CHECK(staged->selection().first()->source.geometry == old_first.source.geometry); // no mesh/cache rebuild
+    CHECK(session.selection().first()->value.surface == old_first.value.surface); // staging did not mutate live state
+    auto result = staged->selection().result();
+    CHECK(result && result->distance_strict &&
+        std::abs(result->distance_strict->dist - (transform * local_point - transform * local_midpoint).norm()) < 1e-9);
+    volume->set_mesh(TriangleMesh(its_make_cube(11., 10., 10.)));
+    THROWS(staged->rebase_after_scale(model));
+    CHECK(staged->selection().first()->kind == SelectionKind::Midpoint);
+}
 }
 
 int main()
@@ -416,6 +458,7 @@ int main()
         off_mesh_center_and_midpoint_picking();
         large_plane_gripper();
         upstream_mesh_pick_rules();
+        scale_rebases_selections();
         std::cout << "Measure session tests passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

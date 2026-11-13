@@ -83,6 +83,7 @@ public:
     bool same_target() const;
     std::optional<Measure::MeasurementResult> result() const;
 private:
+    friend class Session;
     std::optional<SelectionItem> m_first;
     std::optional<SelectionItem> m_second;
 };
@@ -99,6 +100,9 @@ public:
 
     std::size_t target_count() const { return m_targets.size(); }
     void validate(const Model& model) const;
+    // A scale edit stages new transforms and features while retaining the
+    // immutable source caches; ordinary stale target edits remain rejected.
+    std::unique_ptr<Session> rebase_after_scale(const Model& model) const;
     std::optional<MeshPick> pick_mesh(const Model& model, const PointerEvent& event) const;
     std::vector<Marker> markers(const Model& model, const std::optional<MeshPick>& hover = std::nullopt) const;
     std::optional<MarkerHit> pick_marker(const Model& model, const PointerEvent& event,
@@ -115,6 +119,7 @@ public:
     bool escape() { return m_selection.escape(); }
 
 private:
+    Session() = default;
     struct Target;
     const Target& require_source(const TargetId& id, const Feature& source) const;
     std::vector<std::unique_ptr<Target>> m_targets;

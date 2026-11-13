@@ -63,6 +63,20 @@ void cube_features_and_lifetime()
     CHECK(middle.surface.origin_surface_feature);
     CHECK(middle.surface.origin_surface_feature->get_point().isApprox((start + end) * .5));
 
+    Transform3d changed = Transform3d::Identity();
+    changed.linear() << .6, 0, .2, 0, -1.7, 0, 0, 0, 2.1;
+    changed.translation() = Vec3d(-4, 7, 3);
+    auto reprojected_plane = geometry->reproject(*plane, changed);
+    auto expected_plane = reference.get_feature(0, (a + b + c) / 3., changed, true);
+    CHECK(expected_plane && reprojected_plane.surface == *expected_plane);
+    CHECK(reprojected_plane.surface.plane_indices == plane->surface.plane_indices);
+    for (std::size_t i = 0; i < boundaries.size(); ++i) {
+        auto native = boundaries[i]; native.translate(changed);
+        CHECK(native == reprojected_plane.surface.world_plane_features->at(i));
+    }
+    auto reprojected_midpoint = geometry->reproject(middle, changed);
+    CHECK(reprojected_midpoint.surface.get_point().isApprox((changed * start + changed * end) * .5));
+
     auto first = geometry->feature(0, a, transform);
     auto second = geometry->feature(0, b, transform);
     CHECK(first && second && first->surface.get_type() == Measure::SurfaceFeatureType::Point &&
@@ -103,6 +117,8 @@ void circle_measurements()
     transform.translation() = Vec3d(4, 3, 2);
 
     std::optional<Feature> circle;
+    int circle_face = -1;
+    Vec3d circle_point = Vec3d::Zero();
     for (int plane = 0; plane < reference.get_num_of_planes() && !circle; ++plane) {
         for (const auto& boundary : reference.get_plane_features(plane)) {
             if (boundary.get_type() != Measure::SurfaceFeatureType::Circle) continue;
@@ -114,6 +130,7 @@ void circle_measurements()
             auto candidate = geometry->feature(face, point, transform);
             if (!candidate || candidate->surface.get_type() != Measure::SurfaceFeatureType::Circle) continue;
             CHECK(native && candidate->surface == *native);
+            circle_face = face; circle_point = point;
             circle = std::move(candidate);
             break;
         }
@@ -130,6 +147,12 @@ void circle_measurements()
     auto pair = measurement(point, *circle);
     CHECK(pair && pair->distance_strict);
     CHECK(std::abs(pair->distance_strict->dist - std::sqrt(74.)) < 1e-9);
+    Transform3d changed = Transform3d::Identity();
+    changed.linear() << -.7, .4, 0, 0, 2.1, .1, 0, 0, 1.3;
+    changed.translation() = Vec3d(-2, 5, 8);
+    auto actual = geometry->reproject(*circle, changed);
+    auto native = reference.get_feature(circle_face, circle_point, changed, false);
+    CHECK(native && actual.surface == *native); // Keep Orca's affine circle behavior.
     (void)normal;
 }
 }

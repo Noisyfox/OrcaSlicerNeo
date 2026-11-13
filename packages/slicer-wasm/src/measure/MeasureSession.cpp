@@ -454,6 +454,35 @@ void Session::validate(const Model& model) const
     }
 }
 
+std::unique_ptr<Session> Session::rebase_after_scale(const Model& model) const
+{
+    ModelLookup lookup(model);
+    auto next = std::unique_ptr<Session>(new Session());
+    next->m_targets.reserve(m_targets.size());
+    for (const auto& target : m_targets) {
+        const auto resolved = lookup.resolve(target->id);
+        if (resolved.volume->mesh_ptr() != target->mesh->geometry->mesh())
+            throw std::invalid_argument("measurement source mesh is stale");
+        next->m_targets.push_back(std::make_unique<Target>(Target{target->id, resolved.instance->get_matrix(),
+            resolved.volume->get_matrix(), target->mesh}));
+    }
+    next->m_selection = m_selection;
+    auto reproject = [&](std::optional<SelectionItem>& item) {
+        if (!item) return;
+        for (const auto& target : next->m_targets) {
+            if (!(target->id == item->target)) continue;
+            const Transform3d transform = target->instance_transform * target->volume_transform;
+            item->source = target->mesh->geometry->reproject(item->source, transform);
+            item->value = target->mesh->geometry->reproject(item->value, transform);
+            return;
+        }
+        throw std::invalid_argument("measurement feature target is stale");
+    };
+    reproject(next->m_selection.m_first);
+    reproject(next->m_selection.m_second);
+    return next;
+}
+
 void Session::choose(const Model& model, SelectionItem item)
 {
     validate(model);
