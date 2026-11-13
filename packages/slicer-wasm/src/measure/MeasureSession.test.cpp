@@ -63,6 +63,17 @@ void multi_target_pick_and_staleness()
         CHECK(back && back->target == a && back->feature);
         CHECK(back->original_facet == 0 || back->original_facet == 1);
         CHECK(back->feature->geometry == front->feature->geometry); // sibling instances share the source cache
+        auto staged = session.prepare_choose(model, feature_item(front->target, *front->feature));
+        CHECK(staged->first() && !session.selection().first());
+        staged.reset(); // an abandoned request cannot change the live session
+        CHECK(!session.selection().first());
+        staged = session.prepare_choose(model, feature_item(front->target, *front->feature));
+        session.publish_selection(std::move(staged));
+        CHECK(session.selection().first());
+        staged = session.prepare_selection(model);
+        CHECK(staged->escape() && !staged->first() && session.selection().first());
+        session.publish_selection(std::move(staged));
+        CHECK(!session.selection().first());
         session.choose(model, point_item(b, *front->feature, front->world));
         session.choose(model, point_item(a, *back->feature, back->world));
         auto nearest_marker = session.pick_marker(model, top(3, 4), std::nullopt, 1);

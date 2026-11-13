@@ -111,19 +111,24 @@ public:
         const std::optional<MeshPick>& hover = std::nullopt) const;
     std::optional<InteractionHit> pick(const Model& model, const PointerEvent& event,
         const std::optional<MeshPick>& hover = std::nullopt, std::optional<std::size_t> preferred_marker = std::nullopt) const;
-    const SelectionState& selection() const { return m_selection; }
+    const SelectionState& selection() const { return *m_selection; }
+    // Prepare selection changes before allocating a bridge response. Publishing
+    // the prepared state is a no-throw swap, so failed requests leave it intact.
+    std::unique_ptr<SelectionState> prepare_selection(const Model& model) const;
+    std::unique_ptr<SelectionState> prepare_choose(const Model& model, SelectionItem item) const;
+    void publish_selection(std::unique_ptr<SelectionState> candidate) noexcept { m_selection.swap(candidate); }
     void choose(const Model& model, SelectionItem item);
-    void clear_first() { m_selection.clear_first(); }
-    void clear_second() { m_selection.clear_second(); }
-    void clear_selection() { m_selection.clear(); }
-    bool escape() { return m_selection.escape(); }
+    void clear_first() { m_selection->clear_first(); }
+    void clear_second() { m_selection->clear_second(); }
+    void clear_selection() { m_selection->clear(); }
+    bool escape() { return m_selection->escape(); }
 
 private:
     Session() = default;
     struct Target;
     const Target& require_source(const TargetId& id, const Feature& source) const;
     std::vector<std::unique_ptr<Target>> m_targets;
-    SelectionState m_selection;
+    std::unique_ptr<SelectionState> m_selection = std::make_unique<SelectionState>();
 };
 
 } // namespace Slic3r::Neo::Measurement

@@ -466,7 +466,7 @@ std::unique_ptr<Session> Session::rebase_after_scale(const Model& model) const
         next->m_targets.push_back(std::make_unique<Target>(Target{target->id, resolved.instance->get_matrix(),
             resolved.volume->get_matrix(), target->mesh}));
     }
-    next->m_selection = m_selection;
+    next->m_selection = std::make_unique<SelectionState>(*m_selection);
     auto reproject = [&](std::optional<SelectionItem>& item) {
         if (!item) return;
         for (const auto& target : next->m_targets) {
@@ -478,18 +478,31 @@ std::unique_ptr<Session> Session::rebase_after_scale(const Model& model) const
         }
         throw std::invalid_argument("measurement feature target is stale");
     };
-    reproject(next->m_selection.m_first);
-    reproject(next->m_selection.m_second);
+    reproject(next->m_selection->m_first);
+    reproject(next->m_selection->m_second);
     return next;
 }
 
-void Session::choose(const Model& model, SelectionItem item)
+std::unique_ptr<SelectionState> Session::prepare_selection(const Model& model) const
+{
+    validate(model);
+    return std::make_unique<SelectionState>(*m_selection);
+}
+
+std::unique_ptr<SelectionState> Session::prepare_choose(const Model& model, SelectionItem item) const
 {
     validate(model);
     const auto& target = require_source(item.target, item.source);
     if (item.value.geometry != target.mesh->geometry)
         throw std::invalid_argument("measurement feature is stale");
-    m_selection.choose(std::move(item));
+    auto candidate = std::make_unique<SelectionState>(*m_selection);
+    candidate->choose(std::move(item));
+    return candidate;
+}
+
+void Session::choose(const Model& model, SelectionItem item)
+{
+    publish_selection(prepare_choose(model, std::move(item)));
 }
 
 const Session::Target& Session::require_source(const TargetId& id, const Feature& source) const
@@ -527,8 +540,8 @@ std::vector<Marker> Session::markers(const Model& model, const std::optional<Mes
         if (item->value.surface.get_type() == Measure::SurfaceFeatureType::Point) add(*item);
         if (item->kind != SelectionKind::PointOnFeature) add_source(item->target, item->source);
     };
-    add_selection(m_selection.first());
-    add_selection(m_selection.second());
+    add_selection(m_selection->first());
+    add_selection(m_selection->second());
     if (hover && hover->feature) {
         require_source(hover->target, *hover->feature);
         add_source(hover->target, *hover->feature);
@@ -581,7 +594,7 @@ std::optional<GripperHit> Session::pick_gripper(const Model& model, const Pointe
     auto selected = [&](const std::optional<SelectionItem>& item) {
         if (item && item->kind == SelectionKind::Feature) add(item->target, item->source);
     };
-    selected(m_selection.first()); selected(m_selection.second());
+    selected(m_selection->first()); selected(m_selection->second());
     if (hover && hover->feature) add(hover->target, *hover->feature);
 
     std::optional<GripperHit> closest;
