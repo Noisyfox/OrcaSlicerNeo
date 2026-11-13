@@ -56,6 +56,20 @@ test('real Electron Measure selects native features and preserves scene/history 
     await expect(page.getByTestId('measure-first')).toContainText('None');
     await expect(page.getByTestId('measure-second')).toContainText('None');
     expect(await booleanMeshes(page)).toEqual(before);
+    await page.keyboard.down('Shift');
+    await clickWorld([center[0] - 4, center[1] - 4, bounds.max[2]]);
+    await expect(page.getByTestId('measure-first')).toContainText('Point on plane');
+    await clickWorld([center[0] + 4, center[1] + 4, bounds.max[2]]);
+    await page.keyboard.up('Shift');
+    await expect(page.getByTestId('measure-second')).toContainText('Point on plane');
+    const dimension = page.getByTestId('measure-dimension');
+    await expect(dimension).toContainText('mm');
+    const displayedDistance = await dimension.innerText();
+    expect(Number.parseFloat(displayedDistance)).toBeCloseTo(Math.sqrt(128), 2);
+    await expect(panel.getByTestId('measure-result').filter({ hasText: displayedDistance })).toContainText('distance');
+    await page.screenshot({ path: info.outputPath('measure-distance.png') });
+    await page.keyboard.press('Escape'); await expect(page.getByTestId('measure-second')).toContainText('None');
+    await page.keyboard.press('Escape'); await expect(page.getByTestId('measure-first')).toContainText('None');
     await page.keyboard.press('Escape'); await expect(panel).toBeHidden();
     expect(errors).toEqual([]);
   } finally { await app.close(); }

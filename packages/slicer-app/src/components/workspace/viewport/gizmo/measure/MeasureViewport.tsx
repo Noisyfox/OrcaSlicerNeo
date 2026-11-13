@@ -8,6 +8,7 @@ import { useMeasureController, useMeasureState } from './MeasureProvider';
 import { installMeasureInput } from './MeasureInput';
 import { MeasurePlaneResources } from './MeasurePlaneResources';
 import { MeasureSurfacePicker } from './MeasureSurfacePicker';
+import { MeasureDimensions } from './MeasureDimensions';
 
 const noRaycast: THREE.Object3D['raycast'] = () => undefined;
 const firstColor = '#32a7ff', secondColor = '#ffab4d', hoverColor = '#72e8ff';
@@ -95,5 +96,6 @@ export function MeasureViewport({ sceneInteraction }: { sceneInteraction: SceneI
     {second && <FeatureVisual feature={second.value} color={secondColor} planes={resources} />}
     {hover && <FeatureVisual feature={hover} color={hoverColor} planes={resources} />}
     {display?.markers.map(marker => <ScreenMarker key={marker.index} position={marker.position} color={hoverColor} />)}
+    <MeasureDimensions status={display ?? state.status} />
   </>;
 }
