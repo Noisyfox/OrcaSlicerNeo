@@ -656,6 +656,13 @@ std::optional<InteractionHit> Session::pick(const Model& model, const PointerEve
     // A newly hit feature is derived from this press, not the last hover.
     auto mesh = pick_mesh(model, event);
     if (mesh && mesh->feature) {
+        // Point features use a sphere gripper rather than the edge/circle/plane
+        // shapes handled by pick_gripper. A click can arrive before a hover
+        // response, so also test the newly found point against this press.
+        if (mesh->feature->surface.get_type() == Measure::SurfaceFeatureType::Point) {
+            if (auto fresh_marker = pick_marker(model, event, mesh))
+                return InteractionHit{std::move(*fresh_marker)};
+        }
         auto fresh = pick_gripper(model, event, mesh);
         if (fresh) return InteractionHit{std::move(*fresh)};
     }

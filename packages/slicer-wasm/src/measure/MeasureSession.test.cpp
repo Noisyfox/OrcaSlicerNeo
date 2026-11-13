@@ -273,6 +273,10 @@ void off_mesh_center_and_midpoint_picking()
     CHECK(edge_gripper->point_on_feature.isApprox(Vec3d(0, 4, 10), 1e-5));
     auto point = box_session.pick_mesh(box, top(9.95, 9.95));
     CHECK(point && point->feature && point->feature->surface.get_type() == Measure::SurfaceFeatureType::Point);
+    auto fresh_point = box_session.pick(box, top(9.95, 9.95));
+    CHECK(fresh_point && std::holds_alternative<MarkerHit>(*fresh_point));
+    CHECK(std::get<MarkerHit>(*fresh_point).marker.item.kind == SelectionKind::Feature);
+    CHECK(std::get<MarkerHit>(*fresh_point).marker.item.source.surface == point->feature->surface);
     box_session.choose(box, feature_item(box_id, *edge->feature));
     box_session.choose(box, feature_item(box_id, *point->feature));
     const auto [start, end] = edge->feature->surface.get_edge();
