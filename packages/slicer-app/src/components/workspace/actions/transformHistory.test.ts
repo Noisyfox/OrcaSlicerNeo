@@ -10,6 +10,7 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 
 function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): GLVolume {
   const buffer: ModelObjectBuffer = {
@@ -88,6 +89,7 @@ describe('TransformHistoryCoordinator', () => {
     usePlateSessionStore.getState().setSnapshot(null);
     useProjectStore.getState().reset();
     useFilamentSessionStore.getState().reset();
+    useSlicerStore.getState().invalidateSliceResult();
   });
 
   it('records the precise part and instance for a Measure scale history context', () => {
@@ -98,6 +100,56 @@ describe('TransformHistoryCoordinator', () => {
     scene.selectComposite(0, 1, 1); scene.toggleGizmo('measure');
     expect(historyContextForScene(scene)).toMatchObject({ gizmo: { type: 'measure' },
       selection: { mode: 'part', objectIds: [], partIds: [201], instanceIds: [301] } });
+  });
+
+  it.each(['a', 'b'])('publishes a Measure scale only after commit and cancels only affected active plate %s', async activePlate => {
+    const volume = makeVolume(0, 0, 0); glVolumeCollection.replace([volume]);
+    useObjectListStore.getState().setStructure(structureFor([volume]).objects);
+    const scene = selectedController([volume]); scene.toggleGizmo('measure');
+    let entered!: () => void, release!: () => void;
+    const mutationEntered = new Promise<void>(done => { entered = done; });
+    const commitGate = new Promise<void>(done => { release = done; });
+    const cancel = vi.fn(async () => ({ ok: true }));
+    const runtime = { ...historyRuntime(), cancel,
+      getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' }),
+      setModelTransforms: vi.fn(async () => ({ ok: true, plateSession: { instances: [], ok: true, version: 1,
+        currentPlateId: 'b', plates: [], instanceTransforms: [], affectedPlateIds: ['a'], inputRevisions: { b: 1 } } })),
+      runProjectHistoryTransaction: vi.fn(async (_label: string, _category: string, _before: unknown, mutation: (id: string) => Promise<unknown>) => {
+        const result = await mutation('tx-1'); entered(); await commitGate;
+        return { result, sceneDelta: null, status: { dirty: true, revision: 2 } as never };
+      }),
+    };
+    scene.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, scene));
+    useSlicerStore.setState({ status: 'slicing', activeSliceTarget: { plateId: activePlate, inputRevision: 1 }, progress: 37 });
+    const scaling = scene.scaleSelectionByAndWait([2, 2, 2]); await mutationEntered;
+    expect(cancel).not.toHaveBeenCalled(); expect(useSlicerStore.getState().status).toBe('slicing');
+    release(); expect(await scaling).toEqual({ outcome: 'committed' });
+    if (activePlate === 'a') {
+      expect(cancel).toHaveBeenCalledOnce(); expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
+    } else {
+      expect(cancel).not.toHaveBeenCalled();
+      expect(useSlicerStore.getState()).toMatchObject({ status: 'slicing', activeSliceTarget: { plateId: 'b', inputRevision: 1 }, progress: 37 });
+    }
+  });
+
+  it('does not cancel a slice when the Measure scale transaction fails after its mutation', async () => {
+    const volume = makeVolume(0, 0, 0); glVolumeCollection.replace([volume]);
+    useObjectListStore.getState().setStructure(structureFor([volume]).objects);
+    const scene = selectedController([volume]); scene.toggleGizmo('measure');
+    const cancel = vi.fn(async () => ({ ok: true }));
+    const runtime = { ...historyRuntime(), cancel,
+      getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' }),
+      setModelTransforms: vi.fn(async () => ({ ok: true, plateSession: { instances: [], ok: true, version: 1,
+        currentPlateId: 'a', plates: [], instanceTransforms: [], affectedPlateIds: ['a'] } })),
+      runProjectHistoryTransaction: vi.fn(async (_label: string, _category: string, _before: unknown, mutation: (id: string) => Promise<unknown>) => {
+        await mutation('tx-1'); throw new Error('commit failed');
+      }),
+    };
+    scene.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, scene, () => {}));
+    useSlicerStore.setState({ status: 'slicing', activeSliceTarget: { plateId: 'a', inputRevision: 1 }, progress: 37 });
+    expect(await scene.scaleSelectionByAndWait([2, 2, 2])).toEqual({ outcome: 'failed', error: 'commit failed' });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'slicing', activeSliceTarget: { plateId: 'a', inputRevision: 1 }, progress: 37 });
   });
 
   it('keeps pointer-down reservation-only and opens the Worker transaction on release', async () => {

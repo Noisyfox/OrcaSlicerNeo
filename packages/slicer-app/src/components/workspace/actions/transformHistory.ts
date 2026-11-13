@@ -7,6 +7,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
 import { applySettledTransformSyncResult } from './persistModelTransforms';
+import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import {
   captureTransformReservationState,
   executeProjectHistoryTransaction,
@@ -17,7 +18,7 @@ import {
 type TransformHistoryRuntime = Pick<SlicerClient,
   'runProjectHistoryTransaction' | 'setModelTransforms' | 'getFilamentSessionSnapshot' |
   'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'> &
-  Partial<Pick<SlicerClient, 'recomputePlateMembership'>>;
+  Partial<Pick<SlicerClient, 'recomputePlateMembership' | 'cancel' | 'getRuntimeExecutionState'>>;
 
 /** Build the Worker-owned context projection without retaining renderer state. */
 export function historyContextForScene(sceneInteraction: SceneInteractionController): HistoryContext {
@@ -182,6 +183,7 @@ export class TransformHistoryCoordinator {
       return;
     }
     this.running = next;
+    const measureScale = next.label === 'Scale' && next.beforeContext.gizmo?.type === 'measure';
     next.task = executeProjectHistoryTransaction(
       this.runtime,
       next.label,
@@ -190,11 +192,20 @@ export class TransformHistoryCoordinator {
         const result = await syncModelTransformsAtomically(this.runtime, transactionId,
           next.finalTransforms ?? this.captureTransforms());
         if (!result.ok) throw new Error(result.error ?? 'model transform synchronization failed');
-        applySettledTransformSyncResult(result);
+        if (!measureScale) applySettledTransformSyncResult(result);
         return result;
       },
       () => historyContextForScene(this.sceneInteraction),
-      undefined,
+      result => {
+        if (!measureScale || !result.ok) return;
+        const runtime = this.runtime.cancel ? {
+          cancel: () => this.runtime.cancel!(),
+          getRuntimeExecutionState: this.runtime.getRuntimeExecutionState
+            ? () => this.runtime.getRuntimeExecutionState!() : undefined,
+        } : undefined;
+        invalidateAffectedPlateResults(runtime, result.plateSession?.affectedPlateIds ?? []);
+        applySettledTransformSyncResult(result, true);
+      },
       undefined,
       async () => { await this.reconcile?.(); },
       async () => this.validateReservation(next),
