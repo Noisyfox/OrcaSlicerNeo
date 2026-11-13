@@ -1,4 +1,5 @@
 import { paintingCommandAllowed, closePaintingForCommand } from '../viewport/gizmo/painting/projectCommands';
+import { measureMutationAllowed } from '../viewport/gizmo/measure/projectCommands';
 // Shared Add Model / Add Primitive / Add Handy models / Clear Scene actions.
 // They moved out of the app toolbar row (Add Model → gizmo toolbar; Add
 // Primitive, Add Handy models, and Clear Scene → scene context menu), but
@@ -295,6 +296,7 @@ export async function clearScene(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
 ): Promise<void> {
+  if (!measureMutationAllowed({ all: true })) return;
   if (!paintingCommandAllowed() || !await closePaintingForCommand()) return;
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();

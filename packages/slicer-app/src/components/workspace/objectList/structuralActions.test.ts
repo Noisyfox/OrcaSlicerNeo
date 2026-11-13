@@ -14,7 +14,11 @@ import {
   reorderObjectsInList,
   reorderVolumesInList,
   separateInstancesInList,
+  splitObjectToObjectsInList,
+  splitVolumeToPartsInList,
 } from './structuralActions';
+import { registerMeasureCommands } from '../viewport/gizmo/measure/projectCommands';
+import type { MeasureController } from '../viewport/gizmo/measure/MeasureController';
 
 vi.mock('../actions/persistModelTransforms', () => ({
   waitForSettledModelTransforms: vi.fn(async () => ({ ok: true })),
@@ -57,6 +61,24 @@ describe('object list structural actions', () => {
     useObjectListStore.setState({ structure: [], loaded: false, expanded: {}, projection: { objectIds: new Set(), volumeIds: new Set(), instanceIds: new Set() } });
     useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', maxLayer: 39 });
     useSettingsStore.setState({ modelLoaded: true, modelRevision: 3 });
+  });
+
+  it('rejects mutations of measured targets before waiting for transforms or opening history', async () => {
+    const runtime = makeRuntime(); const report = vi.fn();
+    const unregister = registerMeasureCommands({ active: true, getSnapshot: () => ({ targets: [{ objectId: 1, volumeId: 10, instanceId: 20 }] }),
+      reportTargetProtected: report } as unknown as MeasureController);
+    try {
+      const operations = [
+        () => deleteObjectsInList(runtime, [1]), () => deleteVolumeInList(runtime, 10),
+        () => splitVolumeToPartsInList(runtime, 10), () => splitObjectToObjectsInList(runtime, 1),
+        () => assembleObjectsInList(runtime, [1, 2]), () => separateInstancesInList(runtime, 1, [20]),
+        () => removeInstanceInList(runtime, 1, 20),
+      ];
+      for (const operation of operations) expect(await operation()).toEqual({ ok: false, error: 'Close Measure before changing its target' });
+      expect(report).toHaveBeenCalledTimes(operations.length);
+      expect(waitForSettledModelTransforms).not.toHaveBeenCalled();
+      expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
+    } finally { unregister(); }
   });
 
   it('deleteObjectsInList calls the bridge and refreshes geometry', async () => {

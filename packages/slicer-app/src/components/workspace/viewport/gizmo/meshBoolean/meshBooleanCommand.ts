@@ -8,6 +8,7 @@ import { prepareObjectListMutation, refreshAfterModelMutation } from '../../../o
 import { glVolumeCollection } from '../../GLVolume';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import { beforePaintingTopologyChange, closePaintingForCommand } from '../painting/projectCommands';
+import { measureMutationAllowed } from '../measure/projectCommands';
 
 let preparing = false;
 export function clearMeshBooleanEmptyWarning(): void {
@@ -33,6 +34,10 @@ export async function executeMeshBoolean(
   if (preparing || useMeshBooleanStore.getState().busy) return { ok: false, error: 'mesh_boolean_busy' };
   preparing = true;
   try {
+    const affected = request.entry === 'object' ? { objects: [request.objectId] } : {
+      parts: [request.sourceVolumeId, ...((request.operation === 'union' || request.deleteInput) ? [request.toolVolumeId] : [])],
+    };
+    if (!measureMutationAllowed(affected)) throw new Error('Close Measure before changing its target');
     if (platform.runtime.getRuntimeExecutionState?.().sliceActive) throw new Error('Finish slicing before using Mesh Boolean');
     const prepared = await prepareObjectListMutation();
     if (!prepared.ok) throw new Error(prepared.error ?? 'Finish the current operation before using Mesh Boolean');

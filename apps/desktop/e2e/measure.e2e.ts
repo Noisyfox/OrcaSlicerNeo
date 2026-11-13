@@ -31,6 +31,11 @@ test('real Electron Measure selects native features and preserves scene/history 
     await page.getByTestId('gizmo-btn-measure').click();
     const panel = page.getByTestId('measure-panel'); await expect(panel).toBeVisible();
     await expect(panel.getByRole('status')).toHaveCount(0, { timeout: 60_000 });
+    await objects.first().getByRole('button').first().click({ button: 'right' });
+    await page.getByTestId('objectlist-delete').click();
+    await expect(panel.getByRole('alert')).toContainText('Close Measure before changing its target');
+    expect(await booleanMeshes(page)).toEqual(before);
+    expect((await history(page)).undoEntries).toEqual(beforeHistory.undoEntries);
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
     const clickWorld = async (point: number[]) => {
       const projected = await page.evaluate(p => (window as any).__orcaE2e.projectWorldToScreen(p), point);

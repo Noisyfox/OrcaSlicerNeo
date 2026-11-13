@@ -1,4 +1,5 @@
 import { beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
+import { measureMutationAllowed } from '../viewport/gizmo/measure/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import {
   refreshAfterModelMutation,
@@ -26,6 +27,7 @@ async function runStructuralHistory(
 /** Structural commands publish the same committed SceneDelta as other edits.
  * The viewport continues reconciling selection with native entity IDs. */
 export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: number[]): Promise<MutationOutcome> {
+  if (!measureMutationAllowed({ objects: objectIds })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ objects: objectIds })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -35,6 +37,7 @@ export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: num
 }
 
 export async function deleteVolumeInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
+  if (!measureMutationAllowed({ parts: [volumeId], deletingParts: true })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -52,6 +55,7 @@ export async function cloneObjectsInList(runtime: SlicerRuntime, objectIds: numb
 }
 
 export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
+  if (!measureMutationAllowed({ parts: [volumeId] })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -61,6 +65,7 @@ export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId:
 }
 
 export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectId: number): Promise<MutationOutcome> {
+  if (!measureMutationAllowed({ objects: [objectId] })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ objects: [objectId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -70,6 +75,7 @@ export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectI
 }
 
 export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: number[], name = 'Assembly'): Promise<MutationOutcome> {
+  if (!measureMutationAllowed({ objects: objectIds })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ objects: objectIds })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -79,6 +85,7 @@ export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: n
 }
 
 export async function separateInstancesInList(runtime: SlicerRuntime, objectId: number, instanceIds: number[]): Promise<MutationOutcome> {
+  if (!measureMutationAllowed({ instances: instanceIds })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ objects: [objectId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -116,6 +123,7 @@ export async function addInstanceInList(runtime: SlicerRuntime, objectId: number
 }
 
 export async function removeInstanceInList(runtime: SlicerRuntime, objectId: number, instanceId: number): Promise<MutationOutcome> {
+  if (!measureMutationAllowed({ instances: [instanceId] })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ instances: [instanceId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;

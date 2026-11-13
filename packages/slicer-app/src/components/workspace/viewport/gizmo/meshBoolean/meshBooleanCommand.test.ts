@@ -12,6 +12,8 @@ import { useNotificationStore } from '@/stores/useNotificationStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { enqueueProjectMutationOperation, enqueueProjectReadOperation } from '@/history/projectMutationGate';
 import { historyContextForStructure } from '../../../actions/historyMutation';
+import { registerMeasureCommands } from '../measure/projectCommands';
+import type { MeasureController } from '../measure/MeasureController';
 
 beforeEach(() => {
   useProjectStore.getState().reset(); useNotificationStore.getState().reset();
@@ -65,6 +67,24 @@ it('publishes committed structure/selection before releasing the wait, rejecting
   expect(useMeshBooleanStore.getState().busy).toBe(false);
   expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   expect(foreign).not.toHaveBeenCalled();
+});
+
+it('rejects Boolean consumption of measured parts before project admission while allowing a retained tool', async () => {
+  const { runtime, scene, request, platform } = await setup();
+  let target = { objectId: request.objectId, instanceId: request.instanceId, volumeId: request.sourceVolumeId };
+  const report = vi.fn();
+  const unregister = registerMeasureCommands({ active: true, getSnapshot: () => ({ targets: [target] }),
+    reportTargetProtected: report } as unknown as MeasureController);
+  const call = vi.spyOn(runtime, 'meshBoolean');
+  try {
+    expect(await executeMeshBoolean(platform, request, scene)).toEqual({ ok: false, error: 'Close Measure before changing its target' });
+    target = { ...target, volumeId: request.toolVolumeId };
+    expect(await executeMeshBoolean(platform, { ...request, deleteInput: true }, scene)).toEqual({ ok: false, error: 'Close Measure before changing its target' });
+    expect(await executeMeshBoolean(platform, { ...request, operation: 'union' }, scene)).toEqual({ ok: false, error: 'Close Measure before changing its target' });
+    expect(call).not.toHaveBeenCalled();
+    const retained = await executeMeshBoolean(platform, { ...request, deleteInput: false }, scene);
+    expect(retained.ok && retained.changed).toBe(true); expect(call).toHaveBeenCalledOnce();
+  } finally { unregister(); }
 });
 
 it('keeps inputs and picks for an empty result, warns, and releases both fences', async () => {

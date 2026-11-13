@@ -1,4 +1,5 @@
 import { paintingCommandAllowed, beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
+import { measureMutationAllowed } from '../viewport/gizmo/measure/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { ModelObjectStructure, DeleteObjectsResult } from '@slicer/client';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -48,6 +49,10 @@ export async function deleteSelection(
 ): Promise<DeleteSelectionResult> {
   if (!paintingCommandAllowed()) return { ok: false };
   const selected = sceneInteraction.selectedVolumes();
+  const affected = sceneInteraction.isVolumeScopedSelection()
+    ? { parts: selected.map(volume => volume.buffer.volumeId), deletingParts: true }
+    : { objects: selected.map(volume => volume.buffer.objectId) };
+  if (!measureMutationAllowed(affected)) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ objects: selected.map((volume) => volume.buffer.objectId) })) return { ok: false };
   const objectIndices = sceneInteraction.selectedObjectIndices();
   if (selected.length === 0 || objectIndices.length === 0) return { ok: true };
