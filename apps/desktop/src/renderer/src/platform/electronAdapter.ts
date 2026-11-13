@@ -51,6 +51,7 @@ function projectName(name: string): string {
 /** The only renderer module allowed to know about the Electron preload API. */
 export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorAvailable: boolean): PlatformCapabilities {
   const host = window.orca;
+  const mdns = electronMdns(host.mdns);
   // Keep the native path in this adapter only. The shared application receives
   // displayName and bytes, while this map remains available for future reload
   // support without leaking absolute paths into shared state.
@@ -266,7 +267,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
         inMemoryPreferences = normalized;
       },
     },
-    mdns: electronMdns(host.mdns),
+    mdns,
     accounts: [bambu],
     printers: {
       downloads: host.printers.downloads,
@@ -281,7 +282,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
       }, {
         id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
         printers: createSnapmakerService({
-          mdns: electronMdns(host.mdns),
+          mdns,
           timelapses: snapmakerTimelapses(host.printers.timelapses),
           camera: resolve => snapmakerCamera(host.printers.camera, resolve),
           matchFilaments: materials => runtime.matchFilamentPresets(materials),
