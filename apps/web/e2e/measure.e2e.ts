@@ -91,3 +91,33 @@ test('real Web Measure selects the runtime and copies its result', async ({ page
   else await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('serial Web does not queue Measure while a slice is running', async ({ page }) => {
+  test.skip(process.env.ORCA_WEB_NO_ISOLATION !== '1', 'serial runtime admission');
+  await page.goto('/'); await ready(page); await selectPrinter(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(1);
+  await page.getByTestId('config-mode-scoped').click();
+  await page.getByTestId('object-list').locator('div[data-testid^="object-"]').first().getByRole('button').first().click();
+  await page.getByTestId('gizmo-btn-scale').click();
+  const height = page.getByTestId('scale-size-z'); await height.fill('200'); await height.press('Enter');
+  await expect.poll(async () => {
+    const { min, max } = (await booleanMeshes(page))[0].bounds;
+    return max[2] - min[2];
+  }, { timeout: 60_000 }).toBeCloseTo(200, 1);
+  await page.getByTestId('gizmo-btn-move').click(); await page.getByTestId('move-drop-bed').click();
+  await expect.poll(async () => (await booleanMeshes(page))[0].bounds.min[2], { timeout: 60_000 }).toBeCloseTo(0, 1);
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Slicing…', { timeout: 60_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('gizmo-btn-measure')).toBeDisabled();
+  await page.keyboard.press('u');
+  await expect(page.getByTestId('measure-panel')).toBeHidden();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 300_000 });
+  await expect(page.getByTestId('gizmo-btn-measure')).toBeEnabled();
+  await expect(page.getByTestId('measure-panel')).toBeHidden();
+  await page.getByTestId('gizmo-btn-measure').click();
+  await expect(page.getByTestId('measure-panel')).toBeVisible();
+});
