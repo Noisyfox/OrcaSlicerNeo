@@ -36,7 +36,8 @@ import { selectPlateSessionAndClearSelection } from '../plateSessionActions';
 import { useArrangementStore } from '@/stores/useArrangementStore';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
-import { useMeasureController } from './gizmo/measure/MeasureProvider';
+import { useMeasureController, useMeasureState } from './gizmo/measure/MeasureProvider';
+import { MeasurePanel } from './gizmo/measure/MeasurePanel';
 import { FuzzyPaintingPanel } from './gizmo/painting/FuzzyPaintingPanel';
 import { SeamPaintingPanel } from './gizmo/painting/SeamPaintingPanel';
 import { SupportPaintingPanel } from './gizmo/painting/SupportPaintingPanel';
@@ -101,6 +102,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   const platform = usePlatform();
   const painting = usePaintingController();
   const measure = useMeasureController();
+  const measureState = useMeasureState();
   const paintState = usePaintingState();
   const paintingActive = activeTab === 'prepare' && paintState != null && paintState.phase !== 'closed';
   const plateSession = usePlateSessionStore((s) => s.snapshot);
@@ -542,6 +544,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
           the previous screen positions and passes empty-space input through. */}
       <div ref={controlsRef} className="pointer-events-none absolute top-1 right-1 bottom-0 left-1.5 [&>*:not([role=status])]:pointer-events-auto" data-testid="viewport-control-frame">
         {!paintingActive && paintState?.error && <p role="alert" className="absolute top-14 right-0 rounded-md border bg-card p-3 text-sm text-destructive">{paintState.error}</p>}
+        {measureState?.phase === 'closed' && measureState.error && <p role="alert" className="absolute top-14 right-0 rounded-md border bg-card p-3 text-sm text-destructive">{measureState.error}</p>}
         {previewTab && !toolpath && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status" aria-live="polite">
             <p className="rounded-md bg-background/80 px-3 py-2 text-sm text-muted-foreground shadow-sm backdrop-blur-sm">
@@ -563,6 +566,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             <MovePanel sceneInteraction={sceneInteraction} />
             <RotatePanel sceneInteraction={sceneInteraction} />
             <ScalePanel sceneInteraction={sceneInteraction} />
+            <MeasurePanel sceneInteraction={sceneInteraction} />
             {paintingActive && (paintState?.channel === 'support' ? <SupportPaintingPanel /> : paintState?.channel === 'seam' ? <SeamPaintingPanel /> : paintState?.channel === 'fuzzy' ? <FuzzyPaintingPanel /> : <MmuPaintingPanel />)}
           </div>
         </div>}
