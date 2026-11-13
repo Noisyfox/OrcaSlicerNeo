@@ -106,6 +106,9 @@ public:
     Session& operator=(const Session&) = delete;
 
     std::size_t target_count() const { return m_targets.size(); }
+    bool contains_object(std::size_t object) const;
+    bool contains_instance(std::size_t object, std::size_t instance) const;
+    bool contains_volume(std::size_t volume) const;
     void validate(const Model& model) const;
     // A scale edit stages new transforms and features while retaining the
     // immutable source caches; ordinary stale target edits remain rejected.

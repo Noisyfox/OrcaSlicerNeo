@@ -60,6 +60,10 @@ public:
     std::uint64_t id() const { return m_id; }
     std::uint64_t target_revision() const { return m_target_revision; }
     std::uint64_t selection_revision() const { return m_selection_revision; }
+    bool protects_object(std::size_t object) const { return m_session && m_session->contains_object(object); }
+    bool protects_instance(std::size_t object, std::size_t instance) const { return m_session && m_session->contains_instance(object, instance); }
+    // A ModelVolume mesh is shared by all instances of its object.
+    bool protects_volume(std::size_t volume) const { return m_session && m_session->contains_volume(volume); }
     void reset() noexcept;
 
 private:

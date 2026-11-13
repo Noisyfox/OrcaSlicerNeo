@@ -112,7 +112,12 @@ export function measureMock(hooks: {
     },
     orc_measure_plane_release(request) { const pointer = leases.get(request.leaseId); if (pointer) hooks.free(pointer); leases.delete(request.leaseId); },
   };
-  return { reset, functions: Object.fromEntries(Object.entries(functions).map(([name, fn]) => [name, (text: string) => {
+  return { reset,
+    active: () => !!session,
+    protectsObject: (object: number) => !!session?.targets.some((target: any) => target.objectId === object),
+    protectsInstance: (object: number, instance: number) => !!session?.targets.some((target: any) => target.objectId === object && target.instanceId === instance),
+    protectsVolume: (volume: number) => !!session?.targets.some((target: any) => target.volumeId === volume),
+    functions: Object.fromEntries(Object.entries(functions).map(([name, fn]) => [name, (text: string) => {
     try {
       const request = JSON.parse(text);
       if (request.version !== 1) throw new Error('invalid measurement protocol version');

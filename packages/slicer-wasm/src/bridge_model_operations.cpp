@@ -744,6 +744,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_volume(const char* request_json, const 
 // export operate on an empty plate.
 EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     try {
+        if (state().measurement.id()) return error_json("Close Measure before changing its target");
         const auto affected_before = member_plate_ids();
         state().mesh_capture_cache.clear();
         state().mutable_object_capture_cache.clear();
@@ -772,6 +773,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json)
         for (const std::size_t id : *ids)
             if (find_object_by_id(id) == nullptr)
                 return error_json("object not found");
+        for (const std::size_t id : *ids)
+            if (state().measurement.protects_object(id)) return error_json("Close Measure before changing its target");
         std::set<std::size_t> affected_instances;
         for (const std::size_t id : *ids) {
             const auto* object = find_object_by_id(id);
@@ -808,6 +811,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
         for (const std::size_t id : *ids) {
             ModelVolume* vol = find_volume_by_id(id);
             if (vol == nullptr) return error_json("volume not found");
+            if (state().measurement.protects_volume(id)) return error_json("Close Measure before changing its target");
             if (vol->is_the_only_one_part())
                 return error_json("deleting the last solid part is not allowed");
             targets.emplace_back(vol->get_object(), vol);
@@ -822,6 +826,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
         for (const auto& [obj, vol] : targets) {
             for (std::size_t vi = 0; vi < obj->volumes.size(); ++vi)
                 if (obj->volumes[vi] == vol) { by_object[obj].push_back(vi); break; }
+        }
+        for (const auto& [obj, indexes] : by_object) {
+            // Orca normalizes transforms and re-IDs the last remaining part.
+            if (indexes.size() + 1 == obj->volumes.size() && state().measurement.protects_object(obj->id().id))
+                return error_json("Close Measure before changing its target");
         }
         for (auto& [obj, indexes] : by_object) {
             std::sort(indexes.rbegin(), indexes.rend());
@@ -970,6 +979,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
         ModelVolume* vol = find_volume_by_id(*id);
         if (vol == nullptr) return error_json("volume not found");
         if (!vol->is_splittable()) return error_json("volume is not splittable");
+        if (state().measurement.protects_volume(*id)) return error_json("Close Measure before changing its target");
 
         ModelObject* obj = vol->get_object();
         std::set<std::size_t> affected_instances;
@@ -1021,6 +1031,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
         const bool splittable = obj->volumes.size() > 1
             || (obj->volumes.size() == 1 && obj->volumes[0]->is_splittable());
         if (!splittable) return error_json("object is not splittable");
+        if (state().measurement.protects_object(*id)) return error_json("Close Measure before changing its target");
 
         std::set<std::size_t> affected_instances;
         append_instance_ids(*obj, affected_instances);
@@ -1072,6 +1083,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
             if (obj == nullptr) return error_json("object not found");
             sources.push_back(obj);
         }
+        for (const std::size_t id : *ids)
+            if (state().measurement.protects_object(id)) return error_json("Close Measure before changing its target");
         std::set<std::size_t> affected_instances;
         for (const ModelObject* source : sources)
             append_instance_ids(*source, affected_instances);
@@ -1147,6 +1160,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
                 if (obj->instances[i]->id().id == iid) { to_remove.push_back(i); found = true; break; }
             if (!found) return error_json("instance not found");
         }
+        for (const std::size_t iid : *ids)
+            if (state().measurement.protects_instance(*id, iid)) return error_json("Close Measure before changing its target");
         std::set<std::size_t> affected_instances;
         append_instance_ids(*obj, affected_instances);
         const auto affected_before = member_plate_ids_for_instances(affected_instances);
@@ -1232,6 +1247,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double in
         const auto affected_before = member_plate_ids_for_instances(affected_instances);
         for (std::size_t i = 0; i < obj->instances.size(); ++i) {
             if (obj->instances[i]->id().id == *iid) {
+                if (state().measurement.protects_instance(*id, *iid)) return error_json("Close Measure before changing its target");
                 obj->delete_instance(i);
                 obj->config.touch();
                 rebuild_plate_membership(true);
