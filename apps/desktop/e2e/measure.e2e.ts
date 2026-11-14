@@ -326,7 +326,8 @@ test('real Electron Measure selects native features and preserves scene/history 
     await expect.poll(async () => (await history(page)).undoEntries.length).toBe(beforeDelete.undoEntries.length + 1);
     await page.getByTestId('history-undo').click();
     await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(1);
-    await expect(panel).toBeHidden();
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    await expect(page.getByTestId('measure-first')).toContainText('None');
     expect(errors).toEqual([]);
   } finally { await app.close(); }
 });

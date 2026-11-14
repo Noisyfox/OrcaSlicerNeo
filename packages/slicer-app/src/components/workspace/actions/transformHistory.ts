@@ -1,8 +1,4 @@
 import type { HistoryContext, HistoryStatus, ModelStructureResult, SlicerClient } from '@slicer/client';
-import { useObjectListStore } from '../objectList/useObjectListStore';
-import { projectSelection } from '../objectList/projection';
-import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
@@ -19,30 +15,6 @@ type TransformHistoryRuntime = Pick<SlicerClient,
   'runProjectHistoryTransaction' | 'setModelTransforms' | 'getFilamentSessionSnapshot' |
   'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'> &
   Partial<Pick<SlicerClient, 'recomputePlateMembership' | 'cancel' | 'getRuntimeExecutionState'>>;
-
-/** Build the Worker-owned context projection without retaining renderer state. */
-export function historyContextForScene(sceneInteraction: SceneInteractionController): HistoryContext {
-  // Measure permits a part picked in a non-default instance. Preserve both
-  // stable IDs so restoring its scale edit reopens the exact measured scope.
-  if (sceneInteraction.gizmo === 'measure') return historyContextForStructure(sceneInteraction);
-  const objectList = useObjectListStore.getState();
-  const selection = projectSelection(
-    objectList.structure,
-    sceneInteraction.selectedVolumes().map((volume) => volume.buffer),
-    objectList.highlightLevel,
-  );
-  return {
-    selection: {
-      mode: sceneInteraction.selectionMode === 'volume' ? 'part' : sceneInteraction.selectionMode,
-      objectIds: [...selection.objectIds].sort((a, b) => a - b),
-      partIds: [...selection.volumeIds].sort((a, b) => a - b),
-      instanceIds: [...selection.instanceIds].sort((a, b) => a - b),
-    },
-    activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
-    gizmo: sceneInteraction.gizmo ? { type: sceneInteraction.gizmo } : null,
-    nativeScopedConfig: useSettingsStore.getState().nativeScopedConfig as unknown as HistoryContext['nativeScopedConfig'],
-  };
-}
 
 type GateCommand = 'commit' | 'abort';
 type TransactionResult = {
@@ -100,7 +72,7 @@ export class TransformHistoryCoordinator {
     // publication is replacing it. This does not reserve the FIFO: after its
     // short read-only reservation completes, other mutations continue freely.
     if (useProjectStore.getState().projectMutationPendingCount !== 0) return false;
-    const beforeContext = historyContextForScene(this.sceneInteraction);
+    const beforeContext = historyContextForStructure(this.sceneInteraction);
     const startTargets = this.captureCompositeTargets();
     if (startTargets.length === 0) return false;
     let resolve!: (result: TransformGestureResult) => void;
@@ -195,7 +167,7 @@ export class TransformHistoryCoordinator {
         if (!measureScale) applySettledTransformSyncResult(result);
         return result;
       },
-      () => historyContextForScene(this.sceneInteraction),
+      () => historyContextForStructure(this.sceneInteraction),
       result => {
         if (!measureScale || !result.ok) return;
         const runtime = this.runtime.cancel ? {

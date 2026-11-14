@@ -3,8 +3,8 @@ import type { ModelObjectBuffer } from '@slicer/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { GLVolume, glVolumeCollection } from '../viewport/GLVolume';
-import { TransformHistoryCoordinator, historyContextForScene } from './transformHistory';
-import { runProjectMutationOperation } from './historyMutation';
+import { TransformHistoryCoordinator } from './transformHistory';
+import { historyContextForStructure, runProjectMutationOperation } from './historyMutation';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -92,13 +92,13 @@ describe('TransformHistoryCoordinator', () => {
     useSlicerStore.getState().invalidateSliceResult();
   });
 
-  it('records the precise part and instance for a Measure scale history context', () => {
+  it.each(['measure', 'move', 'rotate', 'scale'] as const)('records the precise part and instance for %s history', gizmo => {
     const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0), makeVolume(0, 0, 1), makeVolume(0, 1, 1)];
     glVolumeCollection.replace(volumes);
     useObjectListStore.getState().setStructure(structureFor(volumes).objects);
     const scene = new SceneInteractionController(() => volumes);
-    scene.selectComposite(0, 1, 1); scene.toggleGizmo('measure');
-    expect(historyContextForScene(scene)).toMatchObject({ gizmo: { type: 'measure' },
+    scene.selectComposite(0, 1, 1); scene.toggleGizmo(gizmo);
+    expect(historyContextForStructure(scene)).toMatchObject({ gizmo: { type: gizmo },
       selection: { mode: 'part', objectIds: [], partIds: [201], instanceIds: [301] } });
   });
 
