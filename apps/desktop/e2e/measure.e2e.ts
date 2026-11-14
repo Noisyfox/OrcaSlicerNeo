@@ -9,6 +9,91 @@ import { booleanMeshes } from './mesh-boolean-journey';
 test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires the freshly staged threaded WASM');
 test.setTimeout(480_000);
 
+test('real Electron Measure highlights an oblique plane without depth artifacts', async ({}, info) => {
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-measure-depth-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: {} }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow(); await ready(page); await selectPrinter(page);
+    const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));
+    const viewport = await page.getByTestId('viewport').boundingBox();
+    if (!viewport) throw new Error('viewport is not visible');
+    await page.mouse.click(viewport.x + viewport.width - 40, viewport.y + 110, { button: 'right' });
+    await page.getByTestId('btn-add-primitive').click(); await page.getByTestId('btn-add-cube').click();
+    await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(1);
+    await page.getByTestId('config-mode-scoped').click();
+    await page.getByTestId('object-list').locator('div[data-testid^="object-"]').first().getByRole('button').first().click();
+    // Shrink the native 0.05 mm overlay offset until it is near depth-buffer
+    // precision, while leaving a large visible face for pixel comparisons.
+    await page.getByTestId('gizmo-btn-scale').click();
+    await page.getByTestId('scale-factor-y').fill('0.1');
+    await page.getByTestId('scale-factor-y').press('Enter');
+    await expect.poll(async () => {
+      const { min, max } = (await booleanMeshes(page))[0].bounds;
+      return max[1] - min[1];
+    }, { timeout: 60_000 }).toBeLessThan(0.1);
+    const { min, max } = (await booleanMeshes(page))[0].bounds;
+    const center = min.map((value, axis) => (value + max[axis]) / 2);
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    await page.getByTestId('gizmo-btn-measure').click();
+    await expect(page.getByTestId('measure-panel').getByRole('status')).toHaveCount(0, { timeout: 60_000 });
+    const bounds = await canvas.boundingBox();
+    if (!bounds) throw new Error('viewport is not visible');
+    const fractions = Array.from({ length: 10 }, (_, i) => 0.14 + i * 0.08);
+    const points = fractions.flatMap(x => fractions.map(z =>
+      [min[0] + x * (max[0] - min[0]), min[1], min[2] + z * (max[2] - min[2])]));
+    const samples = async () => {
+      const locations = await page.evaluate(points => points.map(point => (window as any).__orcaE2e.projectWorldToScreen(point)), points);
+      const png = await page.screenshot({ scale: 'css' });
+      return page.evaluate(async ({ png, locations, bounds }) => {
+        const bytes = Uint8Array.from(atob(png), char => char.charCodeAt(0));
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const image = document.createElement('canvas'); image.width = bitmap.width; image.height = bitmap.height;
+        const context = image.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close();
+        return locations.map(({ x, y }: { x: number; y: number }) =>
+          Array.from(context.getImageData(Math.round(bounds.x + x), Math.round(bounds.y + y), 1, 1).data).slice(0, 3));
+      }, { png: png.toString('base64'), locations, bounds });
+    };
+    const views = [[80, -110, 85], [60, -240, 100], [-60, -240, 100], [180, -100, 170], [-180, -100, 170], [40, -350, 230]];
+    const setView = (offset: number[]) => page.evaluate(({ c, offset }) =>
+      (window as any).__orcaE2e.setCameraView(c.map((v: number, i: number) => v + offset[i]), c), { c: center, offset });
+    await page.mouse.move(0, 0);
+    const before: number[][][] = [];
+    for (let i = 0; i < views.length; i++) {
+      await setView(views[i]); before.push(await samples());
+    }
+    // The opposite face is in front of the to-be-selected plane from here.
+    await setView([0, 50, 0]);
+    const hiddenBefore = await samples();
+    await setView(views[0]);
+    const point = await page.evaluate(p => (window as any).__orcaE2e.projectWorldToScreen(p), [center[0], min[1], center[2]]);
+    await page.mouse.move(bounds.x + point.x, bounds.y + point.y);
+    await expect.poll(async () => {
+      const hovered = await samples();
+      return hovered.filter((pixel, index) => pixel[2] - before[0][index][2] > 15).length;
+    }, { timeout: 30_000 }).toBeGreaterThanOrEqual(90);
+    await page.screenshot({ path: info.outputPath('measure-plane-hover.png') });
+    await page.mouse.click(bounds.x + point.x, bounds.y + point.y);
+    await expect(page.getByTestId('measure-first')).toContainText('Plane', { timeout: 30_000 });
+    await page.mouse.move(0, 0);
+    for (let i = 0; i < views.length; i++) {
+      await setView(views[i]);
+      await expect.poll(async () => {
+        const after = await samples();
+        return after.filter((pixel, index) => pixel[2] - before[i][index][2] > 15).length;
+      }, { message: `selected plane coverage in view ${i}`, timeout: 10_000 }).toBeGreaterThanOrEqual(90);
+    }
+    await setView([0, 50, 0]);
+    await expect.poll(async () => {
+      const hiddenAfter = await samples();
+      return hiddenAfter.filter((pixel, index) => pixel.every((channel, i) => Math.abs(channel - hiddenBefore[index][i]) <= 3)).length;
+    }, { message: 'the selected plane is hidden by the opposite face', timeout: 10_000 }).toBeGreaterThanOrEqual(90);
+    expect(errors).toEqual([]);
+  } finally { await app.close(); }
+});
+
 test('real Electron Measure selects native features and preserves scene/history ownership', async ({}, info) => {
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-measure-')), 'preferences.json');
   writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: {} }));

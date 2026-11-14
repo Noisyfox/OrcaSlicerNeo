@@ -49,7 +49,10 @@ function FeatureVisual({ feature, color, planes }: { feature: MeasureFeature; co
   const resource = planes.get(feature.resourceId);
   if (!resource) return null;
   return <mesh geometry={resource.geometry} matrix={resource.matrix} matrixAutoUpdate={false} raycast={noRaycast} renderOrder={2}>
-    <meshBasicMaterial color={color} transparent opacity={0.35} side={THREE.DoubleSide} depthWrite={false} />
+    {/* The native local-space offset can fall below depth precision after scaling.
+        Bias only the rendered fragments so the original picking and occlusion remain intact. */}
+    <meshBasicMaterial color={color} transparent opacity={0.35} side={THREE.DoubleSide} depthWrite={false}
+      polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
   </mesh>;
 }
 
