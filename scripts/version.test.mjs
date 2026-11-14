@@ -24,6 +24,9 @@ test('synchronizes every workspace and checks drift without writing', t => {
   for (const path of ['package.json', 'apps/desktop/package.json', 'packages/slicer-wasm/package.json']) {
     put(path, '{\n  "name": "fixture",\n  "version": "0.0.0"\n}\n');
   }
+  // Removed workspaces can leave ignored dependency directories on disk.
+  mkdirSync(join(root, 'packages/service-provider/node_modules'), { recursive: true });
+  mkdirSync(join(root, 'apps/retired-host/node_modules'), { recursive: true });
   mkdirSync(join(root, 'packages/slicer-wasm/src/client'), { recursive: true });
   const core = join(root, 'packages/slicer-wasm/cpp');
   put('packages/slicer-wasm/cpp/version.inc', 'set(SoftFever_VERSION "2.5.0")\n');

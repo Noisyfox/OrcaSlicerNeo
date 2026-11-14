@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -43,7 +43,8 @@ function versionFiles(root, version) {
   const paths = ['package.json'];
   for (const directory of ['apps', 'packages']) {
     for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
-      if (entry.isDirectory()) paths.push(`${directory}/${entry.name}/package.json`);
+      const path = `${directory}/${entry.name}/package.json`;
+      if (entry.isDirectory() && existsSync(join(root, path))) paths.push(path);
     }
   }
   const files = paths.sort().map(path => {
