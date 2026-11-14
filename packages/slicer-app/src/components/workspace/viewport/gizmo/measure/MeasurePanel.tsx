@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Copy, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import { useSceneInteractionVersion } from '../../SceneInteractionContext';
 import { useMeasureController, useMeasureState } from './MeasureProvider';
@@ -23,22 +24,24 @@ export function MeasurePanel({ sceneInteraction: scene }: { sceneInteraction: Sc
   return <section className="space-y-3" aria-label="Measure" data-testid="measure-panel" data-phase={state.phase} data-session-id={status?.sessionId}>
     <div className="flex items-center justify-between">
       <h2 className="text-module font-semibold uppercase tracking-wide text-muted-foreground">Measure</h2>
-      <Button size="icon" variant="ghost" aria-label="Close Measure" onClick={() => scene.closeGizmo()}><X /></Button>
+      <TooltipFor content="Close Measure" nonInteractive><Button size="icon" variant="ghost" aria-label="Close Measure" onClick={() => scene.closeGizmo()}><X /></Button></TooltipFor>
     </div>
     {state.phase === 'opening' && <p role="status" className="text-xs text-muted-foreground">Preparing measurement…</p>}
     {state.phase === 'rebasing' && <p role="status" className="text-xs text-muted-foreground">Updating measurement…</p>}
     {([['first', 'Selection 1'], ['second', 'Selection 2']] as const).map(([slot, label]) => {
       const item = status?.[slot] ?? null;
-      return <div key={slot} className="flex items-center gap-1 text-xs" data-testid={`measure-${slot}`}>
+      return <div key={slot} className="flex items-center gap-2 text-xs" data-testid={`measure-${slot}`}>
         <span className="shrink-0 text-muted-foreground">{label}</span>
         <span className="min-w-0 flex-1 break-words">{describeMeasureSelection(item)}</span>
-        <Button size="icon-xs" variant="ghost" aria-label={`Reset ${label}`} disabled={!item || state.phase !== 'idle'}
-          onClick={() => controller.reset(slot)}><X /></Button>
+        <TooltipFor content={`Reset ${label}`} disabled={!item || state.phase !== 'idle'} nonInteractive>
+          <Button size="icon-xs" variant="ghost" aria-label={`Reset ${label}`} disabled={!item || state.phase !== 'idle'}
+            onClick={() => controller.reset(slot)}><X /></Button>
+        </TooltipFor>
       </div>;
     })}
     {measureRows(status).map(row => <div key={row.label} className="flex items-center gap-1 text-xs" data-testid="measure-result">
       <span className="min-w-0 flex-1 break-words"><span className="text-muted-foreground">{row.label}: </span>{row.value}</span>
-      <Button size="icon-xs" variant="ghost" aria-label={`Copy ${row.label}`} onClick={() => copy(row)}><Copy /></Button>
+      <TooltipFor content={`Copy ${row.label}`} nonInteractive><Button size="icon-xs" variant="ghost" aria-label={`Copy ${row.label}`} onClick={() => copy(row)}><Copy /></Button></TooltipFor>
     </div>)}
     {(state.error || copyError) && <p role="alert" className="text-xs text-destructive">{copyError ?? state.error}</p>}
     <p className="text-xs text-muted-foreground">Select up to two features. Shift-click selects a point on a feature.</p>

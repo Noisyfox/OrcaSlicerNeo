@@ -580,7 +580,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         )}
         {previewTab && toolpath && <LayerScrubber data={toolpath} />}
         {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
-        {prepareTab && <div className="absolute top-14 bottom-44 left-0 flex max-w-full items-center gap-1.5" style={{ pointerEvents: 'none' }} data-testid="gizmo-controls">
+        {prepareTab && <div className="absolute top-14 bottom-44 left-0 z-20 flex max-w-full items-center gap-1.5" style={{ pointerEvents: 'none' }} data-testid="gizmo-controls">
           <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} arrangementOpen={arrangementOpen} onArrangementOpenChange={setArrangementOpen} />
           <div className="pointer-events-auto flex max-h-full w-64 min-w-0 flex-col gap-3 overflow-y-auto rounded-md bg-card p-3 empty:hidden" data-testid="gizmo-options">
             {arrangementOpen && <ArrangementPanel sceneInteraction={sceneInteraction} onClose={closeArrangement} />}

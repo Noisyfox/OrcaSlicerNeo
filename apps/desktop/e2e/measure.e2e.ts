@@ -61,6 +61,14 @@ test('real Electron Measure selects native features and preserves scene/history 
     await expect(page.getByTestId('measure-first')).toContainText('None');
     await expect(page.getByTestId('measure-second')).toContainText('None');
     expect(await booleanMeshes(page)).toEqual(before);
+    await clickWorld([bounds.min[0], center[1] - 5, bounds.max[2]]);
+    await expect(page.getByTestId('measure-first')).toContainText('Edge');
+    await clickWorld([center[0] + 5, bounds.min[1] + 0.1, bounds.max[2]]);
+    await expect(page.getByTestId('measure-second')).toContainText('Edge');
+    await expect(page.getByTestId('measure-angle-dimension')).toHaveText('90.000°');
+    await page.screenshot({ path: info.outputPath('measure-angle.png') });
+    await page.keyboard.press('Backspace');
+    await expect(page.getByTestId('measure-first')).toContainText('None');
     await page.keyboard.down('Shift');
     await clickWorld([center[0] - 4, center[1] - 4, bounds.max[2]]);
     await expect(page.getByTestId('measure-first')).toContainText('Point on plane');
@@ -73,6 +81,41 @@ test('real Electron Measure selects native features and preserves scene/history 
     expect(Number.parseFloat(displayedDistance)).toBeCloseTo(Math.sqrt(128), 2);
     await expect(panel.getByTestId('measure-result').filter({ hasText: displayedDistance })).toContainText('distance');
     await page.screenshot({ path: info.outputPath('measure-distance.png') });
+    await page.getByRole('button', { name: 'Copy Direct distance' }).hover();
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]').filter({ hasText: 'Copy Direct distance' })).toBeVisible();
+    const edit = page.getByTestId('measure-edit-scale');
+    await edit.hover();
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]').filter({ hasText: 'Edit to scale' })).toBeVisible();
+    await edit.focus(); await edit.press('Enter');
+    const scaleDialog = page.getByTestId('measure-scale-dialog');
+    await expect(scaleDialog).toBeVisible();
+    await expect(page.getByTestId('measure-scale-value')).toBeFocused();
+    await expect.poll(() => scaleDialog.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+    const dimensionBox = await dimension.boundingBox();
+    if (!dimensionBox) throw new Error('measurement label is not visible');
+    const dialogCoversDimension = await page.evaluate(({ x, y }) =>
+      !!document.elementFromPoint(x, y)?.closest('[data-testid="measure-scale-dialog"]'),
+    { x: dimensionBox.x + dimensionBox.width / 2, y: dimensionBox.y + dimensionBox.height / 2 });
+    expect(dialogCoversDimension, 'the modal must appear above the 3D dimension').toBe(true);
+    await page.screenshot({ path: info.outputPath('measure-scale-dialog.png') });
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('measure-scale-dialog')).toBeHidden();
+    await expect(page.getByTestId('measure-second')).toContainText('Point on plane');
+    await page.setViewportSize({ width: 1100, height: 480 });
+    const options = page.getByTestId('gizmo-options');
+    await expect.poll(() => options.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await panel.getByRole('button', { name: 'Done' }).scrollIntoViewIfNeeded();
+    await expect(panel.getByRole('button', { name: 'Done' })).toBeVisible();
+    await page.screenshot({ path: info.outputPath('measure-short-window.png') });
+    await edit.click(); await expect(scaleDialog).toBeVisible();
+    await expect.poll(() => scaleDialog.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+    const dialogBox = await scaleDialog.boundingBox();
+    if (!dialogBox) throw new Error('scale dialog is not visible');
+    expect(dialogBox.x).toBeGreaterThanOrEqual(0); expect(dialogBox.y).toBeGreaterThanOrEqual(0);
+    expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(1100);
+    expect(dialogBox.y + dialogBox.height).toBeLessThanOrEqual(480);
+    await page.keyboard.press('Escape'); await expect(scaleDialog).toBeHidden();
+    await page.setViewportSize({ width: 1400, height: 900 });
     const openScale = async () => {
       await page.getByTestId('measure-edit-scale').click();
       await expect(page.getByTestId('measure-scale-dialog')).toBeVisible();
