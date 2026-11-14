@@ -359,9 +359,10 @@ every model will complete or set a product size limit.
   distance and XYZ components. A result may be absent for combinations the
   native algorithm does not support. Follow Orca's rules for suppressing equal
   strict/infinite distances and XYZ output below its epsilon.
-- Provide screen-sized markers and labels, individual reset, keyboard restart
-  and Done. Match Orca's result-row copy format and selection promotion when
-  the first feature is cleared.
+- Provide screen-sized markers and labels, individual reset and keyboard
+  restart. Use the existing gizmo card header's Close control without a
+  separate Done action. Match Orca's result-row copy format and selection
+  promotion when the first feature is cleared.
 - The first delivery targets desktop pointer and keyboard use in both hosts.
   Mobile interaction and qualification are deferred.
 
