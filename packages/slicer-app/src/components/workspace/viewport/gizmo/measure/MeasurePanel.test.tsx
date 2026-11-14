@@ -52,7 +52,7 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 const render = () => act(async () => root.render(<MeasurePanel sceneInteraction={scene} />));
 const button = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
 
-it('renders preparation, selected features and individual reset/Done actions', async () => {
+it('renders preparation, selected features and individual reset/close actions', async () => {
   mocked.state = { ...mocked.state!, phase: 'opening', status: null }; await render();
   expect(container.textContent).toContain('Preparing measurement');
   expect(button('Reset Selection 1').disabled).toBe(true);
@@ -61,6 +61,8 @@ it('renders preparation, selected features and individual reset/Done actions', a
   expect(container.textContent).toContain('Midpoint of edge');
   await act(async () => button('Reset Selection 1').click()); expect(mocked.reset).toHaveBeenCalledWith('first');
   await act(async () => button('Reset Selection 2').click()); expect(mocked.reset).toHaveBeenCalledWith('second');
+  expect(button('Close Measure').textContent).toBe('Close');
+  expect([...container.querySelectorAll('button')].some(element => element.textContent === 'Done')).toBe(false);
   await act(async () => button('Close Measure').click()); expect(scene.closeGizmo).toHaveBeenCalledOnce();
 });
 

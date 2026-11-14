@@ -24,7 +24,7 @@ export function MeasurePanel({ sceneInteraction: scene }: { sceneInteraction: Sc
   return <section className="space-y-3" aria-label="Measure" data-testid="measure-panel" data-phase={state.phase} data-session-id={status?.sessionId}>
     <div className="flex items-center justify-between">
       <h2 className="text-module font-semibold uppercase tracking-wide text-muted-foreground">Measure</h2>
-      <TooltipFor content="Close Measure" nonInteractive><Button size="icon" variant="ghost" aria-label="Close Measure" onClick={() => scene.closeGizmo()}><X /></Button></TooltipFor>
+      <Button size="sm" variant="ghost" aria-label="Close Measure" onClick={() => scene.closeGizmo()}>Close</Button>
     </div>
     {state.phase === 'opening' && <p role="status" className="text-xs text-muted-foreground">Preparing measurement…</p>}
     {state.phase === 'rebasing' && <p role="status" className="text-xs text-muted-foreground">Updating measurement…</p>}
@@ -45,6 +45,5 @@ export function MeasurePanel({ sceneInteraction: scene }: { sceneInteraction: Sc
     </div>)}
     {(state.error || copyError) && <p role="alert" className="text-xs text-destructive">{copyError ?? state.error}</p>}
     <p className="text-xs text-muted-foreground">Select up to two features. Shift-click selects a point on a feature.</p>
-    <Button className="w-full" variant="secondary" onClick={() => scene.closeGizmo()}>Done</Button>
   </section>;
 }

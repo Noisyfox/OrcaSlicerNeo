@@ -46,9 +46,10 @@ test('real Electron Measure selects native features and preserves scene/history 
     };
     await clickWorld([center[0], center[1], bounds.max[2]]);
     await expect(page.getByTestId('measure-first')).toContainText('Plane', { timeout: 30_000 });
-    await clickWorld([bounds.min[0], center[1], bounds.max[2]]);
+    // Stay just inside the projected edge after native pointer quantization.
+    await clickWorld([bounds.min[0] + 0.25, center[1], bounds.max[2]]);
     await expect(page.getByTestId('measure-second')).toContainText('Midpoint of edge', { timeout: 30_000 });
-    await clickWorld([bounds.min[0], bounds.min[1] + (bounds.max[1] - bounds.min[1]) * 0.25, bounds.max[2]]);
+    await clickWorld([bounds.min[0] + 0.25, bounds.min[1] + (bounds.max[1] - bounds.min[1]) * 0.25, bounds.max[2]]);
     await expect(page.getByTestId('measure-second')).toContainText('Edge', { timeout: 30_000 });
     expect(await booleanMeshes(page)).toEqual(before);
     expect((await history(page)).undoEntries).toEqual(beforeHistory.undoEntries);
@@ -61,7 +62,7 @@ test('real Electron Measure selects native features and preserves scene/history 
     await expect(page.getByTestId('measure-first')).toContainText('None');
     await expect(page.getByTestId('measure-second')).toContainText('None');
     expect(await booleanMeshes(page)).toEqual(before);
-    await clickWorld([bounds.min[0], center[1] - 5, bounds.max[2]]);
+    await clickWorld([bounds.min[0] + 0.25, center[1] - 5, bounds.max[2]]);
     await expect(page.getByTestId('measure-first')).toContainText('Edge');
     await clickWorld([center[0] + 5, bounds.min[1] + 0.1, bounds.max[2]]);
     await expect(page.getByTestId('measure-second')).toContainText('Edge');
@@ -104,8 +105,9 @@ test('real Electron Measure selects native features and preserves scene/history 
     await page.setViewportSize({ width: 1100, height: 480 });
     const options = page.getByTestId('gizmo-options');
     await expect.poll(() => options.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
-    await panel.getByRole('button', { name: 'Done' }).scrollIntoViewIfNeeded();
-    await expect(panel.getByRole('button', { name: 'Done' })).toBeVisible();
+    const hint = panel.getByText('Select up to two features. Shift-click selects a point on a feature.');
+    await hint.scrollIntoViewIfNeeded();
+    await expect(hint).toBeVisible();
     await page.screenshot({ path: info.outputPath('measure-short-window.png') });
     await edit.click(); await expect(scaleDialog).toBeVisible();
     await expect.poll(() => scaleDialog.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
@@ -158,6 +160,13 @@ test('real Electron Measure selects native features and preserves scene/history 
     await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
     await expect(page.getByTestId('measure-first')).toContainText('None', { timeout: 60_000 });
     await expect(page.getByTestId('measure-second')).toContainText('None');
+    await expect(panel.getByRole('button', { name: 'Close Measure' })).toHaveText('Close');
+    await expect(panel.getByRole('button', { name: 'Done' })).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Close Measure' }).click();
+    await expect(panel).toBeHidden();
+    await page.keyboard.press('u');
+    await expect(panel).toBeVisible();
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
     await page.keyboard.press('Escape');
     await expect(panel).toBeHidden();
     expect(errors).toEqual([]);
