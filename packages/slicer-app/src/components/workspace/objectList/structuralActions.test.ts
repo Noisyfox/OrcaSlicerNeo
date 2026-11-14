@@ -69,15 +69,34 @@ describe('object list structural actions', () => {
       reportTargetProtected: report } as unknown as MeasureController);
     try {
       const operations = [
-        () => deleteObjectsInList(runtime, [1]), () => deleteVolumeInList(runtime, 10),
         () => splitVolumeToPartsInList(runtime, 10), () => splitObjectToObjectsInList(runtime, 1),
         () => assembleObjectsInList(runtime, [1, 2]), () => separateInstancesInList(runtime, 1, [20]),
-        () => removeInstanceInList(runtime, 1, 20),
       ];
       for (const operation of operations) expect(await operation()).toEqual({ ok: false, error: 'Close Measure before changing its target' });
       expect(report).toHaveBeenCalledTimes(operations.length);
       expect(waitForSettledModelTransforms).not.toHaveBeenCalled();
       expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
+    } finally { unregister(); }
+  });
+
+  it.each([
+    ['object', (runtime: SlicerRuntime) => deleteObjectsInList(runtime, [2]), 'deleteObjects', [[2]]],
+    ['part', (runtime: SlicerRuntime) => deleteVolumeInList(runtime, 11), 'deleteVolumes', [[11]]],
+    ['instance', (runtime: SlicerRuntime) => removeInstanceInList(runtime, 1, 21), 'removeInstance', [1, 21]],
+  ] as const)('closes Measure before deleting an unrelated %s', async (_name, operation, method, args) => {
+    const runtime = makeRuntime();
+    let finish!: () => void, started!: () => void;
+    const closing = new Promise<void>(resolve => { finish = resolve; });
+    const closeStarted = new Promise<void>(resolve => { started = resolve; });
+    const unregister = registerMeasureCommands({ active: true, close: async () => { started(); await closing; } } as unknown as MeasureController);
+    try {
+      const result = operation(runtime);
+      await closeStarted;
+      expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
+      expect(runtime[method]).not.toHaveBeenCalled();
+      finish();
+      expect(await result).toEqual({ ok: true });
+      expect(runtime[method]).toHaveBeenCalledWith(...args);
     } finally { unregister(); }
   });
 

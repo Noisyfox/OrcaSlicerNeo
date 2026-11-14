@@ -119,11 +119,6 @@ test('real Electron Measure selects native features and preserves scene/history 
     await page.getByTestId('gizmo-btn-measure').click();
     const panel = page.getByTestId('measure-panel'); await expect(panel).toBeVisible();
     await expect(panel.getByRole('status')).toHaveCount(0, { timeout: 60_000 });
-    await objects.first().getByRole('button').first().click({ button: 'right' });
-    await page.getByTestId('objectlist-delete').click();
-    await expect(panel.getByRole('alert')).toContainText('Close Measure before changing its target');
-    expect(await booleanMeshes(page)).toEqual(before);
-    expect((await history(page)).undoEntries).toEqual(beforeHistory.undoEntries);
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
     const clickWorld = async (point: number[]) => {
       const projected = await page.evaluate(p => (window as any).__orcaE2e.projectWorldToScreen(p), point);
@@ -256,6 +251,17 @@ test('real Electron Measure selects native features and preserves scene/history 
     await expect(panel).toBeVisible();
     await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
     await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await page.keyboard.press('u');
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    const beforeDelete = await history(page);
+    await objects.first().getByRole('button').first().click({ button: 'right' });
+    await page.getByTestId('objectlist-delete').click();
+    await expect(panel).toBeHidden();
+    await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(0);
+    await expect.poll(async () => (await history(page)).undoEntries.length).toBe(beforeDelete.undoEntries.length + 1);
+    await page.getByTestId('history-undo').click();
+    await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(1);
     await expect(panel).toBeHidden();
     expect(errors).toEqual([]);
   } finally { await app.close(); }

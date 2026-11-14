@@ -262,14 +262,19 @@ do not attempt to restore old feature pointers. This includes undoing or
 redoing an Edit to scale. Follow the ordinary history context if it restores
 another tool or an ineligible selection.
 
-While Measure is active, reject ordinary user commands that would change the
-measured mesh or delete its target, including target deletion, mesh
-replacement/reload and splitting. Require the user to close Measure before
-retrying; reject at all entry points without queuing a delayed mutation. Track
-the actual affected objects, parts and instances, including a source volume
-shared by sibling instances. Selection changes and edits that do not change a
-measurement target are governed by their normal rules. Undo/Redo, Measure's
-own Edit to scale and the confirmed project replacement flow are exceptions.
+Before deleting objects, parts, instances or plates, or clearing the scene,
+close Measure and wait for its session cleanup, then perform the deletion.
+This also applies to Object List commands and to deletion of unrelated
+targets. Delete and Backspace inside Measure retain their measurement-reset
+behavior described above.
+
+While Measure is active, reject other ordinary user commands that would change
+the measured mesh, including mesh replacement/reload and splitting. Require
+the user to close Measure before retrying. Track the affected objects, parts
+and instances, including a source volume shared by sibling instances. Other
+edits that do not change a measurement target follow their normal rules.
+Undo/Redo, Measure's own Edit to scale and the confirmed project replacement
+flow are exceptions.
 
 For New, Open and Reload Project, follow the idle painting lifecycle: run the
 existing file selection and unsaved-project confirmation first. If the user
