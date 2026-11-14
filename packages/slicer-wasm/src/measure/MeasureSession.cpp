@@ -442,23 +442,6 @@ Session::Session(const Model& model, const std::vector<TargetId>& targets)
 
 Session::~Session() = default;
 
-bool Session::contains_object(std::size_t object) const
-{
-    return std::any_of(m_targets.begin(), m_targets.end(), [object](const auto& target) { return target->id.object == object; });
-}
-
-bool Session::contains_instance(std::size_t object, std::size_t instance) const
-{
-    return std::any_of(m_targets.begin(), m_targets.end(), [object, instance](const auto& target) {
-        return target->id.object == object && target->id.instance == instance;
-    });
-}
-
-bool Session::contains_volume(std::size_t volume) const
-{
-    return std::any_of(m_targets.begin(), m_targets.end(), [volume](const auto& target) { return target->id.volume == volume; });
-}
-
 void Session::validate(const Model& model) const
 {
     ModelLookup lookup(model);

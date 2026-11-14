@@ -4189,38 +4189,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     free,
   });
   Object.assign(bridge, measure.functions);
-  const measureGuard = { ok: false, error: 'Close Measure before changing its target' };
-  const parseIds = (text: unknown): number[] => {
-    try { const ids = JSON.parse(String(text)); return Array.isArray(ids) ? ids.filter(Number.isSafeInteger) : []; }
-    catch { return []; }
-  };
-  for (const name of ['orc_clear_model', 'orc_delete_objects', 'orc_delete_volumes', 'orc_split_volume_to_parts',
-    'orc_split_object_to_objects', 'orc_merge_objects_to_multipart', 'orc_instances_to_separate_objects', 'orc_remove_instance', 'orc_mesh_boolean']) {
-    const operation = bridge[name];
-    bridge[name] = (...args) => {
-      let protectedTarget = false;
-      if (name === 'orc_clear_model') protectedTarget = measure.active();
-      else if (name === 'orc_delete_objects' || name === 'orc_merge_objects_to_multipart') protectedTarget = parseIds(args[0]).some(measure.protectsObject);
-      else if (name === 'orc_split_object_to_objects') protectedTarget = measure.protectsObject(args[0]);
-      else if (name === 'orc_split_volume_to_parts') protectedTarget = measure.protectsVolume(args[0]);
-      else if (name === 'orc_remove_instance') protectedTarget = measure.protectsInstance(args[0], args[1]);
-      else if (name === 'orc_instances_to_separate_objects') protectedTarget = parseIds(args[1]).some(instance => measure.protectsInstance(args[0], instance));
-      else if (name === 'orc_delete_volumes') {
-        const ids = new Set(parseIds(args[0]));
-        protectedTarget = [...ids].some(measure.protectsVolume) || objectMeta.some((object, index) => {
-          const removed = volumeMeta[index].filter(volume => ids.has(volume.id)).length;
-          return removed > 0 && measure.protectsObject(object.id) && volumeMeta[index].length - removed === 1;
-        });
-      } else if (name === 'orc_mesh_boolean') {
-        try {
-          const request = JSON.parse(String(args[0])) as MeshBooleanRequest;
-          protectedTarget = request.entry === 'object' ? measure.protectsObject(request.objectId) : request.entry === 'gizmo' &&
-            (measure.protectsVolume(request.sourceVolumeId) || ((request.operation === 'union' || request.deleteInput) && measure.protectsVolume(request.toolVolumeId)));
-        } catch { /* The wrapped operation reports malformed input. */ }
-      }
-      return protectedTarget ? measureGuard : operation(...args);
-    };
-  }
   for (const name of ['orc_init', 'orc_close_project', 'orc_history_undo', 'orc_history_redo', 'orc_history_jump']) {
     const operation = bridge[name];
     bridge[name] = (...args) => {

@@ -240,9 +240,6 @@ char *perform(const json &request) {
                                                                            : "";
         if (native_operation.empty())
             throw std::invalid_argument("Unknown Mesh Boolean operation");
-        if (state().measurement.protects_volume(source->id().id) ||
-            ((operation == "union" || delete_input) && state().measurement.protects_volume(tool->id().id)))
-            throw std::invalid_argument("Close Measure before changing its target");
         validate_counts(*source);
         validate_counts(*tool);
         TriangleMesh a = source->mesh(), b = tool->mesh();
@@ -259,8 +256,6 @@ char *perform(const json &request) {
         if (object->volumes.size() < 2 &&
             (object->volumes.empty() || !object->volumes.front()->is_splittable()))
             throw std::invalid_argument("Object is not multipart or splittable");
-        if (state().measurement.protects_object(object->id().id))
-            throw std::invalid_argument("Close Measure before changing its target");
         std::vector<csg::CSGPart> parts;
         for (const auto *volume : object->volumes) {
             consumed.insert(volume->id().id);
