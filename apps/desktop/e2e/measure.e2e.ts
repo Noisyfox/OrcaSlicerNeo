@@ -9,7 +9,7 @@ import { booleanMeshes } from './mesh-boolean-journey';
 test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires the freshly staged threaded WASM');
 test.setTimeout(480_000);
 
-test('real Electron Measure highlights an oblique plane without depth artifacts', async ({}, info) => {
+for (const compressed of [false, true]) test(`real Electron Measure highlights an oblique ${compressed ? 'compressed' : 'default'} cube plane without depth artifacts`, async ({}, info) => {
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-measure-depth-')), 'preferences.json');
   writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: {} }));
   const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
@@ -25,15 +25,17 @@ test('real Electron Measure highlights an oblique plane without depth artifacts'
     await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(1);
     await page.getByTestId('config-mode-scoped').click();
     await page.getByTestId('object-list').locator('div[data-testid^="object-"]').first().getByRole('button').first().click();
-    // Shrink the native 0.05 mm overlay offset until it is near depth-buffer
-    // precision, while leaving a large visible face for pixel comparisons.
-    await page.getByTestId('gizmo-btn-scale').click();
-    await page.getByTestId('scale-factor-y').fill('0.1');
-    await page.getByTestId('scale-factor-y').press('Enter');
-    await expect.poll(async () => {
-      const { min, max } = (await booleanMeshes(page))[0].bounds;
-      return max[1] - min[1];
-    }, { timeout: 60_000 }).toBeLessThan(0.1);
+    if (compressed) {
+      // Shrink the native 0.05 mm overlay offset until it is near depth-buffer
+      // precision, while leaving a large visible face for pixel comparisons.
+      await page.getByTestId('gizmo-btn-scale').click();
+      await page.getByTestId('scale-factor-y').fill('0.1');
+      await page.getByTestId('scale-factor-y').press('Enter');
+      await expect.poll(async () => {
+        const { min, max } = (await booleanMeshes(page))[0].bounds;
+        return max[1] - min[1];
+      }, { timeout: 60_000 }).toBeLessThan(0.1);
+    }
     const { min, max } = (await booleanMeshes(page))[0].bounds;
     const center = min.map((value, axis) => (value + max[axis]) / 2);
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
@@ -56,7 +58,8 @@ test('real Electron Measure highlights an oblique plane without depth artifacts'
           Array.from(context.getImageData(Math.round(bounds.x + x), Math.round(bounds.y + y), 1, 1).data).slice(0, 3));
       }, { png: png.toString('base64'), locations, bounds });
     };
-    const views = [[80, -110, 85], [60, -240, 100], [-60, -240, 100], [180, -100, 170], [-180, -100, 170], [40, -350, 230]];
+    const views = [[70, -180, 181], [95, -244, 244], [80, -110, 85], [60, -240, 100], [-60, -240, 100],
+      [180, -100, 170], [-180, -100, 170], [40, -350, 230]];
     const setView = (offset: number[]) => page.evaluate(({ c, offset }) =>
       (window as any).__orcaE2e.setCameraView(c.map((v: number, i: number) => v + offset[i]), c), { c: center, offset });
     await page.mouse.move(0, 0);
