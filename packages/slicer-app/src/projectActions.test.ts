@@ -12,6 +12,8 @@ import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { noticesFor, importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, saveProjectAs, sortProjectInputs } from './projectActions';
+import { registerMeasureCommands } from './components/workspace/viewport/gizmo/measure/projectCommands';
+import type { MeasureController } from './components/workspace/viewport/gizmo/measure/MeasureController';
 
 const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([80, 75, 3, 4]) };
 const snapshot: ProfileSnapshot = {
@@ -109,6 +111,22 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
 }
 
 describe('transactional project actions', () => {
+  it('keeps Measure on cancelled project gates and closes it before replacement', async () => {
+    const { platform, runtime, projects } = platformFor();
+    const close = vi.fn(async () => undefined);
+    const unregister = registerMeasureCommands({ active: true, close } as unknown as MeasureController);
+    try {
+      runtime.getHistoryStatus.mockResolvedValue({ ...loadedHistoryStatus, dirty: true });
+      expect((await newProject(platform, { decideDirty: () => 'cancel' })).status).toBe('cancelled');
+      expect(close).not.toHaveBeenCalled();
+      projects.open.mockImplementationOnce(async () => ({ status: 'cancelled' }) as never);
+      expect((await openProject(platform)).status).toBe('cancelled');
+      expect(close).not.toHaveBeenCalled();
+      expect((await newProject(platform, { decideDirty: () => 'dont-save' })).status).toBe('ok');
+      expect(close).toHaveBeenCalledOnce();
+      expect(close.mock.invocationCallOrder[0]).toBeLessThan(runtime.closeProject.mock.invocationCallOrder[0]);
+    } finally { unregister(); }
+  });
   it('records only committed project opens and saves using the opaque location', async () => {
     const { platform, projects } = platformFor();
     const location = {} as NonNullable<ProjectInput['location']>;

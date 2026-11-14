@@ -27,6 +27,7 @@ export function invalidateAffectedPlateResults(
 export function applyPlateResultMutation(
   mutation: PlateSessionMutation,
   previous: PlateSessionSnapshot | null = null,
+  preserveActiveSlice = false,
 ): void {
   const store = useSlicerStore.getState();
   const structural = mutation.dirtyReasons?.includes('plate-structure') ?? false;
@@ -37,7 +38,7 @@ export function applyPlateResultMutation(
     store.invalidatePlateResults(mutation.affectedPlateIds);
   }
   const revision = mutation.inputRevisions?.[mutation.currentPlateId];
-  if (typeof revision === 'number' && Number.isSafeInteger(revision)) store.activatePlateResult(mutation.currentPlateId, revision);
+  if (!preserveActiveSlice && typeof revision === 'number' && Number.isSafeInteger(revision)) store.activatePlateResult(mutation.currentPlateId, revision);
 }
 
 /**

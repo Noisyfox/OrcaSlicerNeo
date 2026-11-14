@@ -11,7 +11,7 @@ import { PaintingProbe } from '@/e2e/PaintingProbe';
 import type { PaintingDisplay } from './PaintingController';
 import { PaintingCursor, PAINTING_RENDER_ORDER } from './PaintingCursor';
 import { resolvePrepareMaterial } from '../../prepareColourProjection';
-import { visibleInstanceVolumes, type InstanceHider, type InstanceHiderLease, type InstanceHiderTarget } from '../../InstanceHider';
+import { visibleToolVolumes, type InstanceHider, type InstanceHiderLease, type InstanceHiderTarget } from '../../InstanceHider';
 declare const __ORCA_E2E__: boolean;
 
 /** Adjust encoded RGB/RGBA through the shared Prepare material rules before
@@ -66,7 +66,7 @@ export function paintingPointer(event: Pick<PointerEvent, 'clientX' | 'clientY'>
 /** Borrowed cursor meshes retain identity across equivalent native metadata
  * reads. This also preserves their memoized tight bounds and input listeners. */
 export function paintingCursorMeshes(previous: THREE.Mesh[], volumes: readonly LoadedObject[], session: PaintingSessionMetadata | undefined, material: THREE.Material): THREE.Mesh[] {
-  const parts = session ? visibleInstanceVolumes(volumes, session).filter(v => session.parts.some(p => p.volumeId === v.buffer.volumeId)) : [];
+  const parts = session ? visibleToolVolumes(volumes, session).filter(v => session.parts.some(p => p.volumeId === v.buffer.volumeId)) : [];
   const matrices = parts.map((v) => paintingPartMatrix(session!, v.buffer.volumeId));
   if (previous.length === parts.length && previous.every((mesh, i) => mesh.geometry === parts[i].geometry && mesh.userData.paintingVolumeId === parts[i].buffer.volumeId && mesh.matrix.equals(matrices[i]))) return previous;
   return parts.map((v, i) => {

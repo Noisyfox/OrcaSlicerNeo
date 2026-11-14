@@ -1,5 +1,5 @@
 import { MeshBooleanSession, meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
-import { InstanceHider, visibleInstanceVolumes, type InstanceHiderLease } from './InstanceHider';
+import { InstanceHider, visibleToolVolumes, type InstanceHiderLease } from './InstanceHider';
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
 import type { HistoryContext, ModelStructureResult } from '@slicer/client';
@@ -27,7 +27,7 @@ import {
   type BoxRect,
 } from './boxSelectionMath';
 
-export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | null;
+export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | 'measure' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box' | 'external';
@@ -67,6 +67,10 @@ export interface TransformHistoryPort {
   abort(): Promise<unknown>;
 }
 
+export type SettledScaleResult =
+  | { outcome: 'committed' | 'cancelled' | 'unavailable' }
+  | { outcome: 'stale' | 'failed'; error: string };
+
 /** Commit boundary for a scene entity after its local draft has changed. */
 export interface SceneEntityCommitPort<Entity extends GLVolume = GLVolume> {
   commit(entity: Entity): Promise<void>;
@@ -84,8 +88,11 @@ export class SceneInteractionController {
   readonly instanceHider = new InstanceHider();
   readonly meshBoolean = new MeshBooleanSession(() => this.getVolumes(), () => this.emit());
   private booleanIsolation: InstanceHiderLease | null = null;
+  private measureIsolation: InstanceHiderLease | null = null;
 
   private readonly listeners = new Set<() => void>();
+  private notificationDepth = 0;
+  private notificationPending = false;
   private selectionModeState: SelectionMode = 'instance';
   private openGizmo: OpenGizmo = null;
   private scaleSpaceState: ScaleSpace = 'world';
@@ -125,6 +132,20 @@ export class SceneInteractionController {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Publish a group of scene changes once their enclosing operation settles. */
+  deferNotifications(): () => void {
+    this.notificationDepth++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (--this.notificationDepth === 0 && this.notificationPending) {
+        this.notificationPending = false;
+        for (const listener of this.listeners) listener();
+      }
+    };
   }
 
   /** Publish authoritative transforms without changing selection or opening a gizmo. */
@@ -216,7 +237,8 @@ export class SceneInteractionController {
     // The initiating DragControls must stay enabled for the rest of its own
     // gesture. A gizmo remains exclusive; other body wrappers are still
     // blocked synchronously by tryBeginBodyDrag/update ownership checks.
-    return this.openGizmo !== 'mesh-boolean' && (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
+    return this.openGizmo !== 'mesh-boolean' && this.openGizmo !== 'measure'
+      && (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
       && (this.pointerOwner === 'none' || this.pointerOwner === 'body')
       // An unselected body must be able to start the same press that selects
       // it. GLVolumeMesh selects synchronously at pointer-down, before
@@ -362,7 +384,7 @@ export class SceneInteractionController {
   /** The GLVolume IDs a click expands to for a given selection mode (Orca's
    *  part selection is anchored to the clicked instance). */
   private hitModeVolumeIds(hit: GLVolume, mode: SelectionMode): string[] {
-    const volumes = visibleInstanceVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
+    const volumes = visibleToolVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
     if (mode === 'object') return volumes.filter((v) => v.buffer.objectIdx === hit.buffer.objectIdx).map((v) => v.id);
     if (mode === 'volume')
       return volumes.filter(
@@ -388,6 +410,7 @@ export class SceneInteractionController {
   }
 
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (this.meshBoolean.publishing || !this.instanceHider.isVisible(hit)) return false;
     if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (!hit.selectable) return false;
@@ -405,7 +428,7 @@ export class SceneInteractionController {
     // whole instance — the workspace's per-click override of the selection mode.
     const mode = part ? 'volume' : this.selectionMode;
     if (additive && !this.canToggleVolumeIds(this.hitModeVolumeIds(hit, mode))) return false;
-    const volumes = visibleInstanceVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
+    const volumes = visibleToolVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
     const changed = additive
       ? this.selection.toggleFromHit(hit, volumes, mode)
       : this.selection.replaceFromHit(hit, volumes, mode);
@@ -450,6 +473,7 @@ export class SceneInteractionController {
    * a model mesh.
    */
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (!this.instanceHider.isVisible(hit)) return false;
     if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
@@ -502,6 +526,7 @@ export class SceneInteractionController {
    * (body/gizmo/box gesture) is never preempted.
    */
   beginBoxSelect(start: BoxPoint, additive: boolean): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
     this.pointerOwner = 'box';
     this.boxSelect = { start, current: { ...start }, additive };
@@ -538,19 +563,14 @@ export class SceneInteractionController {
     return changed;
   }
 
-  /** Call after the renderer collection changes. */
+  /** Reconcile selection and notify tools after the renderer collection changes. */
   pruneSelection(): boolean {
-    // A Prime Tower receipt can retain the same stable selected ID while
-    // replacing its authoritative X/Y projection. Selection.prune() correctly
-    // reports no identity change in that case, but SelectionBoundsBox and the
-    // TransformControls pivot subscribe to this controller rather than the
-    // collection. Publish the retained special selection so all three scene
-    // representations consume the same Worker-confirmed transform.
-    const hadWipeTowerSelection = this.hasWipeTowerSelection;
     const changed = this.selection.prune(this.getVolumes().filter((volume) => volume.selectable));
     this.syncGizmoToSelection();
     if (this.drag && this.selectedVolumes().length === 0) this.cancelDrag();
-    if (changed || (hadWipeTowerSelection && this.hasWipeTowerSelection)) this.emit();
+    // Stable IDs can retain their selection while their geometry or transform
+    // changes. Subscribers must also see the new selected-volume projection.
+    if (changed || !this.selection.empty) this.emit();
     return changed;
   }
 
@@ -637,6 +657,7 @@ export class SceneInteractionController {
    * returns true.
    */
   tryBeginBodyDrag(hit?: GLVolume): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (hit && !this.instanceHider.isVisible(hit)) return false;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty) return false;
     // DragControls are always armed so the synchronous first move is not lost
@@ -652,6 +673,7 @@ export class SceneInteractionController {
 
   /** Called synchronously by TransformControls on a confirmed grabber press. */
   beginGizmoDrag(): boolean {
+    if (this.openGizmo === 'measure') return false;
     if (this.pointerOrigin !== 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty || this.openGizmo === null) return false;
     if (this.hasWipeTowerSelection && this.openGizmo !== 'move') return false;
     if (this.activeCommitBusy) return false;
@@ -791,7 +813,7 @@ export class SceneInteractionController {
     // pick individual Parts. Alt remains the explicit per-click Part override.
     this.selectionModeState = context.selection.mode === 'part' ? 'instance' : context.selection.mode;
     this.selection.replaceIds([...selected]);
-    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale'
+    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale' || context.gizmo?.type === 'measure'
       ? context.gizmo.type : null;
     this.syncGizmoToSelection();
     this.emit();
@@ -880,6 +902,29 @@ export class SceneInteractionController {
 
   /** Multiply every selected instance's scale by `factor` (clamped > 0). */
   scaleSelectionBy(factor: Vec3): boolean {
+    return this.startScaleSelection(factor);
+  }
+
+  /** Measure must wait for the same ordinary scale transaction to settle
+   * before rebasing its retained native feature pointers. */
+  async scaleSelectionByAndWait(factor: Vec3): Promise<SettledScaleResult> {
+    if (!this.transformHistory) return { outcome: 'unavailable' };
+    let completion: Promise<unknown> | null = null, changed = false;
+    const started = this.startScaleSelection(factor, (result, effective) => { completion = result; changed = effective; });
+    if (!started || !completion) return { outcome: 'unavailable' };
+    try {
+      const result = await completion;
+      if (!changed) return { outcome: 'cancelled' };
+      if (result && typeof result === 'object' && 'outcome' in result) {
+        const candidate = result as SettledScaleResult;
+        if (candidate.outcome === 'committed' || candidate.outcome === 'cancelled') return candidate;
+        if ((candidate.outcome === 'stale' || candidate.outcome === 'failed') && typeof candidate.error === 'string') return candidate;
+      }
+      return { outcome: 'failed', error: 'Scale transaction did not report its result' };
+    } catch (error) { return { outcome: 'failed', error: error instanceof Error ? error.message : String(error) }; }
+  }
+
+  private startScaleSelection(factor: Vec3, settled?: (completion: Promise<unknown>, changed: boolean) => void): boolean {
     if (this.hasWipeTowerSelection) return false;
     if (this.selection.empty) return false;
     const pivot = this.selectionPivot();
@@ -889,7 +934,7 @@ export class SceneInteractionController {
     // changes — the same semantics as the size edit and the gizmo drag.
     return this.applyDiscreteTransform('Scale', () => {
       this.applyScaleDeltaToSnapshot(this.captureDragTargets(), pivot, factor, new THREE.Quaternion());
-    });
+    }, settled);
   }
 
   /** Scale the selection so its bounding-box `axis` size becomes `size` mm. */
@@ -1013,13 +1058,14 @@ export class SceneInteractionController {
     }));
   }
 
-  private applyDiscreteTransform(label: string, apply: () => void): boolean {
+  private applyDiscreteTransform(label: string, apply: () => void, settled?: (completion: Promise<unknown>, changed: boolean) => void): boolean {
     const before = this.captureDragTargets();
     if (before.length === 0) return false;
     if (this.transformHistory?.begin(label) === false) return false;
     apply();
-    if (this.targetsEqual(before)) void this.transformHistory?.abort();
-    else void this.transformHistory?.commit();
+    const changed = !this.targetsEqual(before);
+    const completion = changed ? this.transformHistory?.commit() : this.transformHistory?.abort();
+    if (settled && completion) settled(completion, changed);
     this.emit();
     return true;
   }
@@ -1368,7 +1414,9 @@ export class SceneInteractionController {
   private syncGizmoToSelection(): void {
     if (this.openGizmo === 'mesh-boolean') {
       if (!this.meshBoolean.reconcile(this.selectedVolumes())) this.closeGizmo();
-    } else if (this.selection.empty) this.openGizmo = null;
+    } else if (this.selectedVolumes().length === 0 || (this.hasWipeTowerSelection && this.openGizmo !== 'move')) {
+      this.openGizmo = null;
+    }
   }
 
   private emit(): void {
@@ -1380,6 +1428,15 @@ export class SceneInteractionController {
       this.booleanIsolation?.release();
       this.booleanIsolation = null;
     }
+    if (this.openGizmo === 'measure') {
+      const scope = { kind: 'volumes' as const, volumes: this.selectedVolumes().map(volume => volume.buffer) };
+      if (this.measureIsolation) this.measureIsolation.update(scope);
+      else this.measureIsolation = this.instanceHider.acquire(scope);
+    } else {
+      this.measureIsolation?.release();
+      this.measureIsolation = null;
+    }
+    if (this.notificationDepth > 0) { this.notificationPending = true; return; }
     for (const listener of this.listeners) listener();
   }
 }

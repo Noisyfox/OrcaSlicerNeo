@@ -48,9 +48,9 @@ export async function deleteSelection(
 ): Promise<DeleteSelectionResult> {
   if (!paintingCommandAllowed()) return { ok: false };
   const selected = sceneInteraction.selectedVolumes();
-  if (!await beforePaintingTopologyChange({ objects: selected.map((volume) => volume.buffer.objectId) })) return { ok: false };
   const objectIndices = sceneInteraction.selectedObjectIndices();
   if (selected.length === 0 || objectIndices.length === 0) return { ok: true };
+  if (!await beforePaintingTopologyChange({ objects: selected.map((volume) => volume.buffer.objectId) })) return { ok: false };
   try {
     const synced = await waitForSettledModelTransforms();
     if (!synced.ok) return synced;

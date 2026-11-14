@@ -102,12 +102,75 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toEqual(volumes);
   });
 
+  it('uses the selected-volume scope for pointer and object-mode expansion', () => {
+    const lease = controller.instanceHider.acquire({ kind: 'volumes', volumes: [volumes[0].buffer, volumes[3].buffer] });
+    controller.setSelectionMode('object');
+    expect(controller.selectFromHit(volumes[1], false)).toBe(false);
+    expect(controller.selectFromHit(volumes[0], false)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[3]]);
+    expect(controller.tryBeginBodyDrag(volumes[2])).toBe(false);
+    lease.release();
+  });
+
   it('releases Boolean isolation when selection becomes ineligible or the model resets', () => {
     controller.selectFromHit(volumes[0], false); controller.toggleGizmo('mesh-boolean');
     controller.selectVolumeIds([volumes[2].id]);
     expect(controller.gizmo).toBeNull(); expect(controller.instanceHider.getSnapshot()).toBeNull();
     controller.selectComposite(0, undefined, 1); controller.toggleGizmo('mesh-boolean');
     controller.resetForModel();
+    expect(controller.instanceHider.getSnapshot()).toBeNull();
+  });
+
+  it('isolates Measure targets, rejects viewport selection, and follows list retargeting', () => {
+    const unrelated = makeVolume(1, 0, 0, [40, 0, 0]); volumes.push(unrelated);
+    controller.selectVolumeIds([volumes[0].id, volumes[3].id]);
+    expect(controller.toggleGizmo('measure')).toBe(true);
+    expect(controller.instanceHider.getSnapshot()).toEqual({ kind: 'volumes', volumes: [
+      { objectId: 100, instanceId: 300, volumeId: 200 },
+      { objectId: 100, instanceId: 301, volumeId: 201 },
+    ] });
+    expect(controller.bodyDragEnabled).toBe(false);
+    expect(controller.selectFromHit(volumes[3], true)).toBe(false);
+    expect(controller.prepareBodyDragFromPointerDown(volumes[0], false)).toBe(false);
+    expect(controller.tryBeginBodyDrag()).toBe(false);
+    expect(controller.beginBoxSelect({ x: 0, y: 0 }, false)).toBe(false);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[3]]);
+    expect(controller.selectComposite(1, undefined, 0)).toBe(true);
+    expect(controller.gizmo).toBe('measure');
+    expect(controller.instanceHider.getSnapshot()).toEqual({ kind: 'volumes', volumes: [
+      { objectId: 101, instanceId: 310, volumeId: 210 },
+    ] });
+    controller.closeGizmo();
+    expect(controller.instanceHider.getSnapshot()).toBeNull();
+  });
+
+  it('releases Measure isolation when selection disappears or the model resets', () => {
+    controller.selectVolumeIds([volumes[0].id]); controller.toggleGizmo('measure');
+    controller.selectVolumeIds([]);
+    expect(controller.gizmo).toBeNull();
+    expect(controller.instanceHider.getSnapshot()).toBeNull();
+    controller.selectVolumeIds([volumes[0].id]); controller.toggleGizmo('measure');
+    controller.resetForModel();
+    expect(controller.gizmo).toBeNull();
+    expect(controller.instanceHider.getSnapshot()).toBeNull();
+  });
+
+  it('restores Measure isolation only for surviving history targets', () => {
+    const structure: ModelStructureResult = { ok: true, objects: [{
+      id: 100, index: 0, name: 'Owner', printable: true, instanceCount: 2,
+      volumes: [{ id: 200, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+      instances: [{ id: 300, index: 0, printable: true }, { id: 301, index: 1, printable: true }],
+    }] };
+    const context: HistoryContext = { selection: { mode: 'part', objectIds: [], partIds: [200], instanceIds: [301] },
+      activePlateId: null, gizmo: { type: 'measure' }, nativeScopedConfig: {} };
+    controller.restoreHistoryContext(context, structure);
+    expect(controller.gizmo).toBe('measure');
+    expect(controller.selectedVolumes()).toEqual([volumes[2]]);
+    expect(controller.instanceHider.getSnapshot()).toEqual({ kind: 'volumes', volumes: [
+      { objectId: 100, instanceId: 301, volumeId: 200 },
+    ] });
+    controller.restoreHistoryContext({ ...context, selection: { ...context.selection, partIds: [999] } }, structure);
+    expect(controller.gizmo).toBeNull();
     expect(controller.instanceHider.getSnapshot()).toBeNull();
   });
 
@@ -691,6 +754,18 @@ describe('SceneInteractionController', () => {
     expect(controller.gizmo).toBeNull();
   });
 
+  it('publishes the selected projection when its stable IDs are retained', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.toggleGizmo('move');
+    const listener = vi.fn(); controller.subscribe(listener);
+    const replacement = makeVolume(0, 0, 0, [7, 0, 0]);
+    volumes[0] = replacement;
+    expect(controller.pruneSelection()).toBe(false);
+    expect(controller.gizmo).toBe('move');
+    expect(controller.selectedVolumes()).toContain(replacement);
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
   it('toggles rotate/scale modes exclusively and switches between them', () => {
     controller.selectFromHit(volumes[0], false);
     expect(controller.toggleGizmo('rotate')).toBe(true);
@@ -879,6 +954,32 @@ describe('SceneInteractionController', () => {
     expect(volumes[0].instanceTransform.scale[0]).toBeCloseTo(1, 8);
     expect(volumes[0].instanceTransform.offset).toEqual([0, 0, 0]);
     expect(controller.scaleSelectionToSize(1, 0)).toBe(false);
+  });
+
+  it('exposes the settled result of a Measure scale and aborts a no-op', async () => {
+    let resolve!: (result: { outcome: 'committed' }) => void;
+    const pending = new Promise<{ outcome: 'committed' }>(done => { resolve = done; });
+    const port = { begin: vi.fn(() => true), commit: vi.fn(() => pending),
+      abort: vi.fn(async () => ({ outcome: 'cancelled' })) };
+    controller.setTransformHistoryPort(port);
+    controller.selectFromHit(volumes[0], false); controller.toggleGizmo('measure');
+    const settled = controller.scaleSelectionByAndWait([2, 2, 2]);
+    expect(port.begin).toHaveBeenCalledWith('Scale'); expect(port.commit).toHaveBeenCalledOnce();
+    expect(volumes[0].instanceTransform.scale).toEqual([2, 2, 2]);
+    let completed = false; void settled.then(() => { completed = true; }); await Promise.resolve();
+    expect(completed).toBe(false); resolve({ outcome: 'committed' });
+    await expect(settled).resolves.toEqual({ outcome: 'committed' });
+    await expect(controller.scaleSelectionByAndWait([1, 1, 1])).resolves.toEqual({ outcome: 'cancelled' });
+    expect(port.abort).toHaveBeenCalledOnce(); expect(port.commit).toHaveBeenCalledOnce();
+  });
+
+  it('returns the failed or unavailable scale transaction without inventing a commit', async () => {
+    controller.selectFromHit(volumes[0], false); controller.toggleGizmo('measure');
+    await expect(controller.scaleSelectionByAndWait([2, 2, 2])).resolves.toEqual({ outcome: 'unavailable' });
+    controller.setTransformHistoryPort({ begin: () => true, commit: async () => ({ outcome: 'stale', error: 'stale target' }), abort: async () => undefined });
+    await expect(controller.scaleSelectionByAndWait([2, 2, 2])).resolves.toEqual({ outcome: 'stale', error: 'stale target' });
+    controller.setTransformHistoryPort({ begin: () => true, commit: async () => undefined, abort: async () => undefined });
+    await expect(controller.scaleSelectionByAndWait([2, 2, 2])).resolves.toEqual({ outcome: 'failed', error: 'Scale transaction did not report its result' });
   });
 
   it('resets rotation and scale to the load-time transform', () => {

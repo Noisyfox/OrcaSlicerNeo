@@ -92,6 +92,7 @@ void establish_clean_history_baseline(const bool saved = true)
 {
     state().filament_slot_ids.clear();
     state().painting.reset();
+    state().measurement.reset();
     state().history.clear();
     state().mesh_capture_cache.clear();
     state().mutable_object_capture_cache.clear();
@@ -121,6 +122,7 @@ json close_project_session()
     invalidate_preview_source();
 
     bridge_state.painting.reset();
+    bridge_state.measurement.reset();
     bridge_state.model.remove_backup_path_if_exist();
     bridge_state.model = Model{};
     bridge_state.pending_membership_instance_ids.clear();

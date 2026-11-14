@@ -2070,6 +2070,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_undo()
         OwnedJsonResponse publication(nullptr, &std::free);
         (void)restore_timestamped_result(runtime, restored, entry_id, &publication);
         navigation.commit();
+        state().measurement.reset();
         return publication.release();
     } catch (const std::exception& e) { return restore_failure(e.what()); }
     catch (...) { return restore_failure("unknown C++ exception"); }
@@ -2093,6 +2094,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_redo()
         OwnedJsonResponse publication(nullptr, &std::free);
         (void)restore_timestamped_result(runtime, restored, entry_id, &publication);
         navigation.commit();
+        state().measurement.reset();
         return publication.release();
     } catch (const std::exception& e) { return restore_failure(e.what()); }
     catch (...) { return restore_failure("unknown C++ exception"); }
@@ -2127,6 +2129,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
         OwnedJsonResponse publication(nullptr, &std::free);
         (void)restore_timestamped_result(runtime, restored, entry_id, &publication);
         navigation.commit();
+        state().measurement.reset();
         return publication.release();
     } catch (const std::exception& e) { return restore_failure(e.what()); }
     catch (...) { return restore_failure("unknown C++ exception"); }

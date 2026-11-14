@@ -15,20 +15,24 @@ type SyncResult = { ok: boolean; error?: string; plateSession?: PlateSessionMuta
  * Keeping the projection here ensures the defensive pre-slice synchronizer
  * and history-backed edits invalidate derived output identically.
  */
-export function applySettledTransformSyncResult(result: SyncResult): void {
+export function applySettledTransformSyncResult(result: SyncResult, preserveUnrelatedSlice = false): void {
   if (!result.ok) return;
   if (result.plateSession)
     applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
   const slicer = useSlicerStore.getState();
-  slicer.setStatus('idle');
-  slicer.setResultExported(false);
-  slicer.setError(null);
-  slicer.resetPreviewState();
-  slicer.setProgress(0);
+  const keepSlice = preserveUnrelatedSlice && slicer.status === 'slicing' && !!slicer.activeSliceTarget &&
+    !(result.plateSession?.affectedPlateIds ?? []).includes(slicer.activeSliceTarget.plateId);
+  if (!keepSlice) {
+    slicer.setStatus('idle');
+    slicer.setResultExported(false);
+    slicer.setError(null);
+    slicer.resetPreviewState();
+    slicer.setProgress(0);
+  }
   if (result.plateSession) {
     const previousPlateSession = usePlateSessionStore.getState().snapshot;
     usePlateSessionStore.getState().setSnapshot(result.plateSession);
-    applyPlateResultMutation(result.plateSession, previousPlateSession);
+    applyPlateResultMutation(result.plateSession, previousPlateSession, keepSlice);
   }
 }
 

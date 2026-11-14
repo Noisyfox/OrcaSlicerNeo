@@ -138,6 +138,21 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(scene.selectedWipeTower()).toBeNull();
   });
 
+  it('reconciles an active gizmo when the selection changes to a Prime Tower', () => {
+    const wipe = tower();
+    const ordinary = model();
+    const scene = new SceneInteractionController(() => [ordinary, wipe]);
+    scene.selectFromHit(ordinary, false);
+    scene.toggleGizmo('rotate');
+    scene.selectFromHit(wipe, false);
+    expect(scene.gizmo).toBeNull();
+    scene.toggleGizmo('move');
+    scene.selectFromHit(ordinary, false);
+    scene.selectFromHit(wipe, false);
+    expect(scene.gizmo).toBe('move');
+    wipe.dispose(); ordinary.dispose();
+  });
+
   it('routes a regular volume and Prime Tower through the same pointer candidate and owner transitions', async () => {
     const ordinary = model();
     const wipe = tower();
