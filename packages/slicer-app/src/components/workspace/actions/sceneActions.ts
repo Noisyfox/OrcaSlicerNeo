@@ -1,5 +1,4 @@
 import { paintingCommandAllowed, closePaintingForCommand } from '../viewport/gizmo/painting/projectCommands';
-import { closeMeasureForCommand } from '../viewport/gizmo/measure/projectCommands';
 // Shared Add Model / Add Primitive / Add Handy models / Clear Scene actions.
 // They moved out of the app toolbar row (Add Model → gizmo toolbar; Add
 // Primitive, Add Handy models, and Clear Scene → scene context menu), but
@@ -300,7 +299,6 @@ export async function clearScene(
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();
   if (slicer.status === 'slicing' || !settings.modelLoaded) return;
-  await closeMeasureForCommand();
   // Keep the project fence across native history, renderer reset, and the
   // resulting plate projection. The history helper refreshes the filament
   // snapshot once while this outer fence is held.

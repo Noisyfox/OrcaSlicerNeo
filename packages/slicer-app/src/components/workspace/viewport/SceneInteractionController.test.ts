@@ -754,6 +754,18 @@ describe('SceneInteractionController', () => {
     expect(controller.gizmo).toBeNull();
   });
 
+  it('publishes the selected projection when its stable IDs are retained', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.toggleGizmo('move');
+    const listener = vi.fn(); controller.subscribe(listener);
+    const replacement = makeVolume(0, 0, 0, [7, 0, 0]);
+    volumes[0] = replacement;
+    expect(controller.pruneSelection()).toBe(false);
+    expect(controller.gizmo).toBe('move');
+    expect(controller.selectedVolumes()).toContain(replacement);
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
   it('toggles rotate/scale modes exclusively and switches between them', () => {
     controller.selectFromHit(volumes[0], false);
     expect(controller.toggleGizmo('rotate')).toBe(true);

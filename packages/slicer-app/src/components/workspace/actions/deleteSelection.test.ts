@@ -8,8 +8,6 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { deleteSelection } from './deleteSelection';
-import { registerMeasureCommands } from '../viewport/gizmo/measure/projectCommands';
-import type { MeasureController } from '../viewport/gizmo/measure/MeasureController';
 
 const structure = {
   ok: true as const,
@@ -82,24 +80,6 @@ describe('deleteSelection', () => {
     expect(r).toEqual({ ok: true });
     expect(runtime.deleteObjects).toHaveBeenCalledWith([1]);
     expect(runtime.deleteVolumes).not.toHaveBeenCalled();
-  });
-
-  it('waits for Measure to close before deleting the selection', async () => {
-    const runtime = makeRuntime();
-    const scene = makeScene([{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }], false, [0]);
-    let finish!: () => void, started!: () => void;
-    const closing = new Promise<void>(resolve => { finish = resolve; });
-    const closeStarted = new Promise<void>(resolve => { started = resolve; });
-    const unregister = registerMeasureCommands({ active: true, close: async () => { started(); await closing; } } as unknown as MeasureController);
-    try {
-      const result = deleteSelection(runtime, scene);
-      await closeStarted;
-      expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
-      expect(runtime.deleteObjects).not.toHaveBeenCalled();
-      finish();
-      expect(await result).toEqual({ ok: true });
-      expect(runtime.deleteObjects).toHaveBeenCalledWith([1]);
-    } finally { unregister(); }
   });
 
   it('no-ops on an empty selection', async () => {

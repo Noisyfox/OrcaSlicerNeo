@@ -12,8 +12,6 @@ import { useNotificationStore } from '@/stores/useNotificationStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { enqueueProjectMutationOperation, enqueueProjectReadOperation } from '@/history/projectMutationGate';
 import { historyContextForStructure } from '../../../actions/historyMutation';
-import { registerMeasureCommands } from '../measure/projectCommands';
-import type { MeasureController } from '../measure/MeasureController';
 
 beforeEach(() => {
   useProjectStore.getState().reset(); useNotificationStore.getState().reset();
@@ -47,6 +45,9 @@ it('publishes committed structure/selection before releasing the wait, rejecting
   const patch = runtime.getModelScenePatch.bind(runtime);
   runtime.getModelScenePatch = vi.fn(async (...args: Parameters<typeof patch>) => { await publication; return patch(...args); });
   let resumedRead: Promise<unknown> = Promise.resolve();
+  let selectionRead: Promise<unknown> = Promise.resolve();
+  const onSelection = vi.fn(() => { selectionRead = enqueueProjectReadOperation(async () => 'selection updated'); });
+  const unsubscribeScene = scene.subscribe(onSelection);
   const unsubscribe = useMeshBooleanStore.subscribe((current, previous) => {
     if (previous.busy && !current.busy) resumedRead = enqueueProjectReadOperation(async () => 'editor resumed');
   });
@@ -56,8 +57,11 @@ it('publishes committed structure/selection before releasing the wait, rejecting
   const foreign = vi.fn(async () => {});
   await expect(enqueueProjectMutationOperation(foreign)).rejects.toThrow('mesh_boolean_busy');
   expect(await executeMeshBoolean(platform, request, scene)).toEqual({ ok: false, error: 'mesh_boolean_busy' });
+  expect(onSelection).not.toHaveBeenCalled();
   release(); const result = await task;
   unsubscribe(); await expect(resumedRead).resolves.toBe('editor resumed');
+  unsubscribeScene(); await expect(selectionRead).resolves.toBe('selection updated');
+  expect(onSelection).toHaveBeenCalledOnce();
   expect(result.ok && result.changed).toBe(true);
   if (!result.ok || !result.changed) throw new Error(JSON.stringify(result));
   expect(useObjectListStore.getState().structure[0].volumes.map(volume => volume.id)).toContain(result.volumeId);
@@ -67,24 +71,6 @@ it('publishes committed structure/selection before releasing the wait, rejecting
   expect(useMeshBooleanStore.getState().busy).toBe(false);
   expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   expect(foreign).not.toHaveBeenCalled();
-});
-
-it('rejects Boolean consumption of measured parts before project admission while allowing a retained tool', async () => {
-  const { runtime, scene, request, platform } = await setup();
-  let target = { objectId: request.objectId, instanceId: request.instanceId, volumeId: request.sourceVolumeId };
-  const report = vi.fn();
-  const unregister = registerMeasureCommands({ active: true, getSnapshot: () => ({ targets: [target] }),
-    reportTargetProtected: report } as unknown as MeasureController);
-  const call = vi.spyOn(runtime, 'meshBoolean');
-  try {
-    expect(await executeMeshBoolean(platform, request, scene)).toEqual({ ok: false, error: 'Close Measure before changing its target' });
-    target = { ...target, volumeId: request.toolVolumeId };
-    expect(await executeMeshBoolean(platform, { ...request, deleteInput: true }, scene)).toEqual({ ok: false, error: 'Close Measure before changing its target' });
-    expect(await executeMeshBoolean(platform, { ...request, operation: 'union' }, scene)).toEqual({ ok: false, error: 'Close Measure before changing its target' });
-    expect(call).not.toHaveBeenCalled();
-    const retained = await executeMeshBoolean(platform, { ...request, deleteInput: false }, scene);
-    expect(retained.ok && retained.changed).toBe(true); expect(call).toHaveBeenCalledOnce();
-  } finally { unregister(); }
 });
 
 it('keeps inputs and picks for an empty result, warns, and releases both fences', async () => {

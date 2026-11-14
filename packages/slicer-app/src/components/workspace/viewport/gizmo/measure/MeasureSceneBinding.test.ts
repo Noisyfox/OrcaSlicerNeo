@@ -122,9 +122,24 @@ describe('Measure scene binding', () => {
     expect(api.openMeasureSession).toHaveBeenCalledTimes(2);
     expect(measure.getSnapshot().status).toMatchObject({ sessionId: 'ms-2', first: null, second: null });
     const previous = volumes[0]; volumes[0] = volume(0);
-    binding.refreshTargets(); await measure.settled();
+    scene.pruneSelection(); await measure.settled();
     expect(api.openMeasureSession).toHaveBeenCalledTimes(3);
     previous.dispose(); await binding.close(); binding.dispose();
+  });
+
+  it('follows the retained selection after a model change and closes when it becomes empty', async () => {
+    const { scene, measure, binding, api, volumes } = fixture();
+    scene.selectVolumeIds(volumes.map(volume => volume.id)); scene.toggleGizmo('measure'); await measure.settled();
+    const removed = volumes.pop()!;
+    scene.pruneSelection(); await measure.settled();
+    expect(scene.gizmo).toBe('measure');
+    expect(measure.getSnapshot()).toMatchObject({ phase: 'idle', targets: [{ objectId: 1, instanceId: 20, volumeId: 10 }],
+      status: { sessionId: 'ms-2', first: null, second: null } });
+    expect(api.closeMeasureSession).toHaveBeenCalledWith({ version: 1, sessionId: 'ms-1' });
+    const retained = volumes.pop()!; scene.pruneSelection(); await measure.settled();
+    expect(scene.gizmo).toBeNull(); expect(measure.active).toBe(false);
+    expect(api.closeMeasureSession).toHaveBeenLastCalledWith({ version: 1, sessionId: 'ms-2' });
+    removed.dispose(); retained.dispose(); binding.dispose();
   });
 
   it('retains the session during a scale rebase even when its target transform changes', async () => {

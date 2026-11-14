@@ -91,6 +91,8 @@ export class SceneInteractionController {
   private measureIsolation: InstanceHiderLease | null = null;
 
   private readonly listeners = new Set<() => void>();
+  private notificationDepth = 0;
+  private notificationPending = false;
   private selectionModeState: SelectionMode = 'instance';
   private openGizmo: OpenGizmo = null;
   private scaleSpaceState: ScaleSpace = 'world';
@@ -130,6 +132,20 @@ export class SceneInteractionController {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Publish a group of scene changes once their enclosing operation settles. */
+  deferNotifications(): () => void {
+    this.notificationDepth++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (--this.notificationDepth === 0 && this.notificationPending) {
+        this.notificationPending = false;
+        for (const listener of this.listeners) listener();
+      }
+    };
   }
 
   /** Publish authoritative transforms without changing selection or opening a gizmo. */
@@ -547,19 +563,14 @@ export class SceneInteractionController {
     return changed;
   }
 
-  /** Call after the renderer collection changes. */
+  /** Reconcile selection and notify tools after the renderer collection changes. */
   pruneSelection(): boolean {
-    // A Prime Tower receipt can retain the same stable selected ID while
-    // replacing its authoritative X/Y projection. Selection.prune() correctly
-    // reports no identity change in that case, but SelectionBoundsBox and the
-    // TransformControls pivot subscribe to this controller rather than the
-    // collection. Publish the retained special selection so all three scene
-    // representations consume the same Worker-confirmed transform.
-    const hadWipeTowerSelection = this.hasWipeTowerSelection;
     const changed = this.selection.prune(this.getVolumes().filter((volume) => volume.selectable));
     this.syncGizmoToSelection();
     if (this.drag && this.selectedVolumes().length === 0) this.cancelDrag();
-    if (changed || (hadWipeTowerSelection && this.hasWipeTowerSelection)) this.emit();
+    // Stable IDs can retain their selection while their geometry or transform
+    // changes. Subscribers must also see the new selected-volume projection.
+    if (changed || !this.selection.empty) this.emit();
     return changed;
   }
 
@@ -1403,10 +1414,9 @@ export class SceneInteractionController {
   private syncGizmoToSelection(): void {
     if (this.openGizmo === 'mesh-boolean') {
       if (!this.meshBoolean.reconcile(this.selectedVolumes())) this.closeGizmo();
-    } else if (this.openGizmo === 'measure') {
-      const selected = this.selectedVolumes();
-      if (selected.length === 0 || selected.some(volume => volume instanceof WipeTowerVolume)) this.openGizmo = null;
-    } else if (this.selection.empty) this.openGizmo = null;
+    } else if (this.selectedVolumes().length === 0 || (this.hasWipeTowerSelection && this.openGizmo !== 'move')) {
+      this.openGizmo = null;
+    }
   }
 
   private emit(): void {
@@ -1426,6 +1436,7 @@ export class SceneInteractionController {
       this.measureIsolation?.release();
       this.measureIsolation = null;
     }
+    if (this.notificationDepth > 0) { this.notificationPending = true; return; }
     for (const listener of this.listeners) listener();
   }
 }

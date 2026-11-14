@@ -262,19 +262,14 @@ do not attempt to restore old feature pointers. This includes undoing or
 redoing an Edit to scale. Follow the ordinary history context if it restores
 another tool or an ineligible selection.
 
-Before deleting objects, parts, instances or plates, or clearing the scene,
-close Measure and wait for its session cleanup, then perform the deletion.
-This also applies to Object List commands and to deletion of unrelated
-targets. Delete and Backspace inside Measure retain their measurement-reset
-behavior described above.
-
-While Measure is active, reject other ordinary user commands that would change
-the measured mesh, including mesh replacement/reload and splitting. Require
-the user to close Measure before retrying. Track the affected objects, parts
-and instances, including a source volume shared by sibling instances. Other
-edits that do not change a measurement target follow their normal rules.
-Undo/Redo, Measure's own Edit to scale and the confirmed project replacement
-flow are exceptions.
+Object, part, instance and plate operations follow the ordinary scene-selection
+lifecycle. When the model projection changes, reconcile the selection and
+active gizmo using the same path as other tools. If a measurable selection
+remains, Measure follows that selection and clears features when its target or
+geometry changes; if none remains, it closes. Delete and Backspace inside
+Measure retain their measurement-reset behavior described above. A later
+selection does not automatically reopen a closed tool. Undo/Redo and Measure's
+own Edit to scale use their separate behaviors described above.
 
 For New, Open and Reload Project, follow the idle painting lifecycle: run the
 existing file selection and unsaved-project confirmation first. If the user

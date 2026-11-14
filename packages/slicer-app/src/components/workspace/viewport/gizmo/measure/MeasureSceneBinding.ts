@@ -84,9 +84,6 @@ export class MeasureSceneBinding {
     }
   }
 
-  /** Recheck after a renderer projection changes without a selection event. */
-  refreshTargets(): void { this.sync(); }
-
   /** Native history resets its Measure sessions. Reopen with empty slots only
    * after a successful restore; failed history operations leave it intact. */
   async historyRestored(): Promise<void> {

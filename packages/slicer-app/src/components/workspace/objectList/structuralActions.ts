@@ -1,5 +1,4 @@
 import { beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
-import { closeMeasureForCommand, measureMutationAllowed } from '../viewport/gizmo/measure/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import {
   refreshAfterModelMutation,
@@ -30,7 +29,6 @@ export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: num
   if (!await beforePaintingTopologyChange({ objects: objectIds })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
-  await closeMeasureForCommand();
   const r = await runStructuralHistory(runtime, 'Delete Objects', () => runtime.deleteObjects(objectIds));
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };
@@ -40,7 +38,6 @@ export async function deleteVolumeInList(runtime: SlicerRuntime, volumeId: numbe
   if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
-  await closeMeasureForCommand();
   const r = await runStructuralHistory(runtime, 'Delete Part', () => runtime.deleteVolumes([volumeId]));
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };
@@ -55,7 +52,6 @@ export async function cloneObjectsInList(runtime: SlicerRuntime, objectIds: numb
 }
 
 export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
-  if (!measureMutationAllowed({ parts: [volumeId] })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -65,7 +61,6 @@ export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId:
 }
 
 export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectId: number): Promise<MutationOutcome> {
-  if (!measureMutationAllowed({ objects: [objectId] })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ objects: [objectId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -75,7 +70,6 @@ export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectI
 }
 
 export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: number[], name = 'Assembly'): Promise<MutationOutcome> {
-  if (!measureMutationAllowed({ objects: objectIds })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ objects: objectIds })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -85,7 +79,6 @@ export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: n
 }
 
 export async function separateInstancesInList(runtime: SlicerRuntime, objectId: number, instanceIds: number[]): Promise<MutationOutcome> {
-  if (!measureMutationAllowed({ instances: instanceIds })) return { ok: false, error: 'Close Measure before changing its target' };
   if (!await beforePaintingTopologyChange({ objects: [objectId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
@@ -126,7 +119,6 @@ export async function removeInstanceInList(runtime: SlicerRuntime, objectId: num
   if (!await beforePaintingTopologyChange({ instances: [instanceId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
-  await closeMeasureForCommand();
   const r = await runStructuralHistory(runtime, 'Remove Instance', () => runtime.removeInstance(objectId, instanceId));
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };

@@ -13,7 +13,6 @@ import { applyPlateSessionResponse } from './plateSessionActions';
 import type { PlateSessionSnapshot } from '@slicer/client';
 import type { SceneInteractionController } from './viewport/SceneInteractionController';
 import { beforePaintingTopologyChange, paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
-import { closeMeasureForCommand } from './viewport/gizmo/measure/projectCommands';
 import { usePaintingPhase } from './viewport/gizmo/painting/PaintingProvider';
 
 export const MAX_PLATE_COUNT = 36;
@@ -59,7 +58,6 @@ export function PlateToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
     if (!paintingCommandAllowed() || pending || !plateSession || !canDeletePlate(plateSession)) return;
     const targetPlate = plateSession.plates.find((plate) => plate.plateId === plateSession.currentPlateId);
     if (!await beforePaintingTopologyChange({ instances: targetPlate?.instanceIds })) return;
-    await closeMeasureForCommand();
     setPending(true);
     try {
       await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId), null, {

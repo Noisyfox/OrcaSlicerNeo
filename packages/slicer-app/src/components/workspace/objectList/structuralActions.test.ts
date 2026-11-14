@@ -17,8 +17,6 @@ import {
   splitObjectToObjectsInList,
   splitVolumeToPartsInList,
 } from './structuralActions';
-import { registerMeasureCommands } from '../viewport/gizmo/measure/projectCommands';
-import type { MeasureController } from '../viewport/gizmo/measure/MeasureController';
 
 vi.mock('../actions/persistModelTransforms', () => ({
   waitForSettledModelTransforms: vi.fn(async () => ({ ok: true })),
@@ -34,6 +32,8 @@ function makeRuntime(): SlicerRuntime {
     deleteObjects: vi.fn(async () => ({ ok: true, objects: 0, deleted: 1 })),
     deleteVolumes: vi.fn(async () => ({ ok: true, deleted: 1 })),
     cloneObjects: vi.fn(async () => ({ ok: true, newObjectIds: [2] })),
+    splitVolumeToParts: vi.fn(async () => ({ ok: true })),
+    splitObjectToObjects: vi.fn(async () => ({ ok: true })),
     mergeObjectsToMultipart: vi.fn(async () => ({ ok: true, objectId: 9 })),
     reorderObjects: vi.fn(async () => ({ ok: true, objects: [] })),
     reorderVolumes: vi.fn(async () => ({ ok: true, objects: [] })),
@@ -63,41 +63,13 @@ describe('object list structural actions', () => {
     useSettingsStore.setState({ modelLoaded: true, modelRevision: 3 });
   });
 
-  it('rejects mutations of measured targets before waiting for transforms or opening history', async () => {
-    const runtime = makeRuntime(); const report = vi.fn();
-    const unregister = registerMeasureCommands({ active: true, getSnapshot: () => ({ targets: [{ objectId: 1, volumeId: 10, instanceId: 20 }] }),
-      reportTargetProtected: report } as unknown as MeasureController);
-    try {
-      const operations = [
-        () => splitVolumeToPartsInList(runtime, 10), () => splitObjectToObjectsInList(runtime, 1),
-        () => assembleObjectsInList(runtime, [1, 2]), () => separateInstancesInList(runtime, 1, [20]),
-      ];
-      for (const operation of operations) expect(await operation()).toEqual({ ok: false, error: 'Close Measure before changing its target' });
-      expect(report).toHaveBeenCalledTimes(operations.length);
-      expect(waitForSettledModelTransforms).not.toHaveBeenCalled();
-      expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
-    } finally { unregister(); }
-  });
-
   it.each([
-    ['object', (runtime: SlicerRuntime) => deleteObjectsInList(runtime, [2]), 'deleteObjects', [[2]]],
-    ['part', (runtime: SlicerRuntime) => deleteVolumeInList(runtime, 11), 'deleteVolumes', [[11]]],
-    ['instance', (runtime: SlicerRuntime) => removeInstanceInList(runtime, 1, 21), 'removeInstance', [1, 21]],
-  ] as const)('closes Measure before deleting an unrelated %s', async (_name, operation, method, args) => {
+    ['part', (runtime: SlicerRuntime) => splitVolumeToPartsInList(runtime, 10), 'splitVolumeToParts', [10]],
+    ['object', (runtime: SlicerRuntime) => splitObjectToObjectsInList(runtime, 1), 'splitObjectToObjects', [1]],
+  ] as const)('splits the selected %s', async (_name, operation, method, args) => {
     const runtime = makeRuntime();
-    let finish!: () => void, started!: () => void;
-    const closing = new Promise<void>(resolve => { finish = resolve; });
-    const closeStarted = new Promise<void>(resolve => { started = resolve; });
-    const unregister = registerMeasureCommands({ active: true, close: async () => { started(); await closing; } } as unknown as MeasureController);
-    try {
-      const result = operation(runtime);
-      await closeStarted;
-      expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
-      expect(runtime[method]).not.toHaveBeenCalled();
-      finish();
-      expect(await result).toEqual({ ok: true });
-      expect(runtime[method]).toHaveBeenCalledWith(...args);
-    } finally { unregister(); }
+    expect(await operation(runtime)).toEqual({ ok: true });
+    expect(runtime[method]).toHaveBeenCalledWith(...args);
   });
 
   it('deleteObjectsInList calls the bridge and refreshes geometry', async () => {

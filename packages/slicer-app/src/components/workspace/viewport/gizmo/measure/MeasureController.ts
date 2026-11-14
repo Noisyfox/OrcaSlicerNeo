@@ -69,7 +69,6 @@ export class MeasureController {
   private fail(error: unknown): void {
     this.update({ error: error instanceof Error ? error.message : String(error) });
   }
-  reportTargetProtected(): void { this.fail('Close Measure before changing its target'); }
   private closeAfterFailure(error: unknown): void {
     void this.close();
     this.fail(error);
