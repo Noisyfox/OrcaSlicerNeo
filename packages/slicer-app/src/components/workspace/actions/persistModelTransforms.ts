@@ -1,6 +1,6 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { applyPlateResultMutation, invalidateAffectedPlateResults, type SliceCancellationRuntime } from '@/stores/plateResultLifecycle';
+import { activatePlateResultForSession, invalidateAffectedPlateResults, type SliceCancellationRuntime } from '@/stores/plateResultLifecycle';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms, syncModelTransforms, type TransformSyncResult } from './syncModelTransforms';
@@ -24,10 +24,9 @@ export function applySettledTransformSyncResult(result: TransformSyncResult, run
     slicer.resetPreviewState();
     slicer.setProgress(0);
   }
-  const previousPlateSession = usePlateSessionStore.getState().snapshot;
   usePlateSessionStore.getState().setSnapshot(result.plateSession);
   if (result.plateSession.affectedPlateIds.length > 0)
-    applyPlateResultMutation(result.plateSession, previousPlateSession);
+    activatePlateResultForSession(result.plateSession);
 }
 
 // Legacy settle synchronization is retained for the defensive pre-slice

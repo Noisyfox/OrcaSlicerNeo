@@ -48,6 +48,34 @@ describe('persistSettledModelTransforms', () => {
     expect(useSlicerStore.getState().status).toBe('done');
   });
 
+  it('publishes one affected-plate invalidation and cancels only its active slice', async () => {
+    const slicer = useSlicerStore.getState();
+    slicer.invalidateSliceResult();
+    for (const plateId of ['a', 'b'])
+      slicer.setPlateResult({ plateId, inputStamp: 1, resultGeneration: '1', sliceTaskId: plateId }, [], {});
+    useSlicerStore.setState({ status: 'slicing', activeSliceTarget: { plateId: 'a', inputRevision: 1 },
+      sliceTarget: { plateId: 'b', inputRevision: 1 }, progress: 37 });
+    syncModelTransforms.mockResolvedValue({ ok: true, plateSession: {
+      ...plateMutation, currentPlateId: 'b', inputRevisions: { a: 2, b: 1 },
+      affectedPlateIdsBefore: ['a'], affectedPlateIdsAfter: ['a'], affectedPlateIds: ['a'],
+      plates: ['a', 'b'].map((plateId, displayIndex) => ({ plateId, displayIndex, name: plateId, origin: [0, 0, 0] })),
+    } });
+    const cancel = vi.fn(async () => ({ ok: true }));
+    const runtime = { cancel, getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true,
+      serialSliceActive: false, serialTerminalEpoch: '0' }) };
+    const publications: string[][] = [];
+    const unsubscribe = useSlicerStore.subscribe((state, previous) => {
+      if (state.plateResults !== previous.plateResults) publications.push(Object.keys(state.plateResults));
+    });
+    try {
+      await persistSettledModelTransforms(runtime as never);
+      expect(publications).toEqual([['b']]);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(useSlicerStore.getState()).toMatchObject({ status: 'done', activeSliceTarget: null,
+        sliceTarget: { plateId: 'b', inputRevision: 1 } });
+    } finally { unsubscribe(); }
+  });
+
   it('projects native plate revisions without changing the history checkpoint', async () => {
     syncModelTransforms.mockResolvedValue({
       ok: true,

@@ -23,6 +23,13 @@ export function invalidateAffectedPlateResults(
     void runtime.cancel().catch(() => undefined);
 }
 
+/** Activate the current plate's result at the revision in the session. */
+export function activatePlateResultForSession(session: PlateSessionSnapshot): void {
+  const revision = session.inputRevisions?.[session.currentPlateId];
+  if (typeof revision === 'number' && Number.isSafeInteger(revision))
+    useSlicerStore.getState().activatePlateResult(session.currentPlateId, revision);
+}
+
 /** Apply the result ownership rules for one authoritative plate transaction. */
 export function applyPlateResultMutation(
   mutation: PlateSessionMutation,
@@ -36,8 +43,7 @@ export function applyPlateResultMutation(
   } else if (mutation.affectedPlateIds?.length) {
     store.invalidatePlateResults(mutation.affectedPlateIds);
   }
-  const revision = mutation.inputRevisions?.[mutation.currentPlateId];
-  if (typeof revision === 'number' && Number.isSafeInteger(revision)) store.activatePlateResult(mutation.currentPlateId, revision);
+  activatePlateResultForSession(mutation);
 }
 
 /**
