@@ -280,9 +280,9 @@ function OptionSection({ scope, keys, title }: { scope: OptionStateScope<ScopedO
     {title}<span className="h-px flex-1 bg-border" /></div>;
 }
 
-// Fixed options budget includes expanded search even when filtering hides rows.
-// Catalogue content that exceeds the budget scrolls independently.
-const PLATE_OPTIONS_SECTION_HEIGHT = 170;
+// Settings retain a fixed budget, including expanded search. Filament Mapping
+// fills the remaining sidebar height and scrolls only when its rows overflow.
+const PLATE_SETTINGS_SECTION_HEIGHT = 170;
 const OPTION_TAB_CLASS_NAME = 'h-7 min-w-max flex-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1 text-module font-normal';
 
 export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent, platesContent, platesToolbar, bedTypeDisabled = false }: {
@@ -298,6 +298,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const mapping = useNozzleMapping(mode === 'plates');
   const [plateTab, setPlateTab] = useState<'settings' | 'mapping'>('settings');
   const showMapping = mapping.snapshot?.eligible === true;
+  const mappingTabActive = showMapping && plateTab === 'mapping';
 
   const printEditor=usePrintConfigEditor(platform,mode==='project');
   const printSelection=useConfigEditorSelection(printEditor.snapshot?.editorSelection??null,printEditor.entry);
@@ -339,7 +340,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       if (mode === 'plates') {
         // The shared scrolling budget starts below the title and plate toolbar.
         const available = Math.max(0, bounds.bottom - list.getBoundingClientRect().top);
-        const optionsHeight = Math.min(PLATE_OPTIONS_SECTION_HEIGHT, available / 2);
+        const optionsHeight = mappingTabActive ? available / 2 : Math.min(PLATE_SETTINGS_SECTION_HEIGHT, available / 2);
         setPlateOptionsMaxHeight(available / 2);
         // The list keeps its natural height until it reaches this scroll limit.
         // The list includes its padding above the divider; reserve the 4px section gap.
@@ -357,7 +358,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     observer.observe(list);
     if (panel.firstElementChild) observer.observe(panel.firstElementChild);
     return () => observer.disconnect();
-  }, [mode]);
+  }, [mode, mappingTabActive]);
   const optionsScrollRef = useRef<HTMLDivElement>(null);
   const optionsContentRef = useRef<HTMLDivElement>(null);
   const [optionsOverflowing, setOptionsOverflowing] = useState(false);
@@ -373,7 +374,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     observer.observe(scroll);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [mode]);
+  }, [mode, mappingTabActive]);
 
   const resolution = useMemo(() => mode === 'project' ? PROJECT_RESOLUTION : resolveScopedConfigurationTarget({
     selectionKind: mode === 'plates' ? 'empty' : sceneInteraction?.computeSelectionKind() ?? 'empty',
@@ -670,16 +671,19 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         </div>
       </div>
       {mode === 'plates' ? <div data-testid="plate-options-section"
-        className="flex min-h-0 shrink-0 flex-col gap-1 overflow-hidden"
-        style={{ height: PLATE_OPTIONS_SECTION_HEIGHT, maxHeight: plateOptionsMaxHeight }}>
+        className={cn("flex min-h-0 flex-col gap-1 overflow-hidden", mappingTabActive ? "flex-1" : "shrink-0")}
+        style={mappingTabActive ? undefined : { height: PLATE_SETTINGS_SECTION_HEIGHT, maxHeight: plateOptionsMaxHeight }}>
         {showMapping && <div role="tablist" aria-label="Plate properties" className="flex shrink-0 overflow-x-auto overflow-y-hidden border-b border-border px-2">
           {(['settings', 'mapping'] as const).map(tab => <Button key={tab} variant="ghost" size="xs" role="tab"
             aria-selected={plateTab === tab} data-testid={`plate-properties-${tab}`}
             className={cn(OPTION_TAB_CLASS_NAME, plateTab === tab && 'border-primary')}
             onClick={() => setPlateTab(tab)}>{tab === 'settings' ? 'Settings' : 'Filament Mapping'}</Button>)}
         </div>}
-        {showMapping && plateTab === 'mapping' && mapping.snapshot
-          ? <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={mapping.revision === undefined}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
+        {mappingTabActive && mapping.snapshot
+          ? <div ref={optionsScrollRef} className={cn("mx-2 min-h-0 flex-1 overflow-y-auto", optionsOverflowing && "pr-1")}
+              data-testid="configuration-mapping-scroll" data-overflow-y={optionsOverflowing} aria-busy={mapping.revision === undefined}>
+              <div ref={optionsContentRef}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
+            </div>
           : <>{optionsHeader}{optionsBody}</>}
       </div> : optionsBody}
     </section>
