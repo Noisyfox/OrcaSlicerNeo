@@ -672,14 +672,14 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       {mode === 'plates' ? <div data-testid="plate-options-section"
         className="flex min-h-0 shrink-0 flex-col gap-1 overflow-hidden"
         style={{ height: PLATE_OPTIONS_SECTION_HEIGHT, maxHeight: plateOptionsMaxHeight }}>
-        {showMapping && <div role="tablist" aria-label="Plate properties" className="flex overflow-x-auto overflow-y-hidden border-b border-border px-2">
+        {showMapping && <div role="tablist" aria-label="Plate properties" className="flex shrink-0 overflow-x-auto overflow-y-hidden border-b border-border px-2">
           {(['settings', 'mapping'] as const).map(tab => <Button key={tab} variant="ghost" size="xs" role="tab"
             aria-selected={plateTab === tab} data-testid={`plate-properties-${tab}`}
             className={cn(OPTION_TAB_CLASS_NAME, plateTab === tab && 'border-primary')}
             onClick={() => setPlateTab(tab)}>{tab === 'settings' ? 'Settings' : 'Filament Mapping'}</Button>)}
         </div>}
         {showMapping && plateTab === 'mapping' && mapping.snapshot
-          ? <div className="min-h-0 overflow-y-auto" aria-busy={mapping.revision === undefined}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
+          ? <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={mapping.revision === undefined}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
           : <>{optionsHeader}{optionsBody}</>}
       </div> : optionsBody}
     </section>
