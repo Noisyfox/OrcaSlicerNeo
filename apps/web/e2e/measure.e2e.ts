@@ -121,3 +121,41 @@ test('serial Web does not queue Measure while a slice is running', async ({ page
   await page.getByTestId('gizmo-btn-measure').click();
   await expect(page.getByTestId('measure-panel')).toBeVisible();
 });
+
+test('serial Web enters Preview while a plate slice finishes closing Measure', async ({ page }) => {
+  test.skip(process.env.ORCA_WEB_NO_ISOLATION !== '1', 'serial runtime admission');
+  await page.goto('/'); await ready(page); await selectPrinter(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(1);
+  await page.getByTestId('config-mode-scoped').click();
+  await page.getByTestId('object-list').locator('div[data-testid^="object-"]').first().getByRole('button').first().click();
+  await page.getByTestId('gizmo-btn-scale').click();
+  const history = () => page.evaluate(() => (window as any).__orcaE2e.historyNativeStatus());
+  for (const [axis, size] of [['x', 80], ['y', 80], ['z', 200]] as const) {
+    const before = (await history()).undoEntries.length;
+    const input = page.getByTestId(`scale-size-${axis}`);
+    await input.fill(String(size)); await input.press('Enter');
+    await expect.poll(async () => (await history()).undoEntries.length, { timeout: 60_000 }).toBe(before + 1);
+  }
+  await page.getByTestId('gizmo-btn-move').click(); await page.getByTestId('move-drop-bed').click();
+  await expect.poll(async () => (await booleanMeshes(page))[0].bounds.min[2], { timeout: 60_000 }).toBeCloseTo(0, 1);
+  await page.getByTestId('gizmo-btn-measure').click();
+  const panel = page.getByTestId('measure-panel');
+  await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+  await page.getByTestId('config-mode-plates').click();
+  const plateId = (await page.getByTestId('preview-plate-list').getByRole('option').first().getAttribute('id'))!
+    .replace('preview-plate-', '');
+  await page.getByTestId(`plate-slice-${plateId}`).click();
+  const execution = () => page.evaluate(() => (window as any).__orcaE2e.runtimeExecutionForAcceptance());
+  await expect.poll(async () => (await execution()).serialSliceActive, { timeout: 60_000 }).toBe(true);
+  await page.locator('#app-tab-preview').click();
+  await expect(page.locator('#app-tab-preview')).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 });
+  expect((await execution()).serialSliceActive).toBe(true);
+  await expect(panel).toBeHidden();
+  await expect.poll(async () => (await execution()).serialSliceActive, { timeout: 300_000 }).toBe(false);
+  await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('gizmo-btn-measure').click();
+  await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+});

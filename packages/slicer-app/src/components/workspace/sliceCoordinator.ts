@@ -41,7 +41,12 @@ export function createWorkspaceSliceCoordinator({
     }
     if (inFlight) return inFlight;
 
-    const task = Promise.resolve().then(() => slice());
+    // Preview can open as soon as Measure closes locally. A new slice must
+    // still wait for its queued native resources to finish closing.
+    const task = Promise.resolve().then(async () => {
+      await closeMeasureForCommand();
+      return slice();
+    });
     inFlight = task.finally(() => {
       if (inFlight === joinedTask) inFlight = null;
     });
@@ -53,8 +58,9 @@ export function createWorkspaceSliceCoordinator({
     ensureSlice,
     requestPreviewSlice: async () => {
       if (!paintingCommandAllowed() || !await closePaintingForCommand()) return;
-      await closeMeasureForCommand();
+      const measureCleanup = closeMeasureForCommand();
       requestPreview();
+      await measureCleanup;
       return ensureSlice();
     },
   };

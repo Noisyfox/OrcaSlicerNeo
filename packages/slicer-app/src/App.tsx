@@ -202,7 +202,8 @@ function AppContent() {
       setActiveTab(tab);
     };
     if (tab === 'preview' && measureSessionActive()) {
-      void closeMeasureForCommand().then(() => navigate());
+      void closeMeasureForCommand();
+      navigate();
     } else if (tab === 'preview' && paintingSessionActive()) {
       void closePaintingForCommand().then((closed) => { if (closed) navigate(); });
     } else navigate();
