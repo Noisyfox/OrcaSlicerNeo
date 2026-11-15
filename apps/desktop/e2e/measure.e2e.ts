@@ -73,6 +73,69 @@ test('real Electron reconciles Measure selection through object-list structure c
   } finally { await app.close(); }
 });
 
+test('real Electron transfers selected-volume isolation between Measure and other tools', async () => {
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-measure-isolation-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: {} }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow(); await ready(page); await selectPrinter(page);
+    const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));
+    const consoleErrors: string[] = [];
+    page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+    const viewport = await page.getByTestId('viewport').boundingBox();
+    if (!viewport) throw new Error('viewport is not visible');
+    for (let count = 1; count <= 2; count++) {
+      await page.mouse.click(viewport.x + viewport.width - 40, viewport.y + 110, { button: 'right' });
+      await page.getByTestId('btn-add-primitive').click(); await page.getByTestId('btn-add-cube').click();
+      try { await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(count); }
+      catch (error) {
+        console.error('Unable to load isolation fixture', { status: await page.getByTestId('slicer-status').innerText(), errors, consoleErrors });
+        throw error;
+      }
+    }
+    await page.getByTestId('config-mode-scoped').click();
+    const objects = page.getByTestId('object-list').locator('div[data-testid^="object-"]');
+    const evidence = () => page.evaluate(() => (window as any).__orcaE2e.instanceIsolationEvidence());
+    await expect.poll(async () => (await evidence()).sources.length).toBe(2);
+    await objects.first().getByRole('button').first().click();
+    await expect.poll(async () => (await evidence()).selection.length).toBe(1);
+    const all = (await evidence()).sources.map((source: { id: string }) => source.id).sort();
+    const first = (await evidence()).selection;
+    await page.getByTestId('gizmo-btn-measure').click();
+    const panel = page.getByTestId('measure-panel');
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    await expect.poll(async () => { const state = await evidence(); return { kind: state.target?.kind, models: state.models }; })
+      .toEqual({ kind: 'volumes', models: first });
+
+    await page.getByTestId('gizmo-btn-move').click();
+    await expect.poll(async () => { const state = await evidence(); return { target: state.target, models: state.models }; })
+      .toEqual({ target: null, models: all });
+    await page.getByTestId('gizmo-btn-measure').click();
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    await objects.nth(1).getByRole('button').first().click();
+    await expect.poll(async () => (await evidence()).selection).not.toEqual(first);
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    const second = (await evidence()).selection;
+    await expect.poll(async () => { const state = await evidence(); return { kind: state.target?.kind, models: state.models, selection: state.selection }; })
+      .toEqual({ kind: 'volumes', models: second, selection: second });
+    const selected = await evidence();
+    const target = selected.target.volumes[0];
+    await page.getByTestId('gizmo-btn-support').click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    await expect.poll(async () => (await evidence()).target).toEqual({ objectId: target.objectId, instanceId: target.instanceId });
+    await page.getByTestId('gizmo-btn-measure').click();
+    await expect(panel).toHaveAttribute('data-phase', 'idle', { timeout: 60_000 });
+    await expect.poll(async () => { const state = await evidence(); return { kind: state.target?.kind, models: state.models }; })
+      .toEqual({ kind: 'volumes', models: selected.selection });
+    await page.getByTestId('gizmo-btn-measure').click();
+    await expect.poll(async () => { const state = await evidence(); return { target: state.target, models: state.models }; })
+      .toEqual({ target: null, models: all });
+    expect(errors).toEqual([]);
+  } finally { await app.close(); }
+});
+
 for (const compressed of [false, true]) test(`real Electron Measure highlights an oblique ${compressed ? 'compressed' : 'default'} cube plane without depth artifacts`, async ({}, info) => {
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-measure-depth-')), 'preferences.json');
   writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: {} }));

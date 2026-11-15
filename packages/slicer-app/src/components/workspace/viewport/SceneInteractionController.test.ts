@@ -121,14 +121,10 @@ describe('SceneInteractionController', () => {
     expect(controller.instanceHider.getSnapshot()).toBeNull();
   });
 
-  it('isolates Measure targets, rejects viewport selection, and follows list retargeting', () => {
+  it('rejects viewport selection while Measure follows list retargeting', () => {
     const unrelated = makeVolume(1, 0, 0, [40, 0, 0]); volumes.push(unrelated);
     controller.selectVolumeIds([volumes[0].id, volumes[3].id]);
     expect(controller.toggleGizmo('measure')).toBe(true);
-    expect(controller.instanceHider.getSnapshot()).toEqual({ kind: 'volumes', volumes: [
-      { objectId: 100, instanceId: 300, volumeId: 200 },
-      { objectId: 100, instanceId: 301, volumeId: 201 },
-    ] });
     expect(controller.bodyDragEnabled).toBe(false);
     expect(controller.selectFromHit(volumes[3], true)).toBe(false);
     expect(controller.prepareBodyDragFromPointerDown(volumes[0], false)).toBe(false);
@@ -137,25 +133,22 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[3]]);
     expect(controller.selectComposite(1, undefined, 0)).toBe(true);
     expect(controller.gizmo).toBe('measure');
-    expect(controller.instanceHider.getSnapshot()).toEqual({ kind: 'volumes', volumes: [
-      { objectId: 101, instanceId: 310, volumeId: 210 },
-    ] });
+    expect(controller.selectedVolumes()).toEqual([unrelated]);
     controller.closeGizmo();
-    expect(controller.instanceHider.getSnapshot()).toBeNull();
+    expect(controller.gizmo).toBeNull();
   });
 
-  it('releases Measure isolation when selection disappears or the model resets', () => {
+  it('closes Measure when selection disappears or the model resets', () => {
     controller.selectVolumeIds([volumes[0].id]); controller.toggleGizmo('measure');
     controller.selectVolumeIds([]);
     expect(controller.gizmo).toBeNull();
-    expect(controller.instanceHider.getSnapshot()).toBeNull();
     controller.selectVolumeIds([volumes[0].id]); controller.toggleGizmo('measure');
     controller.resetForModel();
     expect(controller.gizmo).toBeNull();
-    expect(controller.instanceHider.getSnapshot()).toBeNull();
+    expect(controller.gizmo).toBeNull();
   });
 
-  it('restores Measure isolation only for surviving history targets', () => {
+  it('restores Measure only for surviving history targets', () => {
     const structure: ModelStructureResult = { ok: true, objects: [{
       id: 100, index: 0, name: 'Owner', printable: true, instanceCount: 2,
       volumes: [{ id: 200, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
@@ -166,12 +159,8 @@ describe('SceneInteractionController', () => {
     controller.restoreHistoryContext(context, structure);
     expect(controller.gizmo).toBe('measure');
     expect(controller.selectedVolumes()).toEqual([volumes[2]]);
-    expect(controller.instanceHider.getSnapshot()).toEqual({ kind: 'volumes', volumes: [
-      { objectId: 100, instanceId: 301, volumeId: 200 },
-    ] });
     controller.restoreHistoryContext({ ...context, selection: { ...context.selection, partIds: [999] } }, structure);
     expect(controller.gizmo).toBeNull();
-    expect(controller.instanceHider.getSnapshot()).toBeNull();
   });
 
   it('starts one history transaction for a drag and commits only on release', async () => {

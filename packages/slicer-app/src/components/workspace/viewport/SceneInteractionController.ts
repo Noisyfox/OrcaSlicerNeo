@@ -88,8 +88,8 @@ export class SceneInteractionController {
   readonly instanceHider = new InstanceHider();
   readonly meshBoolean = new MeshBooleanSession(() => this.getVolumes(), () => this.emit());
   private booleanIsolation: InstanceHiderLease | null = null;
-  private measureIsolation: InstanceHiderLease | null = null;
 
+  private readonly immediateListeners = new Set<() => void>();
   private readonly listeners = new Set<() => void>();
   private notificationDepth = 0;
   private notificationPending = false;
@@ -132,6 +132,12 @@ export class SceneInteractionController {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Observe each scene state before ordinary notifications, even in a batch. */
+  subscribeImmediate(listener: () => void): () => void {
+    this.immediateListeners.add(listener);
+    return () => this.immediateListeners.delete(listener);
   }
 
   /** Publish a group of scene changes once their enclosing operation settles. */
@@ -1428,14 +1434,7 @@ export class SceneInteractionController {
       this.booleanIsolation?.release();
       this.booleanIsolation = null;
     }
-    if (this.openGizmo === 'measure') {
-      const scope = { kind: 'volumes' as const, volumes: this.selectedVolumes().map(volume => volume.buffer) };
-      if (this.measureIsolation) this.measureIsolation.update(scope);
-      else this.measureIsolation = this.instanceHider.acquire(scope);
-    } else {
-      this.measureIsolation?.release();
-      this.measureIsolation = null;
-    }
+    for (const listener of this.immediateListeners) listener();
     if (this.notificationDepth > 0) { this.notificationPending = true; return; }
     for (const listener of this.listeners) listener();
   }

@@ -2,6 +2,7 @@ import type { MeasureTarget } from '@slicer/client';
 import * as THREE from 'three';
 import { WipeTowerVolume } from '../../WipeTowerVolume';
 import { matrixFromTransform } from '../../transformDeltaMath';
+import type { InstanceHiderLease } from '../../InstanceHider';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import type { MeasureController } from './MeasureController';
 
@@ -41,8 +42,10 @@ function sameProjection(a: Projection, b: Projection): boolean {
 /** Bridges scene-tool changes to the ordered Measure session. Restoration is
  * suspended until the native history operation and projection have finished. */
 export class MeasureSceneBinding {
+  private readonly unsubscribeImmediate: () => void;
   private readonly unsubscribeScene: () => void;
   private readonly unsubscribeMeasure: () => void;
+  private isolation: InstanceHiderLease | null = null;
   private request = 0;
   private projection: Projection = new Map();
 
@@ -51,6 +54,7 @@ export class MeasureSceneBinding {
     private readonly measure: MeasureController,
     private readonly suspended: () => boolean,
   ) {
+    this.unsubscribeImmediate = scene.subscribeImmediate(() => this.syncIsolation());
     this.unsubscribeScene = scene.subscribe(() => this.sync());
     let previousPhase = measure.getSnapshot().phase;
     this.unsubscribeMeasure = measure.subscribe(() => {
@@ -59,7 +63,20 @@ export class MeasureSceneBinding {
       previousPhase = phase;
       if (!this.suspended() && !measure.active && scene.gizmo === 'measure') scene.closeGizmo();
     });
+    this.syncIsolation();
     this.sync();
+  }
+
+  /** Match visible volumes before scene observers see each state transition. */
+  private syncIsolation(): void {
+    if (this.scene.gizmo === 'measure') {
+      const scope = { kind: 'volumes' as const, volumes: measureTargets(this.scene) };
+      if (this.isolation) this.isolation.update(scope);
+      else this.isolation = this.scene.instanceHider.acquire(scope);
+    } else {
+      this.isolation?.release();
+      this.isolation = null;
+    }
   }
 
   private sync(): void {
@@ -107,8 +124,11 @@ export class MeasureSceneBinding {
   }
 
   dispose(): void {
+    this.unsubscribeImmediate();
     this.unsubscribeScene();
     this.unsubscribeMeasure();
+    this.isolation?.release();
+    this.isolation = null;
     if (this.measure.active) void this.measure.close();
   }
 }
