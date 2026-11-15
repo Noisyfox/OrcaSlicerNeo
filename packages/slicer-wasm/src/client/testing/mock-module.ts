@@ -1453,6 +1453,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return [(index % columns) * plateStride(), -Math.floor(index / columns) * plateStride(), 0];
   }
 
+  const pendingTransformPlates = new Set<string>();
   function resetPlateSession(): void {
     plateSessionSequence += 1;
     plateSessionId = `plate-session-${plateSessionSequence}-plate-1`;
@@ -1461,6 +1462,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     currentPlateId = plateSessionId;
     plateInputRevisions = { [plateSessionId]: 0 };
     objectPlateIds = objectMeta.map(() => plateSessionId);
+    pendingTransformPlates.clear();
   }
   resetPlateSession();
   function plateSessionSnapshot() {
@@ -2767,7 +2769,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return result;
     },
     orc_recompute_plate_membership() {
-      return plateSessionSnapshot();
+      const affected = [...pendingTransformPlates];
+      pendingTransformPlates.clear();
+      return plateMutation('model-transform', affected, affected);
     },
     orc_mark_shared_configuration_mutation() {
       const affected = [...plateIds];
@@ -3783,14 +3787,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_set_model_transform(obj: number, volume: number, inst: number, instanceJson: string, volumeJson: string) {
       if (obj < 0 || obj >= objectTransforms.length || volume < 0 || volume >= objectVolumeTransforms[obj].length || inst < 0 || inst >= objectTransforms[obj].length) return { error: 'no such composite id' };
-      objectTransforms[obj][inst] = JSON.parse(instanceJson);
-      objectVolumeTransforms[obj][volume] = JSON.parse(volumeJson);
+      const instance = JSON.parse(instanceJson), part = JSON.parse(volumeJson);
+      if (JSON.stringify(objectTransforms[obj][inst]) !== JSON.stringify(instance) ||
+          JSON.stringify(objectVolumeTransforms[obj][volume]) !== JSON.stringify(part)) {
+        const plateId = objectPlateIds[obj];
+        if (plateId) pendingTransformPlates.add(plateId);
+      }
+      objectTransforms[obj][inst] = instance;
+      objectVolumeTransforms[obj][volume] = part;
       return { ok: true };
     },
     orc_set_model_transforms(transactionId: string, transformsJson: string) {
       if (transactionId !== historyTransaction?.id) return { error: 'history transaction is stale or belongs to another writer' };
       const transforms = JSON.parse(transformsJson) as Array<{ objectIdx: number; volumeIdx: number; instanceIdx: number; instanceTransform: unknown; volumeTransform: unknown }>;
-      if (!Array.isArray(transforms)) return { error: 'transforms must be an array' };
+      if (!Array.isArray(transforms) || transforms.length === 0) return { error: 'transforms must be a non-empty array' };
       for (const transform of transforms) {
         if (!Number.isInteger(transform.objectIdx) || !Number.isInteger(transform.volumeIdx) || !Number.isInteger(transform.instanceIdx) ||
             transform.objectIdx < 0 || transform.objectIdx >= objectTransforms.length ||
@@ -3798,11 +3808,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             transform.instanceIdx < 0 || transform.instanceIdx >= objectTransforms[transform.objectIdx].length)
           return { error: 'no such composite id' };
       }
+      const affected = new Set<string>();
       for (const transform of transforms) {
+        if (JSON.stringify(objectTransforms[transform.objectIdx][transform.instanceIdx]) !== JSON.stringify(transform.instanceTransform) ||
+            JSON.stringify(objectVolumeTransforms[transform.objectIdx][transform.volumeIdx]) !== JSON.stringify(transform.volumeTransform)) {
+          const plateId = objectPlateIds[transform.objectIdx];
+          if (plateId) affected.add(plateId);
+        }
         objectTransforms[transform.objectIdx][transform.instanceIdx] = clone(transform.instanceTransform as ReturnType<typeof identityTransform>);
         objectVolumeTransforms[transform.objectIdx][transform.volumeIdx] = clone(transform.volumeTransform as ReturnType<typeof identityTransform>);
       }
-      return plateSessionSnapshot();
+      return plateMutation('model-transform', [...affected], [...affected]);
     },
     orc_get_model_mesh() {
       return modelGeometry(new Set(objectMeta.map((object) => object.id)), new Set());

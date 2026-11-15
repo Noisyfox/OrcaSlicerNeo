@@ -1808,7 +1808,7 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   addPlate(): Promise<PlateSessionMutationResult>;
   reorderPlates(plateIds: string[]): Promise<PlateSessionMutationResult>;
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
-  recomputePlateMembership(): Promise<PlateSessionMutationResult>;
+  recomputePlateMembership(): Promise<ModelPlateSessionMutation | PlateSessionSnapshotError>;
   /** Advance every existing plate for a committed shared configuration edit. */
   markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
   /** Read a disposable projection of native project/object/part/plate config. */
@@ -1850,7 +1850,7 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   setModelTransforms(
     transactionId: import('./history').HistoryTransactionId,
     transforms: readonly ModelTransformMutation[],
-  ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
+  ): Promise<ModelMutationResult>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Materialize only objects touched by a native history SceneDelta. */
   getModelScenePatch(objectIds: readonly number[], knownGeometryKeys: readonly string[],

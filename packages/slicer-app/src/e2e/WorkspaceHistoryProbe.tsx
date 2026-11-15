@@ -30,6 +30,7 @@ export function WorkspaceHistoryProbe() {
     // receipts here; an E2E read must not enqueue another project operation.
     historyNativeStatus: () => useHistoryNavigationStore.getState().status,
     runtimeMemoryForAcceptance: () => runtime.getRuntimeMemory(),
+    runtimeExecutionForAcceptance: () => runtime.getRuntimeExecutionState(),
     historyRestoreLifecycle: () => {
       const { phase, revision, error } = useHistoryRestoreStore.getState();
       return { phase, revision, error };

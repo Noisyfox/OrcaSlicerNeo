@@ -391,3 +391,65 @@ test('real Electron Measure remains usable during a running slice and scale inva
     expect(errors).toEqual([]);
   } finally { await app.close(); }
 });
+
+test('real Electron applies ordinary transforms without interrupting an unrelated plate slice', async () => {
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-transform-slice-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: {} }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PREFERENCES: preferences,
+    ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl') } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow(); await ready(page); await selectPrinter(page);
+    const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));
+    await page.getByTestId('btn-add-model').click();
+    await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(1);
+    await page.getByTestId('config-mode-scoped').click();
+    await page.getByTestId('object-list').locator('div[data-testid^="object-"]').first().getByRole('button').first().click();
+    await page.getByTestId('gizmo-btn-scale').click();
+    // Keep the real slice active long enough to change another plate.
+    for (const [axis, size] of [['x', 80], ['y', 80], ['z', 200]] as const) {
+      const before = (await history(page)).undoEntries.length;
+      const input = page.getByTestId(`scale-size-${axis}`);
+      await input.fill(String(size)); await input.press('Enter');
+      await expect.poll(async () => (await history(page)).undoEntries.length, { timeout: 60_000 }).toBe(before + 1);
+    }
+    await page.getByTestId('gizmo-btn-move').click();
+    await page.getByTestId('move-drop-bed').click();
+    await expect.poll(async () => (await booleanMeshes(page))[0].bounds.min[2], { timeout: 60_000 }).toBeCloseTo(0, 1);
+    await page.getByTestId('config-mode-plates').click();
+    const plates = page.getByTestId('preview-plate-list').getByRole('option');
+    const plateA = (await plates.first().getAttribute('id'))!.replace('preview-plate-', '');
+    await page.getByTestId('add-plate').click();
+    await expect(plates).toHaveCount(2);
+    const plateB = (await plates.nth(1).getAttribute('id'))!.replace('preview-plate-', '');
+    await page.getByTestId('btn-add-model').click();
+    await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 60_000 }).toBe(2);
+    await page.getByTestId(`plate-slice-${plateA}`).click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Slicing…', { timeout: 60_000 });
+    const execution = () => page.evaluate(() => (window as any).__orcaE2e.runtimeExecutionForAcceptance());
+    await expect.poll(async () => (await execution()).sliceActive, { timeout: 60_000 }).toBe(true);
+    await page.getByTestId(`preview-plate-${plateA}`).click();
+    await page.getByTestId(`preview-plate-${plateB}`).click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Slicing…');
+    await page.getByTestId('config-mode-scoped').click();
+    const objectOn = (plateId: string) => page.getByTestId(`plate-group-${plateId}`).locator('div[data-testid^="object-"]').first();
+    await objectOn(plateB).getByRole('button').first().click();
+    const moveButton = page.getByTestId('gizmo-btn-move');
+    if (await moveButton.getAttribute('aria-pressed') !== 'true') await moveButton.click();
+    const moveX = page.getByTestId('move-x');
+    const before = (await history(page)).undoEntries.length;
+    await moveX.fill(String(Number(await moveX.inputValue()) + 5)); await moveX.press('Enter');
+    await expect.poll(async () => (await history(page)).undoEntries.length, { timeout: 60_000 }).toBe(before + 1);
+    await expect(page.getByTestId('slicer-status')).toHaveText('Slicing…');
+    expect((await execution()).sliceActive).toBe(true);
+
+    await objectOn(plateA).getByRole('button').first().click();
+    const beforeAffected = (await history(page)).undoEntries.length;
+    await moveX.fill(String(Number(await moveX.inputValue()) + 5)); await moveX.press('Enter');
+    await expect.poll(async () => (await history(page)).undoEntries.length, { timeout: 60_000 }).toBe(beforeAffected + 1);
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+    await expect.poll(async () => (await execution()).sliceActive, { timeout: 120_000 }).toBe(false);
+    expect(errors).toEqual([]);
+  } finally { await app.close(); }
+});

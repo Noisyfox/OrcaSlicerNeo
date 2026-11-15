@@ -66,10 +66,20 @@ function structureFor(volumes: readonly GLVolume[]) {
   return { ok: true as const, objects: [...objects.values()] };
 }
 
+function transformReceipt(affectedPlateIds: string[] = [], currentPlateId = 'plate-1') {
+  return { ok: true as const, plateSession: {
+    ok: true as const, version: 1 as const, currentPlateId, plates: [], instances: [], instanceTransforms: [],
+    inputRevisions: { a: 2, b: 1, 'plate-1': 1 }, affectedPlateIdsBefore: affectedPlateIds,
+    affectedPlateIdsAfter: affectedPlateIds, affectedPlateIds, dirtyReasons: ['model-transform'],
+    nativeScopedConfig: { version: 1 as const, revision: 1, kind: 'full' as const,
+      snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [] },
+  } };
+}
+
 function historyRuntime() {
   return {
     ...emptyProjection,
-    setModelTransforms: vi.fn(async (..._args: unknown[]) => ({ ok: true, plateSession: { instances: [], ok: true, version: 1, currentPlateId: 'plate-1', plates: [], instanceTransforms: [] } })),
+    setModelTransforms: vi.fn(async (..._args: unknown[]) => transformReceipt()),
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
     getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
     runProjectHistoryTransaction: vi.fn(async (
@@ -102,28 +112,40 @@ describe('TransformHistoryCoordinator', () => {
       selection: { mode: 'part', objectIds: [], partIds: [201], instanceIds: [301] } });
   });
 
-  it.each(['a', 'b'])('publishes a Measure scale only after commit and cancels only affected active plate %s', async activePlate => {
+  it.each([
+    ['measure', 'Scale', 'a'], ['measure', 'Scale', 'b'],
+    ['move', 'Move', 'a'], ['move', 'Move', 'b'],
+    ['rotate', 'Rotate', 'a'], ['rotate', 'Rotate', 'b'],
+    ['scale', 'Scale', 'a'], ['scale', 'Scale', 'b'],
+  ] as const)('publishes %s after commit and cancels only an affected active plate %s/%s', async (gizmo, label, activePlate) => {
     const volume = makeVolume(0, 0, 0); glVolumeCollection.replace([volume]);
     useObjectListStore.getState().setStructure(structureFor([volume]).objects);
-    const scene = selectedController([volume]); scene.toggleGizmo('measure');
+    const scene = selectedController([volume]); scene.toggleGizmo(gizmo);
     let entered!: () => void, release!: () => void;
     const mutationEntered = new Promise<void>(done => { entered = done; });
     const commitGate = new Promise<void>(done => { release = done; });
     const cancel = vi.fn(async () => ({ ok: true }));
     const runtime = { ...historyRuntime(), cancel,
       getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' }),
-      setModelTransforms: vi.fn(async () => ({ ok: true, plateSession: { instances: [], ok: true, version: 1,
-        currentPlateId: 'b', plates: [], instanceTransforms: [], affectedPlateIds: ['a'], inputRevisions: { b: 1 } } })),
+      setModelTransforms: vi.fn(async () => transformReceipt(['a'], 'b')),
       runProjectHistoryTransaction: vi.fn(async (_label: string, _category: string, _before: unknown, mutation: (id: string) => Promise<unknown>) => {
         const result = await mutation('tx-1'); entered(); await commitGate;
         return { result, sceneDelta: null, status: { dirty: true, revision: 2 } as never };
       }),
     };
-    scene.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, scene));
-    useSlicerStore.setState({ status: 'slicing', activeSliceTarget: { plateId: activePlate, inputRevision: 1 }, progress: 37 });
-    const scaling = scene.scaleSelectionByAndWait([2, 2, 2]); await mutationEntered;
+    const history = new TransformHistoryCoordinator(runtime as never, scene);
+    const store = useSlicerStore.getState();
+    for (const plateId of ['a', 'b']) store.setPlateResult({ plateId, inputStamp: 1, resultGeneration: '1', sliceTaskId: plateId }, [], {});
+    const target = { plateId: activePlate, inputRevision: 1 };
+    useSlicerStore.setState({ status: 'slicing', sliceTarget: target, activeSliceTarget: target, progress: 37 });
+    expect(history.begin(label)).toBe(true);
+    volume.instanceTransform = { ...volume.instanceTransform, offset: [2, 0, 0] };
+    const committed = history.commit(); await mutationEntered;
     expect(cancel).not.toHaveBeenCalled(); expect(useSlicerStore.getState().status).toBe('slicing');
-    release(); expect(await scaling).toEqual({ outcome: 'committed' });
+    expect(useSlicerStore.getState().plateResults).toHaveProperty('a');
+    release(); expect(await committed).toEqual({ outcome: 'committed' });
+    expect(useSlicerStore.getState().plateResults).not.toHaveProperty('a');
+    expect(useSlicerStore.getState().plateResults).toHaveProperty('b');
     if (activePlate === 'a') {
       expect(cancel).toHaveBeenCalledOnce(); expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
     } else {
@@ -132,31 +154,47 @@ describe('TransformHistoryCoordinator', () => {
     }
   });
 
-  it('does not cancel a slice when the Measure scale transaction fails after its mutation', async () => {
+  it.each([['measure', 'Scale'], ['move', 'Move'], ['rotate', 'Rotate'], ['scale', 'Scale']] as const)(
+    'does not invalidate or cancel a slice when a %s transaction fails after its mutation', async (gizmo, label) => {
     const volume = makeVolume(0, 0, 0); glVolumeCollection.replace([volume]);
     useObjectListStore.getState().setStructure(structureFor([volume]).objects);
-    const scene = selectedController([volume]); scene.toggleGizmo('measure');
+    const scene = selectedController([volume]); scene.toggleGizmo(gizmo);
     const cancel = vi.fn(async () => ({ ok: true }));
     const runtime = { ...historyRuntime(), cancel,
       getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' }),
-      setModelTransforms: vi.fn(async () => ({ ok: true, plateSession: { instances: [], ok: true, version: 1,
-        currentPlateId: 'a', plates: [], instanceTransforms: [], affectedPlateIds: ['a'] } })),
+      setModelTransforms: vi.fn(async () => transformReceipt(['a'], 'a')),
       runProjectHistoryTransaction: vi.fn(async (_label: string, _category: string, _before: unknown, mutation: (id: string) => Promise<unknown>) => {
         await mutation('tx-1'); throw new Error('commit failed');
       }),
     };
-    scene.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, scene, () => {}));
+    const history = new TransformHistoryCoordinator(runtime as never, scene, () => {});
     useSlicerStore.setState({ status: 'slicing', activeSliceTarget: { plateId: 'a', inputRevision: 1 }, progress: 37 });
-    expect(await scene.scaleSelectionByAndWait([2, 2, 2])).toEqual({ outcome: 'failed', error: 'commit failed' });
+    expect(history.begin(label)).toBe(true);
+    volume.instanceTransform = { ...volume.instanceTransform, offset: [2, 0, 0] };
+    expect(await history.commit()).toEqual({ outcome: 'failed', error: 'commit failed' });
     expect(cancel).not.toHaveBeenCalled();
     expect(useSlicerStore.getState()).toMatchObject({ status: 'slicing', activeSliceTarget: { plateId: 'a', inputRevision: 1 }, progress: 37 });
+  });
+
+  it('keeps a completed result when a committed transform has no affected plates', async () => {
+    const volume = makeVolume(0, 0, 0); glVolumeCollection.replace([volume]);
+    const scene = selectedController([volume]);
+    const runtime = { ...historyRuntime(), setModelTransforms: vi.fn(async () => transformReceipt([], 'a')) };
+    const history = new TransformHistoryCoordinator(runtime as never, scene);
+    const store = useSlicerStore.getState();
+    store.setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'a' }, [], {});
+    store.activatePlateResult('a', 1);
+    expect(history.begin('Move')).toBe(true);
+    expect(await history.commit()).toEqual({ outcome: 'committed' });
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'done', sliceTarget: { plateId: 'a', inputRevision: 1 } });
+    expect(useSlicerStore.getState().plateResults).toHaveProperty('a');
   });
 
   it('keeps pointer-down reservation-only and opens the Worker transaction on release', async () => {
     let releaseMutation!: () => void;
     const mutationRelease = new Promise<void>((resolve) => { releaseMutation = resolve; });
     const runtime = {
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
       ...emptyProjection,
@@ -203,7 +241,7 @@ describe('TransformHistoryCoordinator', () => {
 
   it('aborts a cancelled transaction without writing transforms', async () => {
     const runtime = {
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
       ...emptyProjection,
@@ -227,7 +265,7 @@ describe('TransformHistoryCoordinator', () => {
   it('serializes rapid discrete commands until each Worker transaction settles', async () => {
     const started: string[] = [];
     const runtime = {
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
       ...emptyProjection,
@@ -269,7 +307,7 @@ describe('TransformHistoryCoordinator', () => {
       ...emptyProjection,
       getHistoryStatus: vi.fn(async () => ({ dirty: false, revision } as never)),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
         _category: 'project',
@@ -364,7 +402,7 @@ describe('TransformHistoryCoordinator', () => {
       revision: 1,
     } as never;
     const runtime = {
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
       ...emptyProjection,
@@ -393,7 +431,7 @@ describe('TransformHistoryCoordinator', () => {
     const snapshots = [{ pending: 0, revision: 2 }];
     const runtime = {
       ...emptyProjection,
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
       getFilamentSessionSnapshot: vi.fn(async () => {
         snapshots[0].pending = useProjectStore.getState().projectMutationPendingCount;
@@ -475,7 +513,7 @@ describe('TransformHistoryCoordinator', () => {
       ...emptyProjection,
       getHistoryStatus: vi.fn(async () => ({ dirty: false, revision } as never)),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       runProjectHistoryTransaction: vi.fn(async () => ({ result: { ok: true }, status: { revision } })),
     };
     const history = new TransformHistoryCoordinator(runtime as never,
@@ -512,7 +550,7 @@ describe('TransformHistoryCoordinator', () => {
         return structure;
       }),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       runProjectHistoryTransaction: vi.fn(async () => ({ result: { ok: true }, status: { revision: 1 } })),
     };
     const history = new TransformHistoryCoordinator(runtime as never,
@@ -540,7 +578,7 @@ describe('TransformHistoryCoordinator', () => {
   it('releases the project fence when starting the Worker transaction throws synchronously', async () => {
     const onError = vi.fn();
     const runtime = {
-      setModelTransforms: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => transformReceipt()),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
       ...emptyProjection,

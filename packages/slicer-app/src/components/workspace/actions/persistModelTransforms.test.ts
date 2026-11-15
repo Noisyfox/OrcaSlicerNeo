@@ -12,6 +12,15 @@ vi.mock('./syncModelTransforms', () => ({
   applyPlateSessionTransforms,
 }));
 
+const plateMutation = {
+  ok: true as const, version: 1 as const, currentPlateId: 'plate-1', instances: [], plates: [], instanceTransforms: [],
+  inputRevisions: { 'plate-1': 1 }, affectedPlateIdsBefore: ['plate-1'], affectedPlateIdsAfter: ['plate-1'],
+  affectedPlateIds: ['plate-1'], dirtyReasons: ['model-transform'], nativeScopedConfig: {
+    version: 1 as const, revision: 1, kind: 'full' as const,
+    snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+  },
+};
+
 describe('persistSettledModelTransforms', () => {
   beforeEach(() => {
     useSlicerStore.setState({
@@ -22,9 +31,9 @@ describe('persistSettledModelTransforms', () => {
   });
 
   it('invalidates the slicer result after a successful transform sync', async () => {
-    syncModelTransforms.mockResolvedValue({ ok: true });
+    syncModelTransforms.mockResolvedValue({ ok: true, plateSession: plateMutation });
     const result = await persistSettledModelTransforms({} as never);
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, plateSession: plateMutation });
     const slicer = useSlicerStore.getState();
     expect(slicer.status).toBe('idle');
     expect(slicer.resultExported).toBe(false);
@@ -43,7 +52,7 @@ describe('persistSettledModelTransforms', () => {
     syncModelTransforms.mockResolvedValue({
       ok: true,
       plateSession: {
-        ok: true, version: 1, currentPlateId: 'plate-1', instances: [],
+        ...plateMutation,
         plates: ['plate-1', 'plate-2'].map((plateId, displayIndex) => ({ plateId, displayIndex, name: plateId, origin: [0, 0, 0] })),
         inputRevisions: { 'plate-1': 4, 'plate-2': 1 },
         dirtyReasons: ['model-transform'],

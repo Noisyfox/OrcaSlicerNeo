@@ -1,12 +1,9 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
-import type { PlateSessionMutation } from '@slicer/client';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
+import { applyPlateResultMutation, invalidateAffectedPlateResults, type SliceCancellationRuntime } from '@/stores/plateResultLifecycle';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { applyPlateSessionTransforms, syncModelTransforms } from './syncModelTransforms';
-
-type SyncResult = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
+import { applyPlateSessionTransforms, syncModelTransforms, type TransformSyncResult } from './syncModelTransforms';
 
 /** Apply the renderer-side consequences of a settled transform write.
  *
@@ -15,56 +12,53 @@ type SyncResult = { ok: boolean; error?: string; plateSession?: PlateSessionMuta
  * Keeping the projection here ensures the defensive pre-slice synchronizer
  * and history-backed edits invalidate derived output identically.
  */
-export function applySettledTransformSyncResult(result: SyncResult, preserveUnrelatedSlice = false): void {
+export function applySettledTransformSyncResult(result: TransformSyncResult, runtime: SliceCancellationRuntime): void {
   if (!result.ok) return;
-  if (result.plateSession)
-    applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
+  invalidateAffectedPlateResults(runtime, result.plateSession.affectedPlateIds);
+  applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
   const slicer = useSlicerStore.getState();
-  const keepSlice = preserveUnrelatedSlice && slicer.status === 'slicing' && !!slicer.activeSliceTarget &&
-    !(result.plateSession?.affectedPlateIds ?? []).includes(slicer.activeSliceTarget.plateId);
-  if (!keepSlice) {
+  if (result.plateSession.affectedPlateIds.length > 0 && (slicer.status !== 'slicing' || !slicer.activeSliceTarget)) {
     slicer.setStatus('idle');
     slicer.setResultExported(false);
     slicer.setError(null);
     slicer.resetPreviewState();
     slicer.setProgress(0);
   }
-  if (result.plateSession) {
-    const previousPlateSession = usePlateSessionStore.getState().snapshot;
-    usePlateSessionStore.getState().setSnapshot(result.plateSession);
-    applyPlateResultMutation(result.plateSession, previousPlateSession, keepSlice);
-  }
+  const previousPlateSession = usePlateSessionStore.getState().snapshot;
+  usePlateSessionStore.getState().setSnapshot(result.plateSession);
+  if (result.plateSession.affectedPlateIds.length > 0)
+    applyPlateResultMutation(result.plateSession, previousPlateSession);
 }
 
 // Legacy settle synchronization is retained for the defensive pre-slice
 // consistency check. User-facing transforms use TransformHistoryCoordinator,
 // which performs the one final write inside its Worker transaction.
-let pendingSettledTransformSync: Promise<SyncResult> = Promise.resolve({ ok: true });
+let pendingSettledTransformSync: Promise<{ ok: boolean; error?: string }> = Promise.resolve({ ok: true });
 
 /** Queue a snapshot after a move has settled (mouse release or panel commit). */
-export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<SyncResult> {
+export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<TransformSyncResult> {
   const snapshot = [...glVolumeCollection.volumes];
   const sync = pendingSettledTransformSync.then(
     () => syncModelTransforms(runtime, snapshot),
     () => syncModelTransforms(runtime, snapshot),
   );
-  pendingSettledTransformSync = sync.then((result) => {
+  const settled = sync.then((result) => {
     // A settled model transform is a slice-input change (spec §8): the
     // bridge invalidated the completed Print, so mirror that in the
     // renderer — the stale toolpath preview is cleared (useSliceResult)
     // and export is disabled until re-slicing. On sync failure nothing
     // was applied, so the prior result stays valid.
-    applySettledTransformSyncResult(result);
+    applySettledTransformSyncResult(result, runtime);
     return result;
-  });
-  pendingSettledTransformSync = pendingSettledTransformSync.catch((error) => ({
-    ok: false,
+  }).catch((error) => ({
+    ok: false as const,
     error: error instanceof Error ? error.message : String(error),
   }));
-  return pendingSettledTransformSync;
+  pendingSettledTransformSync = settled;
+  return settled;
 }
 
 /** Wait for any synchronization triggered by a just-finished edit. */
-export function waitForSettledModelTransforms(): Promise<SyncResult> {
+export function waitForSettledModelTransforms(): Promise<{ ok: boolean; error?: string }> {
   return pendingSettledTransformSync;
 }

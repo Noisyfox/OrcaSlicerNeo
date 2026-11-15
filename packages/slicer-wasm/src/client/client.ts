@@ -2578,9 +2578,9 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_delete_plate', ['string'], [plateId]));
     },
 
-    async recomputePlateMembership(): Promise<PlateSessionMutationResult> {
+    async recomputePlateMembership() {
       const m = await module();
-      return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
+      return normalizeModelPlateMutation(callJson(m, 'orc_recompute_plate_membership', [], []));
     },
 
     async markSharedConfigurationMutation(): Promise<PlateSessionMutationResult> {
@@ -3061,7 +3061,7 @@ export function createClient(
       if (!raw || typeof raw !== 'object' || (raw as Record<string, unknown>).ok !== true)
         return { ok: false, error: typeof (raw as Record<string, unknown> | null)?.error === 'string'
           ? (raw as Record<string, unknown>).error as string : 'atomic model transform failed' };
-      const plateSession = normalizePlateMutationResult(raw);
+      const plateSession = normalizeModelPlateMutation(raw);
       return plateSession.ok ? { ok: true, plateSession } : { ok: false, error: plateSession.error };
     },
 

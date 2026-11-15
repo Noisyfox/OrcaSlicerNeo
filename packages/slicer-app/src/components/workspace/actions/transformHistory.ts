@@ -1,9 +1,8 @@
-import type { HistoryContext, HistoryStatus, ModelStructureResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, HistoryStatus, ModelMutationResult, ModelStructureResult, SlicerClient } from '@slicer/client';
 import { useProjectStore } from '@/stores/useProjectStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
 import { applySettledTransformSyncResult } from './persistModelTransforms';
-import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import {
   captureTransformReservationState,
   executeProjectHistoryTransaction,
@@ -13,12 +12,11 @@ import {
 
 type TransformHistoryRuntime = Pick<SlicerClient,
   'runProjectHistoryTransaction' | 'setModelTransforms' | 'getFilamentSessionSnapshot' |
-  'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'> &
-  Partial<Pick<SlicerClient, 'recomputePlateMembership' | 'cancel' | 'getRuntimeExecutionState'>>;
+  'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'cancel' | 'getRuntimeExecutionState'>;
 
 type GateCommand = 'commit' | 'abort';
 type TransactionResult = {
-  result: { ok: boolean; error?: string; plateSession?: import('@slicer/client').PlateSessionMutation };
+  result: ModelMutationResult;
   status: HistoryStatus | null;
 };
 
@@ -155,7 +153,6 @@ export class TransformHistoryCoordinator {
       return;
     }
     this.running = next;
-    const measureScale = next.label === 'Scale' && next.beforeContext.gizmo?.type === 'measure';
     next.task = executeProjectHistoryTransaction(
       this.runtime,
       next.label,
@@ -163,21 +160,11 @@ export class TransformHistoryCoordinator {
       async (transactionId) => {
         const result = await syncModelTransformsAtomically(this.runtime, transactionId,
           next.finalTransforms ?? this.captureTransforms());
-        if (!result.ok) throw new Error(result.error ?? 'model transform synchronization failed');
-        if (!measureScale) applySettledTransformSyncResult(result);
+        if (!result.ok) throw new Error(result.error);
         return result;
       },
       () => historyContextForStructure(this.sceneInteraction),
-      result => {
-        if (!measureScale || !result.ok) return;
-        const runtime = this.runtime.cancel ? {
-          cancel: () => this.runtime.cancel!(),
-          getRuntimeExecutionState: this.runtime.getRuntimeExecutionState
-            ? () => this.runtime.getRuntimeExecutionState!() : undefined,
-        } : undefined;
-        invalidateAffectedPlateResults(runtime, result.plateSession?.affectedPlateIds ?? []);
-        applySettledTransformSyncResult(result, true);
-      },
+      result => applySettledTransformSyncResult(result, this.runtime),
       undefined,
       async () => { await this.reconcile?.(); },
       async () => this.validateReservation(next),
