@@ -16,6 +16,38 @@ class Channel implements WorkerTransport {
 }
 
 describe('Worker-owned project history protocol', () => {
+  it('commits and restores synchronized sibling instance transforms as one history edit', async () => {
+    const client = createClient(async () => createMockModule({ instanceCount: 2 }));
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const before = (await client.getModelMesh()).objects;
+    const tx = await client.beginHistory('Move', 'project', context());
+    const transforms = before.map(item => ({ objectIdx: item.objectIdx, volumeIdx: item.volumeIdx,
+      instanceIdx: item.instanceIdx, volumeTransform: item.volumeTransform,
+      instanceTransform: { ...item.instanceTransform, offset: [item.instanceTransform.offset[0], item.instanceTransform.offset[1], 5] as [number, number, number] },
+    }));
+    expect((await client.setModelTransforms(tx, transforms)).ok).toBe(true);
+    await client.commitHistory(tx, context());
+    expect((await client.getModelMesh()).objects.map(item => item.instanceTransform.offset[2])).toEqual([5, 5]);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelMesh()).objects.map(item => item.instanceTransform.offset[2])).toEqual([0, 0]);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelMesh()).objects.map(item => item.instanceTransform.offset[2])).toEqual([5, 5]);
+  });
+
+  it('rejects conflicting writes to a shared volume before changing either instance', async () => {
+    const client = createClient(async () => createMockModule({ instanceCount: 2 }));
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const before = (await client.getModelMesh()).objects;
+    const tx = await client.beginHistory('Move', 'project', context());
+    const transforms = before.map((item, index) => ({ objectIdx: item.objectIdx, volumeIdx: item.volumeIdx,
+      instanceIdx: item.instanceIdx, instanceTransform: item.instanceTransform,
+      volumeTransform: { ...item.volumeTransform, offset: [index, 0, 0] as [number, number, number] },
+    }));
+    expect(await client.setModelTransforms(tx, transforms)).toMatchObject({ ok: false, error: expect.stringContaining('conflicting') });
+    expect((await client.getModelMesh()).objects.map(item => item.volumeTransform.offset)).toEqual([[0, 0, 0], [0, 0, 0]]);
+    await client.abortHistory(tx);
+  });
+
   it('restores an object Auto Drop change with its instances through Undo and Redo', async () => {
     const client = createClient(async () => createMockModule({ instanceCount: 2 }));
     await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());

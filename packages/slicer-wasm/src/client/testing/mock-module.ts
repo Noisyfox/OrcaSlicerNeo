@@ -3818,19 +3818,39 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_model_transforms(transactionId: string, transformsJson: string) {
       if (transactionId !== historyTransaction?.id) return { error: 'history transaction is stale or belongs to another writer' };
       const transforms = JSON.parse(transformsJson) as Array<{ objectIdx: number; volumeIdx: number; instanceIdx: number; instanceTransform: unknown; volumeTransform: unknown }>;
-      if (!Array.isArray(transforms)) return { error: 'transforms must be an array' };
+      if (!Array.isArray(transforms) || transforms.length === 0) return { error: 'transforms must be a non-empty array' };
+      const composites = new Set<string>();
+      const instanceUpdates = new Map<string, string>();
+      const volumeUpdates = new Map<string, string>();
+      const changedObjects = new Set<number>();
       for (const transform of transforms) {
         if (!Number.isInteger(transform.objectIdx) || !Number.isInteger(transform.volumeIdx) || !Number.isInteger(transform.instanceIdx) ||
             transform.objectIdx < 0 || transform.objectIdx >= objectTransforms.length ||
             transform.volumeIdx < 0 || transform.volumeIdx >= objectVolumeTransforms[transform.objectIdx].length ||
             transform.instanceIdx < 0 || transform.instanceIdx >= objectTransforms[transform.objectIdx].length)
           return { error: 'no such composite id' };
+        const instanceKey = `${transform.objectIdx}:${transform.instanceIdx}`;
+        const volumeKey = `${transform.objectIdx}:${transform.volumeIdx}`;
+        const composite = `${volumeKey}:${transform.instanceIdx}`;
+        if (composites.has(composite)) return { error: 'transform request contains a duplicate composite id' };
+        composites.add(composite);
+        const instance = JSON.stringify(transform.instanceTransform), volume = JSON.stringify(transform.volumeTransform);
+        if ((instanceUpdates.has(instanceKey) && instanceUpdates.get(instanceKey) !== instance) ||
+            (volumeUpdates.has(volumeKey) && volumeUpdates.get(volumeKey) !== volume))
+          return { error: 'transform request contains conflicting shared transforms' };
+        instanceUpdates.set(instanceKey, instance);
+        volumeUpdates.set(volumeKey, volume);
+        if (instance !== JSON.stringify(objectTransforms[transform.objectIdx][transform.instanceIdx]) ||
+            volume !== JSON.stringify(objectVolumeTransforms[transform.objectIdx][transform.volumeIdx]))
+          changedObjects.add(transform.objectIdx);
       }
       for (const transform of transforms) {
         objectTransforms[transform.objectIdx][transform.instanceIdx] = clone(transform.instanceTransform as ReturnType<typeof identityTransform>);
         objectVolumeTransforms[transform.objectIdx][transform.volumeIdx] = clone(transform.volumeTransform as ReturnType<typeof identityTransform>);
       }
-      return plateSessionSnapshot();
+      const plates = [...new Set([...changedObjects].map(index => objectPlateIds[index]).filter(Boolean))];
+      if (plates.length > 0) sliced = false;
+      return plateMutation('model-transform', plates, plates);
     },
     orc_get_model_mesh() {
       return modelGeometry(new Set(objectMeta.map((object) => object.id)), new Set());

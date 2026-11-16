@@ -238,12 +238,10 @@ export class TransformHistoryCoordinator {
   }
 
   private captureTransforms(): Parameters<typeof syncModelTransforms>[1] {
-    // A history gesture owns only the selection it mutates. Sending every
-    // rendered CompositeID made a one-object move scale with the entire
-    // project and duplicated unchanged transforms across JS, Worker JSON and
-    // WASM validation. The stable-ID reservation below still proves that each
-    // selected target is the same native entity at release time.
-    return this.sceneInteraction.selectedVolumes().map((volume) => ({
+    // A gesture may synchronize sibling instances of selected objects. Keep
+    // those in the reservation and final batch, but exclude unrelated objects
+    // and redundant unselected part copies.
+    return this.sceneInteraction.transformCommitVolumes().map((volume) => ({
       buffer: { objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx },
       instanceTransform: structuredClone(volume.instanceTransform),
       volumeTransform: structuredClone(volume.volumeTransform),

@@ -264,6 +264,42 @@ describe('TransformHistoryCoordinator', () => {
     })));
   });
 
+  it('commits synchronized sibling instances without uploading unrelated objects or redundant parts', async () => {
+    const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0),
+      makeVolume(0, 0, 1), makeVolume(0, 1, 1), makeVolume(1, 0, 0)];
+    glVolumeCollection.replace(volumes);
+    const runtime = historyRuntime();
+    const controller = new SceneInteractionController(() => volumes);
+    controller.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, controller));
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.moveSelectionBy(new THREE.Vector3(0, 0, 5))).toBe(true);
+    await vi.waitFor(() => expect(runtime.setModelTransforms).toHaveBeenCalledOnce());
+    const sent = runtime.setModelTransforms.mock.calls[0]?.[1] as Array<{
+      objectIdx: number; volumeIdx: number; instanceIdx: number; instanceTransform: { offset: number[] };
+    }>;
+    expect(sent.map(item => [item.objectIdx, item.volumeIdx, item.instanceIdx])).toEqual([
+      [0, 0, 0], [0, 1, 0], [0, 0, 1],
+    ]);
+    expect(sent.map(item => item.instanceTransform.offset[2])).toEqual([5, 5, 5]);
+  });
+
+  it('reserves sibling instances when a shared part is transformed', async () => {
+    const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0),
+      makeVolume(0, 0, 1), makeVolume(0, 1, 1)];
+    glVolumeCollection.replace(volumes);
+    const runtime = historyRuntime();
+    const controller = new SceneInteractionController(() => volumes);
+    controller.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, controller));
+    controller.selectComposite(0, 1);
+    expect(controller.moveSelectionBy(new THREE.Vector3(2, 0, 0))).toBe(true);
+    await vi.waitFor(() => expect(runtime.setModelTransforms).toHaveBeenCalledOnce());
+    const sent = runtime.setModelTransforms.mock.calls[0]?.[1] as Array<{
+      volumeIdx: number; instanceIdx: number; volumeTransform: { offset: number[] };
+    }>;
+    expect(sent.map(item => [item.volumeIdx, item.instanceIdx])).toEqual([[1, 0], [0, 1]]);
+    expect(sent[0]?.volumeTransform.offset[0]).toBe(2);
+  });
+
   it('aborts a no-op drag without any Worker transform writes', async () => {
     const volumes = [makeVolume(0, 0, 0)];
     glVolumeCollection.replace(volumes);

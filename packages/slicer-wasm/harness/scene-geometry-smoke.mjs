@@ -292,6 +292,34 @@ for (const legacyValues of [[1, 0], [1, 1], [undefined, undefined]]) {
     assert.equal(call('orc_history_redo').ok, true);
     assert.equal(call('orc_get_model_structure').objects[0].autoDrop, true);
     assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), dropped);
+
+    const copies = fullModel().renderables;
+    const requests = copies.map(item => {
+      const instance = structuredClone(item.instance_transform);
+      instance.offset[2] += 5;
+      instance.matrix[14] += 5;
+      return { objectIdx: item.object_idx, volumeIdx: item.volume_idx, instanceIdx: item.instance_idx,
+        instanceTransform: instance, volumeTransform: structuredClone(item.volume_transform) };
+    });
+    const conflict = structuredClone(requests);
+    conflict[1].volumeTransform.offset[0] += 1;
+    conflict[1].volumeTransform.matrix[12] += 1;
+    const rejectedTx = begin('Conflicting transforms');
+    const rejectedTransform = call('orc_set_model_transforms', ['string', 'string'],
+      [rejectedTx, JSON.stringify(conflict)]);
+    assert.equal(rejectedTransform.ok, false);
+    assert.match(rejectedTransform.error, /conflicting/);
+    assert.equal(call('orc_history_abort', ['string'], [rejectedTx]).ok, true);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), dropped);
+    const syncTx = begin('Synchronize instances');
+    assert.equal(call('orc_set_model_transforms', ['string', 'string'], [syncTx, JSON.stringify(requests)]).ok, true);
+    commit(syncTx);
+    const raised = fullModel().renderables.map(item => item.instance_transform.offset[2]);
+    assert.deepEqual(raised, dropped.map(z => z + 5));
+    assert.equal(call('orc_history_undo').ok, true);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), dropped);
+    assert.equal(call('orc_history_redo').ok, true);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), raised);
   }
 }
 for (const autoDrop of [0, 1]) {

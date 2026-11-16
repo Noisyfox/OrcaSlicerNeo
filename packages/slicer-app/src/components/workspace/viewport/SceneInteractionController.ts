@@ -228,6 +228,24 @@ export class SceneInteractionController {
     return this.selection.volumes(this.getVolumes());
   }
 
+  /** A gesture can synchronize unselected instances of each selected object.
+   * Include one composite for each such instance without uploading the rest of
+   * the scene or every unselected volume. */
+  transformCommitVolumes(): GLVolume[] {
+    const selected = this.selectedVolumes().filter((volume) => !(volume instanceof WipeTowerVolume));
+    const objects = new Set(selected.map((volume) => volume.buffer.objectId));
+    const instances = new Set(selected.map((volume) => `${volume.buffer.objectId}:${volume.buffer.instanceId}`));
+    const result = [...selected];
+    for (const volume of this.getVolumes()) {
+      if (volume instanceof WipeTowerVolume || !objects.has(volume.buffer.objectId)) continue;
+      const key = `${volume.buffer.objectId}:${volume.buffer.instanceId}`;
+      if (instances.has(key)) continue;
+      instances.add(key);
+      result.push(volume);
+    }
+    return result;
+  }
+
   /** Orca's WipeTower selection mode is represented by the one tagged volume
    * in this controller's ordinary Selection, never a parallel selection. */
   selectedWipeTower(): WipeTowerVolume | null {

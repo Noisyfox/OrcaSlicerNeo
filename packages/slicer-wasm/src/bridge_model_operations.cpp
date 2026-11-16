@@ -1424,6 +1424,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         std::vector<StagedTransform> staged;
         staged.reserve(requests.size());
         std::set<std::tuple<int, int, int>> identities;
+        std::map<ModelInstance*, Slic3r::Geometry::Transformation> instance_updates;
+        std::map<ModelVolume*, Slic3r::Geometry::Transformation> volume_updates;
         for (const auto& request : requests) {
             if (!request.is_object()) return error_json("transform request must be an object");
             const int object_idx = request.at("objectIdx").get<int>();
@@ -1443,20 +1445,36 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             auto next_volume = object->volumes[static_cast<size_t>(volume_idx)]->get_transformation();
             set_transform(next_instance, request.at("instanceTransform"));
             set_transform(next_volume, request.at("volumeTransform"));
-            staged.push_back({object, object->instances[static_cast<size_t>(instance_idx)],
-                object->volumes[static_cast<size_t>(volume_idx)], next_instance, next_volume,
+            auto* instance = object->instances[static_cast<size_t>(instance_idx)];
+            auto* volume = object->volumes[static_cast<size_t>(volume_idx)];
+            const auto [instance_it, new_instance] = instance_updates.emplace(instance, next_instance);
+            const auto [volume_it, new_volume] = volume_updates.emplace(volume, next_volume);
+            if ((!new_instance && instance_it->second != next_instance) ||
+                (!new_volume && volume_it->second != next_volume))
+                return error_json("transform request contains conflicting shared transforms");
+            staged.push_back({object, instance, volume, next_instance, next_volume,
                 object->instances[static_cast<size_t>(instance_idx)]->get_transformation(),
                 object->volumes[static_cast<size_t>(volume_idx)]->get_transformation()});
         }
         std::set<std::size_t> affected_instances;
+        std::set<ModelObject*> changed_volume_objects;
         for (const auto& item : staged) {
             if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
                 affected_instances.insert(item.instance->id().id);
+            if (item.next_volume != item.previous_volume)
+                changed_volume_objects.insert(item.object);
         }
+        // A volume is shared by every instance of its object, even if only one
+        // renderer composite carried that part in this gesture.
+        for (const auto* object : changed_volume_objects) append_instance_ids(*object, affected_instances);
         const double validation_finished_at = Neo::Bridge::Performance::now_ms();
 
         const double membership_lookup_started_at = Neo::Bridge::Performance::now_ms();
         const auto before_revisions = state().plate_input_revisions;
+        const auto before_members = state().instance_plate_ids;
+        const auto before_outside = state().plate_out_of_bounds_ids;
+        const auto before_parked = state().parked_instance_ids;
+        const auto before_pending = state().pending_membership_instance_ids;
         const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const auto affected_before = affected_instances.empty()
             ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
@@ -1477,7 +1495,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
             const double mutation_finished_at = Neo::Bridge::Performance::now_ms();
             const double membership_reflow_started_at = Neo::Bridge::Performance::now_ms();
-            rebuild_plate_membership(true);
+            rebuild_plate_membership(true, &affected_instances);
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
                                                            json::array(), &affected_instances);
             const double membership_reflow_finished_at = Neo::Bridge::Performance::now_ms();
@@ -1502,6 +1520,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.object->invalidate_bounding_box();
             }
             state().plate_input_revisions = before_revisions;
+            state().instance_plate_ids = before_members;
+            state().plate_out_of_bounds_ids = before_outside;
+            state().parked_instance_ids = before_parked;
+            state().pending_membership_instance_ids = before_pending;
             state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
             throw;
         }
