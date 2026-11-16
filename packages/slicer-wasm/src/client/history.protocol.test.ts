@@ -100,7 +100,9 @@ describe('Worker-owned project history protocol', () => {
     await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
     const before = (await client.getModelMesh()).objects[0];
     const revision = (await client.getHistoryStatus()).revision;
-    const tx = await client.beginHistory('Move', 'project', context());
+    const selected: HistoryContext = { ...context(), gizmo: { type: 'move' },
+      selection: { ...context().selection, objectIds: [before.objectId] } };
+    const tx = await client.beginHistory('Move', 'project', selected);
     const result = await client.setModelTransforms(tx, [{ objectIdx: before.objectIdx, volumeIdx: before.volumeIdx,
       instanceIdx: before.instanceIdx, volumeTransform: before.volumeTransform,
       instanceTransform: { ...before.instanceTransform, offset: [0, 0, 7] } }], 'move');
@@ -108,7 +110,7 @@ describe('Worker-owned project history protocol', () => {
     if (!result.ok) throw new Error(result.error);
     expect(result.plateSession?.instanceTransforms[0]?.worldTransform.offset[2]).toBe(0);
     expect(result.plateSession?.affectedPlateIds).toEqual([]);
-    await client.commitHistory(tx, context());
+    await client.commitHistory(tx, selected);
     expect((await client.getHistoryStatus()).revision).toBe(revision);
     expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(0);
   });

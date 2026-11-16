@@ -2477,15 +2477,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       try { afterContext = JSON.parse(afterContextJson); validateHistoryContext(afterContext); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
       const current = captureHistoryState();
       const previous = historyEntries[historyCursor];
-      const previousState = previous ? { modelLoaded: previous.modelLoaded, objectTransforms: previous.objectTransforms,
-        objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
-        instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
-        plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions,
-        nativeScopedConfig: previous.nativeScopedConfig, selectedProfiles: previous.selectedProfiles,
-        presetDraftRegistry: previous.presetDraftRegistry, presetDraftRevision: previous.presetDraftRevision, printVectorOverrides: previous.printVectorOverrides,
-      } : null;
-      const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
-        JSON.stringify(previous.context) !== JSON.stringify(afterContext);
+      // Match the native transaction boundary: selection or gizmo changes
+      // made before begin() are part of its baseline, not a new project edit.
+      const changed = JSON.stringify(historyTransaction.before) !== JSON.stringify(current) ||
+        JSON.stringify(historyTransaction.beforeContext) !== JSON.stringify(afterContext);
       if (changed) {
         if (previous) Object.assign(previous, clone(historyTransaction.before), {
           context: clone(historyTransaction.beforeContext),
