@@ -16,6 +16,55 @@ class Channel implements WorkerTransport {
 }
 
 describe('Worker-owned project history protocol', () => {
+  it.each([
+    ['preserve', true, true], ['drop', false, true], ['already disabled', false, false],
+  ] as const)('splits floating multi-instance objects using %s', async (_choice, disableAutoDrop, sourceEnabled) => {
+    const client = createClient(async () => createMockModule({ volumeCount: 2, instanceCount: 2 }));
+    await client.runProjectHistoryTransaction('Add object', 'project', context(), () => client.addModel(new Uint8Array(4), 'stl'), context());
+    const source = (await client.getModelStructure()).objects[0];
+    if (!sourceEnabled) await client.runProjectHistoryTransaction('Disable Auto Drop', 'project', context(),
+      () => client.setObjectsAutoDrop([source.id], false), context());
+    const part = (await client.getModelMesh()).objects.find((item) => item.volumeIdx === 1 && item.instanceIdx === 0)!;
+    const tx = await client.beginHistory('Raise part', 'project', context());
+    expect((await client.setModelTransforms(tx, [{ objectIdx: part.objectIdx, volumeIdx: part.volumeIdx,
+      instanceIdx: part.instanceIdx, instanceTransform: part.instanceTransform,
+      volumeTransform: { ...part.volumeTransform, offset: [0, 0, 15] } }], 'direct')).ok).toBe(true);
+    await client.commitHistory(tx, context());
+    const before = await client.getModelMesh();
+    const preview = await client.previewSplitObject(source.id);
+    expect(preview).toMatchObject({ ok: true, autoDrop: sourceEnabled, floating: true });
+    if (!preview.ok) throw new Error(preview.error);
+    expect((await client.getModelMesh()).objects).toEqual(before.objects);
+    const split = await client.runProjectHistoryTransaction('Split', 'project', context(),
+      () => client.splitObjectToObjects(source.id, { disableAutoDrop, revision: preview.revision }), context());
+    expect(split.result.ok).toBe(true);
+    const objects = (await client.getModelStructure()).objects;
+    expect(objects.map((object) => object.autoDrop)).toEqual([sourceEnabled && !disableAutoDrop, sourceEnabled && !disableAutoDrop]);
+    expect(objects.map((object) => object.instanceCount)).toEqual([2, 2]);
+    const parts = (await client.getModelMesh()).objects;
+    const heights = parts.map((part) => part.instanceTransform.offset[2] + part.volumeTransform.offset[2]);
+    expect(heights).toEqual(sourceEnabled && !disableAutoDrop ? [0, 0, 0, 0] : [0, 0, 15, 15]);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(sourceEnabled);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects.map((object) => object.autoDrop)).toEqual(objects.map((object) => object.autoDrop));
+  });
+
+  it('rejects a split if the project changes after preview', async () => {
+    const client = createClient(async () => createMockModule({ volumeCount: 2 }));
+    await client.runProjectHistoryTransaction('Add object', 'project', context(), () => client.addModel(new Uint8Array(4), 'stl'), context());
+    const source = (await client.getModelStructure()).objects[0];
+    const open = await client.beginHistory('Uncommitted edit', 'project', context());
+    expect(await client.previewSplitObject(source.id)).toMatchObject({ ok: false, error: expect.stringContaining('active history') });
+    await client.abortHistory(open);
+    const preview = await client.previewSplitObject(source.id);
+    if (!preview.ok) throw new Error(preview.error);
+    await client.runProjectHistoryTransaction('Rename', 'project', context(), () => client.renameObject(source.id, 'Changed'), context());
+    const rejected = await client.splitObjectToObjects(source.id, { disableAutoDrop: false, revision: preview.revision });
+    expect(rejected).toMatchObject({ ok: false, error: expect.stringContaining('stale') });
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+  });
+
   it.each([true, false])('assembles with Auto Drop %s and restores source settings through history', async (allEnabled) => {
     const client = createClient(async () => createMockModule());
     await client.runProjectHistoryTransaction('Add objects', 'project', context(), async () => {

@@ -909,6 +909,10 @@ export type SplitVolumeResult = ModelMutationResult<{
   parts: number; newVolumeIds: number[]; objects: ModelObjectStructure[];
 }>;
 export type SplitObjectResult = ModelMutationResult<{ newObjectIds: number[]; objects: number }>;
+export type SplitObjectPreview =
+  | { ok: true; autoDrop: boolean; floating: boolean; revision: number }
+  | { ok: false; error: string };
+export interface SplitObjectOptions { readonly disableAutoDrop: boolean; readonly revision: number }
 export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
 /** Both UI entries operate on one shared object's native, object-local geometry. */
 export type MeshBooleanRequest = {
@@ -1873,8 +1877,10 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult>;
   /** Split a volume into its disconnected parts; returns the generated volume IDs. */
   splitVolumeToParts(volumeId: number, maxExtruders?: number, remapPaint?: boolean): Promise<SplitVolumeResult>;
-  /** Split an object into one object per connected shell; returns the generated object IDs. */
-  splitObjectToObjects(objectId: number, autoDrop?: boolean): Promise<SplitObjectResult>;
+  /** Inspect split outputs without modifying the live model; revision guards the later choice. */
+  previewSplitObject(objectId: number): Promise<SplitObjectPreview>;
+  /** Split an object into one object per connected shell at the previewed revision. */
+  splitObjectToObjects(objectId: number, options: SplitObjectOptions): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
   mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult>;
   meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;

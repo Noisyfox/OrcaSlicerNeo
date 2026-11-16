@@ -1553,6 +1553,50 @@ test('object list Auto Drop supports menu, shortcut, undo and redo', async () =>
   } finally { await app.close(); }
 });
 
+test('split floating parts offers preserving positions or placing on bed', async () => {
+  test.skip(REAL, 'uses the deterministic multi-part mock fixture');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const list = page.getByTestId('object-list');
+    const rows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    await list.locator('[data-testid^="part-"]').nth(1).locator('button.object-list-row').click({ position: { x: 40, y: 10 } });
+    await page.getByTestId('gizmo-btn-move').click();
+    await page.getByTestId('move-z').fill('25');
+    await page.getByTestId('move-z').press('Enter');
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
+    await page.getByTestId('gizmo-btn-move').click();
+    const split = async () => {
+      await rows.first().click({ button: 'right', position: { x: 40, y: 4 } });
+      await page.getByTestId('objectlist-split-objects').click();
+      await expect(page.getByTestId('split-auto-drop-confirmation')).toBeVisible();
+    };
+    await split();
+    await page.getByTestId('split-auto-drop-confirmation').getByRole('button', { name: 'Cancel' }).click();
+    await expect(rows).toHaveCount(1);
+    await split();
+    await page.getByTestId('split-auto-drop-preserve').click();
+    await expect(rows).toHaveCount(2);
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Split to Objects');
+    await rows.first().click({ button: 'right', position: { x: 40, y: 4 } });
+    await expect(page.getByTestId('objectlist-auto-drop')).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('history-undo').click();
+    await expect(rows).toHaveCount(1);
+    await split();
+    await page.getByTestId('split-auto-drop-place').click();
+    await expect(rows).toHaveCount(2);
+    await rows.first().click({ button: 'right', position: { x: 40, y: 4 } });
+    await expect(page.getByTestId('objectlist-auto-drop')).toHaveAttribute('aria-checked', 'true');
+  } finally { await app.close(); }
+});
+
 // Ctrl+clicking an object then a part of another object must not create a
 // Mixed selection (Orca's mixed type is invalid).
 test('object list: refuses mixing object and part selection (mock)', async () => {
@@ -2638,7 +2682,13 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await page.getByTestId('move-y').press('Enter');
       await expect(page.getByTestId('move-y')).toHaveValue('10.000');
 
-      // Lift with Z, then Drop to bed returns the selection's minimum Z to 0.
+      // Disable automatic placement so this explicit Drop to Bed exercise can
+      // first lift the selection and then return its aggregate minimum to 0.
+      await page.getByTestId('config-mode-scoped').click();
+      await page.getByTestId('object-list').locator('div[data-testid^="object-"]:not([data-testid="object-list"])')
+        .first().click({ button: 'right', position: { x: 40, y: 4 } });
+      await page.getByTestId('objectlist-auto-drop').click();
+      await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Disable Auto Drop');
       await page.getByTestId('move-z').fill('20');
       await commitTransform(() => page.getByTestId('move-z').press('Enter'));
       await expect(page.getByTestId('move-z')).toHaveValue('20.000');

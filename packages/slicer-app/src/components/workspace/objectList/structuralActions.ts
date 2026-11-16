@@ -5,8 +5,10 @@ import {
   prepareObjectListMutation,
   type MutationOutcome,
 } from './actions';
-import { runProjectHistoryMutation } from '../actions/historyMutation';
+import { readProjectMutationReservation, runProjectHistoryMutation } from '../actions/historyMutation';
 import type { ModelMutationResult } from '@slicer/client';
+import { splitAutoDropConfirmation } from './splitAutoDropPrompt';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 
 type StructuralMutation = ModelMutationResult;
 
@@ -64,9 +66,24 @@ export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectI
   if (!await beforePaintingTopologyChange({ objects: [objectId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
-  const r = await runStructuralHistory(runtime, 'Split to Objects', () => runtime.splitObjectToObjects(objectId));
-  if (!r.ok) return { ok: false, error: r.error };
-  return { ok: true };
+  try {
+    const preview = await readProjectMutationReservation(() => runtime.previewSplitObject(objectId));
+    if (!preview.ok) { useSlicerStore.getState().setError(preview.error); return preview; }
+    let disableAutoDrop = false;
+    if (preview.autoDrop && preview.floating) {
+      const choice = await splitAutoDropConfirmation.request(objectId);
+      if (choice === null) return { ok: false };
+      disableAutoDrop = choice === 'preserve';
+    }
+    const r = await runStructuralHistory(runtime, 'Split to Objects', () => runtime.splitObjectToObjects(objectId,
+      { disableAutoDrop, revision: preview.revision }));
+    if (!r.ok) { useSlicerStore.getState().setError(r.error); return { ok: false, error: r.error }; }
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    useSlicerStore.getState().setError(message);
+    return { ok: false, error: message };
+  }
 }
 
 export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: number[], name = 'Assembly'): Promise<MutationOutcome> {

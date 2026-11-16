@@ -2283,17 +2283,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     ] };
   }
 
-  function mockWorldMinZ(objectIndex: number, instanceIndex: number): number {
+  function mockVolumeWorldMinZ(objectIndex: number, volumeIndex: number, instanceIndex: number): number {
+    const volume = volumeMeta[objectIndex][volumeIndex];
+    if (volume.type !== 'model_part') return Infinity;
     let min = Infinity;
-    volumeMeta[objectIndex].forEach((volume, volumeIndex) => {
-      if (volume.type !== 'model_part') return;
-      const mesh = primitiveMesh(volume.primitive ?? objectMeta[objectIndex].primitive);
-      for (const vertex of mesh.verts) {
-        const part = mockTransformPoint(vertex, objectVolumeTransforms[objectIndex][volumeIndex]);
-        min = Math.min(min, mockTransformPoint(part, objectTransforms[objectIndex][instanceIndex])[2]);
-      }
-    });
+    const mesh = primitiveMesh(volume.primitive ?? objectMeta[objectIndex].primitive);
+    for (const vertex of mesh.verts) {
+      const part = mockTransformPoint(vertex, objectVolumeTransforms[objectIndex][volumeIndex]);
+      min = Math.min(min, mockTransformPoint(part, objectTransforms[objectIndex][instanceIndex])[2]);
+    }
     return min;
+  }
+  function mockWorldMinZ(objectIndex: number, instanceIndex: number): number {
+    return Math.min(...volumeMeta[objectIndex].map((_volume, volumeIndex) =>
+      mockVolumeWorldMinZ(objectIndex, volumeIndex, instanceIndex)));
+  }
+  function mockSplitSourceVolumes(objectIndex: number): number[] {
+    const volumes = volumeMeta[objectIndex];
+    if (volumes.length === 1)
+      return volumes[0].type === 'model_part' && volumes[0].isSplittable && splitParts >= 2
+        ? Array(splitParts).fill(0) as number[] : [];
+    return volumes.flatMap((volume, index) => volume.type === 'model_part' ? [index] : []);
   }
 
   let wizardCatalogue: SetupWizardCatalogue | null = null;
@@ -3662,22 +3672,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return { error: 'volume not found' };
     },
-    orc_split_object_to_objects(objectId: number, _autoDrop: number) {
+    orc_preview_split_object(objectId: number) {
+      if (historyTransaction) return { error: 'finish the active history transaction before previewing a split' };
       const oi = objectMeta.findIndex((o) => o.id === objectId);
       if (oi < 0) return { error: 'object not found' };
-      if (volumeMeta[oi].length === 1 && !volumeMeta[oi][0].isSplittable) return { error: 'object is not splittable' };
+      const sourceVolumes = mockSplitSourceVolumes(oi);
+      if (sourceVolumes.length < 2) return { error: 'object is not splittable' };
+      const floating = sourceVolumes.some((vi) => objectTransforms[oi].some((_instance, ii) =>
+        mockVolumeWorldMinZ(oi, vi, ii) >= 0.05));
+      return { ok: true, autoDrop: objectMeta[oi].autoDrop, floating, revision: historyRevision };
+    },
+    orc_split_object_to_objects(objectId: number, disableAutoDrop: number, expectedRevision: number) {
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== historyRevision) return { error: 'split preview is stale' };
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      const sourceVolumes = mockSplitSourceVolumes(oi);
+      if (sourceVolumes.length < 2) return { error: 'object is not splittable' };
       const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       const newIds: number[] = [];
-      const srcVolume = volumeMeta[oi][0];
-      const srcInstance = instanceMeta[oi][0];
       const sourceObjectId = String(objectMeta[oi].id);
-      const sourceVolumeId = String(srcVolume.id);
       const sourceObjectValues = nativeScopedConfig.objects[sourceObjectId];
-      const sourceVolumeValues = nativeScopedConfig.parts[sourceVolumeId];
-      for (let p = 0; p < splitParts; p++) {
+      for (let p = 0; p < sourceVolumes.length; p++) {
+        const sourceVolumeIndex = sourceVolumes[p];
+        const srcVolume = volumeMeta[oi][sourceVolumeIndex];
+        const sourceVolumeValues = nativeScopedConfig.parts[String(srcVolume.id)];
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
-        objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0]))]);
-        objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable, autoDrop: objectMeta[oi].autoDrop });
+        objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][sourceVolumeIndex]))]);
+        objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable,
+          autoDrop: objectMeta[oi].autoDrop && disableAutoDrop === 0, primitive: objectMeta[oi].primitive });
         const newObjectId = objectMeta[objectMeta.length - 1].id;
         // ModelObject::split() starts each derived object's config from the
         // source object and applies the source volume config over it. The
@@ -3689,10 +3711,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         };
         if (Object.keys(mergedObjectValues).length > 0)
           nativeScopedConfig.objects[String(newObjectId)] = mergedObjectValues;
-        const newVolume = { id: nextVolumeId++, name: srcVolume.name, type: srcVolume.type, isSplittable: false };
+        const newVolume = { id: nextVolumeId++, name: srcVolume.name, type: srcVolume.type,
+          primitive: srcVolume.primitive, isSplittable: false };
         volumeMeta.push([newVolume]);
-        instanceMeta.push([{ id: nextInstanceId++, printable: srcInstance.printable }]);
+        instanceMeta.push(instanceMeta[oi].map((instance) => ({ id: nextInstanceId++, printable: instance.printable })));
         objectPlateIds.push(objectPlateIds[oi] ?? currentPlateId);
+        const newIndex = objectMeta.length - 1;
+        if (objectMeta[newIndex].autoDrop) {
+          const minZ = mockWorldMinZ(newIndex, 0);
+          if (Number.isFinite(minZ)) for (const instance of objectTransforms[newIndex]) {
+            instance.offset[2] -= minZ;
+            const matrix = (instance as MockTransform).matrix;
+            if (matrix) matrix[14] -= minZ;
+          }
+        }
         newIds.push(objectMeta[objectMeta.length - 1].id);
       }
       objectTransforms.splice(oi, 1);
@@ -4393,7 +4425,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_reorder_volumes: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_split_volume_to_parts: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_mesh_boolean: { ret: 'number', args: ['string'] },
-    orc_split_object_to_objects: { ret: 'number', args: ['number', 'number'] },
+    orc_preview_split_object: { ret: 'number', args: ['number'] },
+    orc_split_object_to_objects: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_merge_objects_to_multipart: { ret: 'number', args: ['string', 'string'] },
     orc_instances_to_separate_objects: { ret: 'number', args: ['number', 'string'] },
     orc_add_instance: { ret: 'number', args: ['number'] },

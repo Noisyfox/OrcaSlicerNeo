@@ -1005,15 +1005,45 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
     }
 }
 
-// Split an object into one object per disconnected shell (upstream
-// ObjectList::split_to_objects). ModelObject::split adds the new objects to the
-// live model and fills new_objects; the bridge then removes the source object.
-// Returns the freshly generated object IDs plus the current structure so the
-// renderer can restore selection to the new objects. autoDrop is accepted for
-// signature parity (the spec exposes it) but the auto_drop bed-drop has no
-// first-version UI and is left to the host callers.
-EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, double auto_drop) {
+// Inspect an isolated clone: native split creates objects and can change the
+// source's metadata, so this must never run against the live project.
+EMSCRIPTEN_KEEPALIVE const char* orc_preview_split_object(double object_id) {
     try {
+        if (state().active_history_transaction)
+            return error_json("finish the active history transaction before previewing a split");
+        const auto id = to_object_id(object_id);
+        if (!id) return error_json("object id must be a positive integer");
+        const ModelObject* source = find_object_by_id(*id);
+        if (!source) return error_json("object not found");
+        if (source->volumes.size() <= 1 && (source->volumes.empty() || !source->volumes[0]->is_splittable()))
+            return error_json("object is not splittable");
+        if (source->instances.empty()) return error_json("object has no instances");
+        Model preview;
+        ModelObject* copy = preview.add_object(*source);
+        ModelObjectPtrs outputs;
+        copy->split(&outputs, /*remap_paint=*/false);
+        if (outputs.size() < 2) return error_json("object is not splittable");
+        bool floating = false;
+        for (const ModelObject* object : outputs)
+            for (std::size_t i = 0; i < object->instances.size(); ++i)
+                floating = floating || object->get_instance_min_z(i) >= SINKING_MIN_Z_THRESHOLD;
+        return dup_json(json{{"ok", true}, {"autoDrop", source->auto_drop}, {"floating", floating},
+                             {"revision", state().history_revision}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Apply only against the revision that was previewed. A preserved split turns
+// Auto Drop off for its outputs; otherwise enabled outputs settle separately.
+EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, double disable_auto_drop, double expected_revision) {
+    try {
+        constexpr double max_safe_integer = 9007199254740991.0;
+        if (!std::isfinite(expected_revision) || expected_revision < 0 || expected_revision > max_safe_integer ||
+            std::floor(expected_revision) != expected_revision || expected_revision != double(state().history_revision))
+            return error_json("split preview is stale");
         const auto id = to_object_id(object_id);
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
@@ -1025,12 +1055,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
         std::set<std::size_t> affected_instances;
         append_instance_ids(*obj, affected_instances);
         const auto affected_before = member_plate_ids_for_instances(affected_instances);
-        ModelObjectPtrs new_objects;
-        obj->split(&new_objects, /*remap_paint=*/false);
+        Model split_model;
+        ModelObject* source_copy = split_model.add_object(*obj);
+        ModelObjectPtrs prepared_objects;
+        source_copy->split(&prepared_objects, /*remap_paint=*/false);
+        if (prepared_objects.size() < 2) return error_json("object is not splittable");
         // Since Orca 2.5 this belongs to the object rather than its copied
         // instances. Native split constructs fresh objects with the default.
-        for (ModelObject* split_object : new_objects)
-            split_object->auto_drop = obj->auto_drop;
+        ModelObjectPtrs new_objects;
+        for (ModelObject* split_object : prepared_objects) {
+            split_object->auto_drop = obj->auto_drop && disable_auto_drop == 0.0;
+            if (split_object->auto_drop && !split_object->instances.empty())
+                split_object->ensure_on_bed();
+            new_objects.push_back(state().model.add_object(*split_object));
+        }
         // Remove the source; the split objects now own the geometry.
         state().model.delete_object(ObjectID(*id));
 
@@ -1040,9 +1078,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
             new_object_ids.push_back(o->id().id);
             append_instance_ids(*o, affected_instances);
         }
-
-        if (auto_drop != 0.0)
-            state().model.adjust_min_z();
 
         rebuild_plate_membership(true);
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},

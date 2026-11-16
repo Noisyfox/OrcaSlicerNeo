@@ -331,7 +331,15 @@ renaming a multipart object preserves part names. While an inline editor is
 active, neither its row nor its ancestors may start a drag. Multiple full
 objects do not expose Rename.
 
-Split eligibility follows native disconnected-shell / multipart rules.
+Split eligibility follows native disconnected-shell / multipart rules. Before
+splitting, the Worker inspects a temporary copy at the current project revision.
+If Auto Drop is enabled and any resulting object floats at least 0.05 mm above
+the bed, the user can preserve the Z positions by disabling Auto Drop on all
+results, place each result on the bed with Auto Drop enabled, or cancel. An
+already-disabled source stays disabled and keeps its positions without a
+prompt. Otherwise enabled results are placed on the bed. A changed project
+revision invalidates the preview and rejects the split. Splitting never adjusts
+unrelated objects.
 Assemble requires at least two full objects and uses the selected set only;
 there is no empty-list Assemble menu. If any source has Auto Drop disabled,
 the assembled object inherits the disabled setting and preserves source

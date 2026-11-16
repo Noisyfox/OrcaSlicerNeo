@@ -1,5 +1,6 @@
 import { PrepareSynchronization } from './synchronization/PrepareSynchronization';
 import { NozzleMappingConfirmation } from './nozzleMapping/NozzleMappingConfirmation';
+import { SplitAutoDropConfirmation } from './objectList/SplitAutoDropConfirmation';
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 // The sidebar/scene split: owns the resizable divider between the settings
 // sidebar and the 3D scene, and the scene interaction controller the two
@@ -780,6 +781,7 @@ export function Workspace({
       </>
     </div>
     <NozzleMappingConfirmation />
+    <SplitAutoDropConfirmation />
     {presetEditorTarget && <PresetEditorDialog
       initialTarget={presetEditorTarget}
       sceneInteraction={sceneInteraction}

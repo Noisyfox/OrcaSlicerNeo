@@ -439,7 +439,9 @@ for (const autoDrop of [0, 1]) {
   assertSavedAutoDrop(1, autoDrop);
   const undoParts = call('orc_history_undo');
   assert.equal(undoParts.ok, true, JSON.stringify({ autoDrop, undoParts }));
-  const split = edit('Split objects', () => call('orc_split_object_to_objects', ['number', 'number'], [source.id, 0]));
+  const preview = call('orc_preview_split_object', ['number'], [source.id]);
+  assert.equal(preview.ok, true, JSON.stringify(preview));
+  const split = edit('Split objects', () => call('orc_split_object_to_objects', ['number', 'number', 'number'], [source.id, 0, preview.revision]));
   assert.equal(split.result.newObjectIds.length, 2);
   assertSavedAutoDrop(2, autoDrop);
   const undoSplit = call('orc_history_undo');

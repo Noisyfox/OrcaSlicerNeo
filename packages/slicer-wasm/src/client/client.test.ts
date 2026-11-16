@@ -2600,7 +2600,7 @@ describe('SlicerClient bridge contract', () => {
       const source = (await c.getModelStructure()).objects[0];
       await c.setNativeScopedConfig({ scope: 'object', id: source.id }, 'wall_loops', '3');
       await c.setNativeScopedConfig({ scope: 'part', id: source.volumes[0].id }, 'enable_support', '1');
-      const split = await c.splitObjectToObjects(source.id);
+      const split = await c.splitObjectToObjects(source.id, { disableAutoDrop: false, revision: (await c.getHistoryStatus()).revision });
       expect(split.ok).toBe(true);
       if (!split.ok) throw new Error(split.error);
       const snapshot = await c.getNativeScopedConfig();
@@ -2763,12 +2763,30 @@ describe('SlicerClient bridge contract', () => {
   });
 
   describe('Step 4b split object to objects (stable ObjectID)', () => {
+    it.each([
+      { ok: true, autoDrop: true, floating: true },
+      { ok: true, autoDrop: true, floating: 'yes', revision: 1 },
+      { ok: true, autoDrop: true, floating: true, revision: -1 },
+    ])('rejects malformed split previews', async (payload) => {
+      const module = createMockModule();
+      const ccall = module.ccall.bind(module);
+      module.ccall = (name, ret, types, args) => {
+        if (name !== 'orc_preview_split_object') return ccall(name, ret, types, args);
+        const bytes = new TextEncoder().encode(`${JSON.stringify(payload)}\0`);
+        const pointer = module._malloc(bytes.length);
+        module.HEAPU8.set(bytes, pointer);
+        return pointer;
+      };
+      await expect(createClient(async () => module).previewSplitObject(1))
+        .resolves.toEqual({ ok: false, error: 'invalid split preview' });
+    });
+
     it('mints fresh object IDs for the split objects', async () => {
       const c = createClient(async () => createMockModule({ splitParts: 2 }));
       await c.addModel(new Uint8Array(4), 'stl');
       const { objects } = await c.getModelStructure();
       const originalId = objects[0].id;
-      const r = await c.splitObjectToObjects(originalId);
+      const r = await c.splitObjectToObjects(originalId, { disableAutoDrop: false, revision: (await c.getHistoryStatus()).revision });
       expect(r.ok).toBe(true);
       expect(r.newObjectIds).toHaveLength(2);
       expect(r.objects).toBe(2);
@@ -2780,7 +2798,7 @@ describe('SlicerClient bridge contract', () => {
     it('rejects an unknown object ID', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
-      const res = await c.splitObjectToObjects(999999);
+      const res = await c.splitObjectToObjects(999999, { disableAutoDrop: false, revision: (await c.getHistoryStatus()).revision });
       expect(res.ok).toBeFalsy();
       expect(res.error).toContain('object not found');
     });
@@ -2791,7 +2809,7 @@ describe('SlicerClient bridge contract', () => {
       const slice = await c.slice({});
       expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
-      await c.splitObjectToObjects(objects[0].id);
+      await c.splitObjectToObjects(objects[0].id, { disableAutoDrop: false, revision: (await c.getHistoryStatus()).revision });
       const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
       expect(after.error).toContain('stale or unavailable');

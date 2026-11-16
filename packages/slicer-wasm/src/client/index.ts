@@ -52,7 +52,7 @@ export type {
   PresetDraftMutationRequest, PresetDraftMutationResult, PresetDraftMutationSuccess, PresetDraftError,
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelRenderable, ModelGeometry, ModelPaintDrawGroup, ModelPaintGeometry, NativeModelObjectBuffer, ModelTransform, ModelTransformMutation, ModelTransformOperation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
-  ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
+  ReorderStructureResult, SplitVolumeResult, SplitObjectResult, SplitObjectPreview, SplitObjectOptions,
   MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   AddVolumeRequest, AddVolumeResult, ModelInstanceStructure, VolumeType,

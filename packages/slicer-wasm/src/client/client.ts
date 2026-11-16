@@ -3137,10 +3137,23 @@ export function createClient(
                       [volumeId, maxExtruders, remapPaint ? 1 : 0]), value => modelCounts(value, 'parts') && modelIds(value.newVolumeIds) && modelStructure(value.objects));
     },
 
-    async splitObjectToObjects(objectId: number, autoDrop = false): Promise<SplitObjectResult> {
+    async previewSplitObject(objectId) {
       const m = await module();
-      return normalizeStructuralResult<SplitObjectResult>(callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
-                      [objectId, autoDrop ? 1 : 0]), value => modelIds(value.newObjectIds) && modelCounts(value, 'objects'));
+      const raw = callJson(m, 'orc_preview_split_object', ['number'], [objectId]);
+      if (!isRecord(raw) || raw.ok !== true)
+        return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'invalid split preview' };
+      if (typeof raw.autoDrop !== 'boolean' || typeof raw.floating !== 'boolean' ||
+          !Number.isSafeInteger(raw.revision) || (raw.revision as number) < 0)
+        return { ok: false, error: 'invalid split preview' };
+      return { ok: true, autoDrop: raw.autoDrop, floating: raw.floating, revision: raw.revision as number };
+    },
+
+    async splitObjectToObjects(objectId, options): Promise<SplitObjectResult> {
+      const m = await module();
+      if (!options || typeof options.disableAutoDrop !== 'boolean' || !Number.isSafeInteger(options.revision) || options.revision < 0)
+        return { ok: false, error: 'invalid split options' };
+      return normalizeStructuralResult<SplitObjectResult>(callJson(m, 'orc_split_object_to_objects', ['number', 'number', 'number'],
+                      [objectId, options.disableAutoDrop ? 1 : 0, options.revision]), value => modelIds(value.newObjectIds) && modelCounts(value, 'objects'));
     },
 
     async mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult> {

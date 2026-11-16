@@ -14,7 +14,9 @@ import {
   reorderObjectsInList,
   reorderVolumesInList,
   separateInstancesInList,
+  splitObjectToObjectsInList,
 } from './structuralActions';
+import { splitAutoDropConfirmation } from './splitAutoDropPrompt';
 
 vi.mock('../actions/persistModelTransforms', () => ({
   waitForSettledModelTransforms: vi.fn(async () => ({ ok: true })),
@@ -31,6 +33,8 @@ function makeRuntime(): SlicerRuntime {
     deleteVolumes: vi.fn(async () => ({ ok: true, deleted: 1 })),
     cloneObjects: vi.fn(async () => ({ ok: true, newObjectIds: [2] })),
     mergeObjectsToMultipart: vi.fn(async () => ({ ok: true, objectId: 9 })),
+    previewSplitObject: vi.fn(async () => ({ ok: true, autoDrop: true, floating: true, revision: 7 })),
+    splitObjectToObjects: vi.fn(async () => ({ ok: true, newObjectIds: [2, 3], objects: 2 })),
     reorderObjects: vi.fn(async () => ({ ok: true, objects: [] })),
     reorderVolumes: vi.fn(async () => ({ ok: true, objects: [] })),
     separateInstances: vi.fn(async () => ({ ok: true, newObjectIds: [21] })),
@@ -87,6 +91,40 @@ describe('object list structural actions', () => {
     const runtime = makeRuntime();
     await assembleObjectsInList(runtime, [1, 2], 'Asm');
     expect(runtime.mergeObjectsToMultipart).toHaveBeenCalledWith([1, 2], 'Asm');
+  });
+
+  it.each([['preserve', true], ['drop', false]] as const)('uses the %s choice in one split transaction', async (choice, disableAutoDrop) => {
+    const runtime = makeRuntime();
+    const pending = splitObjectToObjectsInList(runtime, 1);
+    await vi.waitFor(() => expect(splitAutoDropConfirmation.getSnapshot()).not.toBeNull());
+    expect(runtime.splitObjectToObjects).not.toHaveBeenCalled();
+    splitAutoDropConfirmation.finish(splitAutoDropConfirmation.getSnapshot()!, choice);
+    expect(await pending).toEqual({ ok: true });
+    expect(runtime.splitObjectToObjects).toHaveBeenCalledWith(1, { disableAutoDrop, revision: 7 });
+  });
+
+  it('cancels without splitting and skips the prompt when Auto Drop is disabled', async () => {
+    const runtime = makeRuntime();
+    const pending = splitObjectToObjectsInList(runtime, 1);
+    await vi.waitFor(() => expect(splitAutoDropConfirmation.getSnapshot()).not.toBeNull());
+    splitAutoDropConfirmation.finish(splitAutoDropConfirmation.getSnapshot()!, null);
+    expect(await pending).toEqual({ ok: false });
+    expect(runtime.splitObjectToObjects).not.toHaveBeenCalled();
+    vi.mocked(runtime.previewSplitObject).mockResolvedValueOnce({ ok: true, autoDrop: false, floating: true, revision: 8 });
+    expect(await splitObjectToObjectsInList(runtime, 1)).toEqual({ ok: true });
+    expect(runtime.splitObjectToObjects).toHaveBeenCalledWith(1, { disableAutoDrop: false, revision: 8 });
+    expect(splitAutoDropConfirmation.getSnapshot()).toBeNull();
+  });
+
+  it('splits grounded outputs directly and reports a stale preview', async () => {
+    const runtime = makeRuntime();
+    vi.mocked(runtime.previewSplitObject).mockResolvedValueOnce({ ok: true, autoDrop: true, floating: false, revision: 9 });
+    vi.mocked(runtime.splitObjectToObjects).mockResolvedValueOnce({ ok: false, error: 'split preview is stale' });
+    const result = await splitObjectToObjectsInList(runtime, 1);
+    expect(result).toMatchObject({ ok: false, error: 'split preview is stale' });
+    expect(useSlicerStore.getState().error).toBe('split preview is stale');
+    expect(runtime.splitObjectToObjects).toHaveBeenCalledWith(1, { disableAutoDrop: false, revision: 9 });
+    expect(splitAutoDropConfirmation.getSnapshot()).toBeNull();
   });
 
   it('reorderObjectsInList calls the bridge with the source object ID and a destination index', async () => {
