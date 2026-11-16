@@ -88,11 +88,13 @@ it('transports lifecycle, geometry, effective/no-op commits and history through 
   await expect(client.undoHistory()).rejects.toThrow('busy');
   const committed: any = await client.commitPaintingStroke({ ...handle, revision: begun.revision, strokeId: begun.strokeId });
   expect(committed).toMatchObject({ ok: true, committed: true, phase: 'idle' });
+  expect(committed.plateInputRevisions).toEqual((await client.getPlateSessionSnapshot() as any).inputRevisions);
   expect(committed.history.undoEntries[0].label).toBe('Paint');
   handle.revision = committed.revision;
   const next: any = await client.beginPaintingStroke({ ...handle, tool: 'triangle', settings: { state: 2 } });
   const noop: any = await client.commitPaintingStroke({ ...handle, revision: next.revision, strokeId: next.strokeId });
   expect(noop.committed).toBe(false);
+  expect(noop.plateInputRevisions).toEqual(committed.plateInputRevisions);
   await client.undoHistory();
   const restored: any = await client.readPaintingSession({ ...handle, revision: noop.revision, latest: true });
   expect(restored.session.parts[0].facetCounts[0]).toBe(1);

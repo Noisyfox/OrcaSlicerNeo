@@ -9,6 +9,66 @@ import { createHash } from 'node:crypto';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
 import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
 
+test('real U1 painting keeps manual filament mapping editable', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires current native WASM');
+  test.setTimeout(300000);
+  const root = resolve(__dirname, '../../..');
+  for (const file of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
+    const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
+    expect(hash(join(root, 'apps/desktop/out/renderer/wasm/threaded', file)))
+      .toBe(hash(join(root, 'packages/slicer-wasm/out/threaded', file)));
+  }
+  const preferences = join(mkdtempSync(join(tmpdir(), 'neo-u1-paint-mapping-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: { printer: 'Snapmaker U1 (0.4 nozzle)' }, ui: { sidebarWidth: 340 } }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PREFERENCES: preferences,
+    ORCA_E2E_MODEL: join(root, 'packages/slicer-wasm/fixtures/cube.stl') } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 240000 });
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('preset-select')).toContainText('U1');
+    for (const slot of [2, 3]) {
+      await page.getByTestId('filament-add').click();
+      await expect(page.getByTestId(`filament-slot-${slot}`)).toBeVisible();
+    }
+    await installSliceReceiptObserver(page, ['commitPaintingStroke', 'getNozzleMapping', 'mutateNozzleMapping']);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await page.getByTestId('config-mode-scoped').click();
+    await page.getByTestId('object-list').locator('div[data-testid^="object-"]:not([data-testid="object-list"])').first().click();
+    await page.getByTestId('gizmo-btn-paint').click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+    await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.paintingEvidence().resources.length)).toBeGreaterThan(0);
+    await page.getByRole('radio', { name: 'Paint filament 3', exact: true }).click();
+    await page.getByTestId('painting-tool-triangle').click();
+    const point = await page.evaluate(() => (window as any).__orcaE2e.paintingEvidence().center);
+    await page.mouse.click(point.x, point.y);
+    await expect.poll(async () => (await readSliceReceipts(page) as any[])
+      .some(r => r.op === 'commitPaintingStroke' && r.result?.committed)).toBe(true);
+    await page.getByTestId('config-mode-plates').click();
+    await page.getByTestId('plate-properties-mapping').click();
+    const assignment = page.getByTestId('mapping-filament-3');
+    await expect(assignment).toBeEnabled();
+    await page.getByRole('button', { name: 'Close painting', exact: true }).click();
+    await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await expect(assignment).toBeEnabled();
+    await assignment.click();
+    await page.getByRole('option', { name: 'Nozzle 3', exact: true }).click();
+    await expect(assignment).toContainText('Nozzle 3');
+    await expect(assignment).toBeEnabled();
+    await page.getByTestId('history-undo').click();
+    await expect(assignment).toContainText('Nozzle 1');
+    await expect(assignment).toBeEnabled();
+    await page.getByTestId('history-redo').click();
+    await expect(assignment).toContainText('Nozzle 3');
+    await expect(assignment).toBeEnabled();
+    await page.getByTestId('sidebar-settings-panel').screenshot({ path: test.info().outputPath('u1-painted-mapping.png') });
+  } finally { await app.close(); }
+});
+
 test('real nozzle mapping edits, confirms, cancels and slices with native Plate ownership', async () => {
   test.skip(process.env.ORCA_E2E_REAL !== '1' || !process.env.ORCA_E2E_MAPPING_PROJECT,
     'requires the native nozzle-mapping persistence fixture and current WASM');

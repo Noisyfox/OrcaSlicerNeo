@@ -144,6 +144,7 @@ export interface PaintingCommitRequest extends PaintingStrokeRequest {
 export type PaintingCommitResult = Exclude<PaintingDraftResult, { error: string }> & {
   readonly committed: boolean;
   readonly affectedPlateIds: readonly string[];
+  readonly plateInputRevisions: Readonly<Record<string, number>>;
   readonly history: import('./history').HistoryStatus;
 } | PaintingFailure;
 export interface PaintingGeometryRequest extends PaintingSessionRequest { readonly knownResourceIds?: readonly string[] }

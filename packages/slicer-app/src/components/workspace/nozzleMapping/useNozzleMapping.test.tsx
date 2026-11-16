@@ -7,6 +7,7 @@ import type { HistoryStatus, NozzleMappingSnapshot, PlateSessionSnapshot } from 
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { publishNozzleMappingSnapshot, useNozzleMapping } from './useNozzleMapping';
+import { publishPaintingCommit } from '../viewport/gizmo/painting/PaintingProvider';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const history = (revision: number): HistoryStatus => ({
   editingSession: null, navigationFloor: null, canUndo: false, canRedo: false,
@@ -58,6 +59,21 @@ it('publishes a native mutation receipt atomically without a follow-up read', as
   });
   expect(view.output().dataset.revision).toBe('2'); expect(view.output().dataset.editable).toBe('true');
   expect(view.getNozzleMapping).toHaveBeenCalledTimes(1);
+});
+
+it('refreshes editable mapping against the Plate stamps published by a paint commit', async () => {
+  let nativeRevision = 1;
+  const view = await mount(vi.fn(async (id: string) => mapping(id, nativeRevision)));
+  const before = usePlateSessionStore.getState().snapshot!;
+  await act(async () => {
+    nativeRevision = 2;
+    useHistoryNavigationStore.getState().setStatus(history(2));
+    publishPaintingCommit({ cancel: vi.fn() }, ['A'], { A: 2, B: 1 });
+  });
+  expect(view.output().dataset.revision).toBe('2');
+  expect(view.output().dataset.editable).toBe('true');
+  expect(view.getNozzleMapping).toHaveBeenCalledTimes(2);
+  expect(usePlateSessionStore.getState().snapshot).toEqual({ ...before, inputRevisions: { A: 2, B: 1 } });
 });
 
 it('discards a delayed read after a newer native receipt and clears removed targets', async () => {

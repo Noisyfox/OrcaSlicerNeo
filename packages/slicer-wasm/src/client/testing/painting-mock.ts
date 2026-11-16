@@ -6,6 +6,7 @@ export function paintingMock(hooks: {
   objects: () => { id: number; instanceIds: number[]; volumes: { id: number; paintState?: number; supportState?: number; seamState?: number; fuzzyState?: number }[] }[];
   commit: (mutate: () => void, label: string) => unknown;
   history: () => unknown;
+  plateInputRevisions: () => unknown;
   allocate: (values: number[]) => number;
   free: (pointer: number) => void;
 }) {
@@ -105,7 +106,7 @@ export function paintingMock(hooks: {
       }, session.channel === 'mmu' ? 'Paint' : session.channel === 'support' ? 'Paint Supports' : session.channel === 'seam' ? 'Paint Seam' : 'Paint Fuzzy Skin');
       if (effective) session.parts.forEach((part: any, i: number) => { if (session.states[i] !== before[i]) part.timestamp++; });
       committed = [...session.states]; session.revision++; finish();
-      return { ...receipt(), changedPartIds, committed: effective, affectedPlateIds: [], history: hooks.history() };
+      return { ...receipt(), changedPartIds, committed: effective, affectedPlateIds: [], history: hooks.history(), plateInputRevisions: hooks.plateInputRevisions() };
     },
     orc_painting_geometry(request) {
       require(request); const parts = metadata().session.parts.map((p: any) => ({ volumeId: p.volumeId, resourceId: p.draftResourceId }));

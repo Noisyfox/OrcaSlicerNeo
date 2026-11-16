@@ -52,6 +52,9 @@ const handle = () => ({ version: 1, channel: session.channel, sessionId: session
 const read = () => ok(command('orc_painting_session_read', handle())).session;
 function update(name, request) {
   const reply = ok(command(name, { ...handle(), ...request }));
+  if (name === 'orc_painting_stroke_commit')
+    assert.deepEqual(reply.plateInputRevisions, ok(call('orc_get_plate_session_snapshot')).input_revisions,
+      'painting commit publishes authoritative Plate input stamps');
   session = { ...session, revision: reply.revision, strokeId: reply.strokeId, phase: reply.phase };
   return reply;
 }

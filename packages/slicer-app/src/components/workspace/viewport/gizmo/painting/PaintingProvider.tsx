@@ -7,11 +7,19 @@ import { projectHistoryStatus } from '@/history/projectHistoryStatus';
 import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { glVolumeCollection } from '@/components/workspace/viewport/GLVolume';
 import { readSceneDeltaProjection } from '@/components/workspace/viewport/sceneDeltaProjection';
 import type { SceneInteractionController } from '@/components/workspace/viewport/SceneInteractionController';
 import { useObjectListStore } from '@/components/workspace/objectList/useObjectListStore';
 import type { SlicerClient } from '@slicer/client';
+
+/** Painting changes input stamps without changing Plate membership or layout. */
+export function publishPaintingCommit(runtime: Pick<SlicerClient, 'cancel'>, plates: readonly string[], inputRevisions: Readonly<Record<string, number>>) {
+  const snapshot = usePlateSessionStore.getState().snapshot;
+  if (snapshot) usePlateSessionStore.getState().setSnapshot({ ...snapshot, inputRevisions });
+  invalidateAffectedPlateResults(runtime, plates);
+}
 
 /** The caller owns the painting/project lane through this atomic publication. */
 export async function preparePaintingClosedScene(runtime: Pick<SlicerClient, 'getModelScenePatch'>, paintedObjectIds: readonly number[]) {
@@ -40,7 +48,7 @@ export function PaintingProvider({ children }: { children: ReactNode }) {
       .some((object) => object.id === objectId && object.instances.some((instance) => instance.id === instanceId)),
     api: runtime,
     history: projectHistoryStatus,
-    committed: (plates) => invalidateAffectedPlateResults(runtime, plates),
+    committed: (plates, inputRevisions) => publishPaintingCommit(runtime, plates, inputRevisions),
     prepareClosed: (paintedObjectIds) => preparePaintingClosedScene(runtime, paintedObjectIds),
     schedule: (callback) => { const id = requestAnimationFrame(callback); return () => cancelAnimationFrame(id); },
   });

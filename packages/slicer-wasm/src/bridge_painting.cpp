@@ -554,6 +554,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                         auto result = receipt(*candidate);
                         result["committed"] = true; result["changedPartIds"] = changed;
                         result["affectedPlateIds"] = affected;
+                        result["plateInputRevisions"] = PlateSession::plate_revisions_json();
                         result["history"] = HistoryMetadata::history_status_json(state(), history, state().history_revision + 1);
     #ifdef NEO_PROJECT_HISTORY_TEST
                         if (fail_next_commit) { fail_next_commit = false; throw std::runtime_error("injected painting commit failure"); }
@@ -579,6 +580,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                     Sessions::complete(*candidate);
                     auto result = receipt(*candidate); result["committed"] = false;
                     result["affectedPlateIds"] = json::array(); result["history"] = HistoryMetadata::history_status_json(state());
+                    result["plateInputRevisions"] = PlateSession::plate_revisions_json();
                     out = response(result);
                 }
                 state().painting.publish(std::move(candidate));
