@@ -378,9 +378,11 @@ reviewed and ported deliberately as separate Neo changes.
 ### 6.2 Transform synchronization boundary
 
 During pointer or gizmo dragging, React/three.js retains temporary transform
-state for responsive rendering. At gesture start, the Worker captures the
-pre-change model version; at successful gesture end, React sends the final
-transform once to the Worker `Model` and commits the history transaction.
+state for responsive rendering. At gesture start, the Worker revision and
+stable target identities are reserved; at successful gesture end, React sends
+the final transform once to the Worker `Model` and commits the history
+transaction. Auto Drop corrections are part of that same transaction and are
+published only after it commits.
 Numeric transforms, Drop to Bed, and Reset use the same capture/sync/commit
 sequence. Cancelling a gesture restores its local pre-gesture transform and
 aborts the Worker transaction.

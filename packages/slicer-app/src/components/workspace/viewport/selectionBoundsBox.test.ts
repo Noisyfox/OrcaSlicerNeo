@@ -1,12 +1,18 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { SELECTION_BOX_BRACKET_FRACTION, selectionBoundsBoxPositions } from './SelectionBoundsBox';
+import { SELECTION_BOX_BRACKET_FRACTION, selectionBoundsBoxPositions, autoDropDisabledArrowPositions } from './SelectionBoundsBox';
 
 function expectPoint(positions: Float32Array, index: number, point: [number, number, number]) {
   expect([positions[index], positions[index + 1], positions[index + 2]]).toEqual(point);
 }
 
 describe('selectionBoundsBoxPositions', () => {
+  it('places four upward arrows below the selected bounds', () => {
+    const positions = autoDropDisabledArrowPositions(new THREE.Box3(new THREE.Vector3(0, 0, 10), new THREE.Vector3(20, 30, 40)));
+    expect(positions).toHaveLength(72);
+    expect([...positions.slice(0, 6)]).toEqual([0, 0, 4, 0, 0, 9]);
+    expect([...positions.slice(18, 24)]).toEqual([20, 0, 4, 20, 0, 9]);
+  });
   it('emits 24 inward bracket segments (48 vertices) per corner', () => {
     const bounds = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(20, 20, 20));
     const positions = selectionBoundsBoxPositions(bounds);

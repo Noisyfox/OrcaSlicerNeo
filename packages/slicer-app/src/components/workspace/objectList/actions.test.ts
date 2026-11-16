@@ -8,6 +8,7 @@ import {
   changePartTypeInList,
   renameObjectInList,
   setObjectPrintableInList,
+  setObjectsAutoDropInList,
 } from './actions';
 
 vi.mock('../actions/persistModelTransforms', () => ({
@@ -121,6 +122,16 @@ describe('object list action helpers', () => {
     expect(runtime.setObjectPrintable).toHaveBeenCalledWith(1, false);
     expect(runtime.setObjectPrintable).toHaveBeenCalledWith(2, false);
     expect(useSlicerStore.getState().status).toBe('idle');
+  });
+
+  it('keeps a valid slice when changing Auto Drop without moving geometry', async () => {
+    const setObjectsAutoDrop = vi.fn(async () => ({ ok: true, plateSession: { affectedPlateIds: [] } }));
+    const runtime = makeRuntime({ setObjectsAutoDrop: setObjectsAutoDrop as never });
+    const result = await setObjectsAutoDropInList(runtime, [1, 2], false);
+    expect(result).toEqual({ ok: true });
+    expect(setObjectsAutoDrop).toHaveBeenCalledWith([1, 2], false);
+    expect(useSlicerStore.getState().status).toBe('done');
+    expect(useSlicerStore.getState().resultExported).toBe(true);
   });
 
   it('propagates a bridge error without refreshing', async () => {

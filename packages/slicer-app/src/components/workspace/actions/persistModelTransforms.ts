@@ -19,6 +19,9 @@ export function applySettledTransformSyncResult(result: SyncResult): void {
   if (!result.ok) return;
   if (result.plateSession)
     applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
+  // A snapped-back gesture can leave the native model and all slice inputs
+  // unchanged, even though the renderer's temporary draft needed correction.
+  if (result.plateSession?.affectedPlateIds?.length === 0) return;
   const slicer = useSlicerStore.getState();
   slicer.setStatus('idle');
   slicer.setResultExported(false);

@@ -283,8 +283,9 @@ The concrete adaptation owners include
 
 Retain native `auto_drop` compatibility: new object metadata takes precedence;
 for legacy build-item metadata, any instance set to off makes the object off;
-the default is on. Neo has no automatic-drop toggle to introduce in this upgrade.
-Its manual Drop to Bed command remains an independent transform operation.
+the default is on. Neo exposes the object-level setting in its Object List and
+scene context menus. Its manual Drop to Bed command remains an independent
+transform operation.
 
 Upstream preset replacement can remove an old file and select a different path
 based on the new parent. Audit Neo's transaction watch set, persisted changes

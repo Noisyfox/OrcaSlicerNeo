@@ -188,8 +188,13 @@ as its object row, whereas Orca's `update_selections()` would otherwise list its
 instance rows).
 
 Instance rows show a printable toggle. Object rows show an aggregate printable
-state that toggles every instance of that object. `auto_drop` is not exposed in
-the first version.
+state that toggles every instance of that object. Object and instance context
+menus expose object-level Auto Drop; the list's `D` shortcut toggles the
+selected owning objects. A mixed selection enables all of them. Enabling the
+setting immediately places the object on the bed and affects its instances
+together; disabling it does not move the object. A metadata-only toggle retains
+valid slice results, and the setting and any resulting movement are one history
+edit.
 
 Selection restoration must follow stable native identities and the operation
 target. Non-destructive operations (rename, change type, reorder, printable

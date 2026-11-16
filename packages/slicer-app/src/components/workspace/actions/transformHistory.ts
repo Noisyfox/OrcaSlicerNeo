@@ -1,4 +1,4 @@
-import type { HistoryContext, HistoryStatus, ModelStructureResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, HistoryStatus, ModelStructureResult, ModelTransformOperation, SlicerClient } from '@slicer/client';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { projectSelection } from '../objectList/projection';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
@@ -57,6 +57,7 @@ type TransformReservation = { revision: number; targets: readonly StableTarget[]
 
 type PendingTransformTransaction = {
   label: string;
+  operation: ModelTransformOperation;
   beforeContext: HistoryContext;
   startTargets: readonly CompositeTarget[];
   decision: GateCommand | null;
@@ -90,7 +91,7 @@ export class TransformHistoryCoordinator {
   /** Installed by Workspace so a stale/failed draft is rebuilt from Worker authority. */
   setReconcile(reconcile: (() => Promise<void>) | null): void { this.reconcile = reconcile; }
 
-  begin(label: string): boolean {
+  begin(label: string, operation: ModelTransformOperation): boolean {
     // A gesture cannot start from a renderer projection while another project
     // publication is replacing it. This does not reserve the FIFO: after its
     // short read-only reservation completes, other mutations continue freely.
@@ -98,10 +99,14 @@ export class TransformHistoryCoordinator {
     const beforeContext = historyContextForScene(this.sceneInteraction);
     const startTargets = this.captureCompositeTargets();
     if (startTargets.length === 0) return false;
+    const objectIndices = new Set(startTargets.map((target) => target.objectIdx));
+    // An authoritative bed correction arrives asynchronously. Do not let a
+    // newer draft for the same object be overwritten by that correction.
+    if (this.pending.some((transaction) => transaction.startTargets.some((target) => objectIndices.has(target.objectIdx)))) return false;
     let resolve!: (result: TransformGestureResult) => void;
     const completion = new Promise<TransformGestureResult>((done) => { resolve = done; });
     const pending: PendingTransformTransaction = {
-      label, beforeContext, startTargets, decision: null, finalTransforms: null,
+      label, operation, beforeContext, startTargets, decision: null, finalTransforms: null,
       reservation: null, reservationError: null, reservationReady: false, reservationStarted: false, task: null, resolve, completion,
     };
     this.pending.push(pending);
@@ -184,13 +189,15 @@ export class TransformHistoryCoordinator {
       next.beforeContext,
       async (transactionId) => {
         const result = await syncModelTransformsAtomically(this.runtime, transactionId,
-          next.finalTransforms ?? this.captureTransforms());
+          next.finalTransforms ?? this.captureTransforms(), next.operation);
         if (!result.ok) throw new Error(result.error ?? 'model transform synchronization failed');
-        applySettledTransformSyncResult(result);
         return result;
       },
       () => historyContextForScene(this.sceneInteraction),
-      undefined,
+      (result) => {
+        applySettledTransformSyncResult(result);
+        this.sceneInteraction.notifyTransformsChanged();
+      },
       undefined,
       async () => { await this.reconcile?.(); },
       async () => this.validateReservation(next),

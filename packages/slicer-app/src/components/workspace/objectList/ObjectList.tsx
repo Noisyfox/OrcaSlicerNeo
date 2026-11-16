@@ -18,7 +18,8 @@ import {
   type ObjectListValidity,
   type SelectableRow,
 } from './projection';
-import { renameObjectInList, renamePartInList, setObjectPrintableInList, setInstancePrintableInList } from './actions';
+import { renameObjectInList, renamePartInList, setObjectPrintableInList, setInstancePrintableInList, setObjectsAutoDropInList } from './actions';
+import { selectedAutoDropObjects } from './autoDrop';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -388,6 +389,15 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     </div>
   ) : (
     <div data-testid="object-list" className="object-list-tree py-2"
+      onKeyDown={(event) => {
+        if (event.key.toLowerCase() !== 'd' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+        if ((event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
+        const objects = selectedAutoDropObjects(structure, projection);
+        if (objects.length === 0) return;
+        event.preventDefault();
+        void setObjectsAutoDropInList(platform.runtime, objects.map((object) => object.id),
+          !objects.every((object) => object.autoDrop), sceneInteraction);
+      }}
       onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleListDropToEnd}>

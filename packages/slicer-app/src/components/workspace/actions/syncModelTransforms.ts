@@ -1,4 +1,4 @@
-import type { PlateSessionMutation, SlicerClient } from '@slicer/client';
+import type { ModelTransformOperation, PlateSessionMutation, SlicerClient } from '@slicer/client';
 import type { GLVolume } from '../viewport/GLVolume';
 
 type TransformableVolume = Pick<GLVolume, 'instanceTransform' | 'volumeTransform'> & {
@@ -47,6 +47,7 @@ export async function syncModelTransformsAtomically(
   client: Pick<SlicerClient, 'setModelTransforms'>,
   transactionId: string,
   volumes: readonly TransformableVolume[],
+  operation: ModelTransformOperation,
 ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }> {
   if (volumes.length === 0) return { ok: false, error: 'no renderer transforms to commit' };
   return client.setModelTransforms(transactionId, volumes.map((volume) => ({
@@ -55,7 +56,7 @@ export async function syncModelTransformsAtomically(
     instanceIdx: volume.buffer.instanceIdx,
     instanceTransform: structuredClone(volume.instanceTransform),
     volumeTransform: structuredClone(volume.volumeTransform),
-  })), 'direct');
+  })), operation);
 }
 
 /** Apply authoritative world transforms returned by a plate mutation.

@@ -5,7 +5,7 @@ import { FolderPlus } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import {
   ContextMenuContent,
-  ContextMenuItem, ContextMenuGroup, ContextMenuSeparator,
+  ContextMenuItem, ContextMenuCheckboxItem, ContextMenuGroup, ContextMenuSeparator,
   ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
 } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
@@ -20,7 +20,8 @@ import {
   splitObjectToObjectsInList,
   splitVolumeToPartsInList,
 } from './structuralActions';
-import { changePartTypeInList, setObjectPrintableInList, setInstancePrintableInList } from './actions';
+import { changePartTypeInList, setObjectPrintableInList, setInstancePrintableInList, setObjectsAutoDropInList } from './actions';
+import { selectedAutoDropObjects } from './autoDrop';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { ADD_VOLUME_MENUS, addVolumeAnchor, addVolumeInList } from './addVolumeActions';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -72,6 +73,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const runFilament = useFilamentSessionStore((s) => s.run);
   const projection = useObjectListStore((s) => s.projection);
+  const structure = useObjectListStore((s) => s.structure);
   const act = (p: Promise<{ ok: boolean; error?: string }>) => { void p; onClose(); };
 
   // "Assemble" merges the fully-selected objects only (never the whole list).
@@ -270,6 +272,17 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
         onClick={() => act(setInstancePrintableInList(runtime,
           selectedInstanceIds.includes(inst.id) ? selectedInstanceIds : [inst.id], !inst.printable))} />,
     );
+  }
+
+  if (target.kind === 'object' || target.kind === 'instance') {
+    const selected = selectedAutoDropObjects(structure, projection);
+    const objects = selected.some((object) => object.id === target.object.id) ? selected : [target.object];
+    const enabled = objects.every((object) => object.autoDrop);
+    items.push(<ContextMenuCheckboxItem key="auto-drop" data-testid="objectlist-auto-drop"
+      checked={enabled} onCheckedChange={() => act(setObjectsAutoDropInList(runtime,
+        objects.map((object) => object.id), !enabled, sceneInteraction))}>
+      Auto Drop
+    </ContextMenuCheckboxItem>);
   }
 
   // Nothing to offer (e.g. empty-space right-click without a multi-object

@@ -1516,6 +1516,43 @@ test('real STEP flow: Add Model → renders named solid → slice → export G-c
   }
 });
 
+test('object list Auto Drop supports menu, shortcut, undo and redo', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const row = page.getByTestId('object-list').locator('div[data-testid^="object-"]').first();
+    const checkbox = page.getByTestId('objectlist-auto-drop');
+    const open = async () => { await row.click({ button: 'right', position: { x: 40, y: 4 } }); };
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+    await checkbox.click();
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Disable Auto Drop');
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+    const button = row.locator(':scope > div > button.object-list-row');
+    await button.click({ position: { x: 40, y: 10 } });
+    await button.press('d');
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Enable Auto Drop');
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('history-undo').click();
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('history-redo').click();
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+  } finally { await app.close(); }
+});
+
 // Ctrl+clicking an object then a part of another object must not create a
 // Mixed selection (Orca's mixed type is invalid).
 test('object list: refuses mixing object and part selection (mock)', async () => {

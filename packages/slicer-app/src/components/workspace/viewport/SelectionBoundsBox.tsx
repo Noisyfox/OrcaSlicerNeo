@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { SelectionBoundsBoxProbe } from '@/e2e/SelectionBoundsBoxProbe';
+import { useObjectListStore } from '../objectList/useObjectListStore';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -60,16 +61,33 @@ export function selectionBoundsBoxPositions(bounds: THREE.Box3): Float32Array {
   return positions;
 }
 
+/** Native-style upward arrows underneath the four bottom box corners. */
+export function autoDropDisabledArrowPositions(bounds: THREE.Box3): Float32Array {
+  const { min, max } = bounds;
+  const positions: number[] = [];
+  for (const [x, y] of [[min.x, min.y], [max.x, min.y], [max.x, max.y], [min.x, max.y]]) {
+    const tip = min.z - 1;
+    positions.push(x, y, tip - 5, x, y, tip);
+    positions.push(x, y, tip, x + (x === min.x ? 2 : -2), y, tip - 2);
+    positions.push(x, y, tip, x, y + (y === min.y ? 2 : -2), tip - 2);
+  }
+  return new Float32Array(positions);
+}
+
 export function SelectionBoundsBox() {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
   const invalidate = useThree((s) => s.invalidate);
+  const structure = useObjectListStore((s) => s.structure);
 
   const bounds = sceneInteraction.selectionBounds();
   // The box renders only while no gizmo is opened — an armed gizmo takes over
   // the selection visual. Body drags keep it visible and following.
   const gizmoOpen = sceneInteraction.gizmo !== null;
   const positions = bounds && !gizmoOpen ? selectionBoundsBoxPositions(bounds) : null;
+  const selectedIds = new Set(sceneInteraction.selectedVolumes().map((volume) => volume.buffer.objectId));
+  const disabled = structure.some((object) => selectedIds.has(object.id) && !object.autoDrop);
+  const arrowPositions = bounds && !gizmoOpen && disabled ? autoDropDisabledArrowPositions(bounds) : null;
 
   const geometry = useMemo(() => {
     const geo = new THREE.BufferGeometry();
@@ -77,6 +95,11 @@ export function SelectionBoundsBox() {
       'position',
       new THREE.Float32BufferAttribute(new Float32Array(BRACKET_SEGMENT_VERTEX_COUNT * 3), 3),
     );
+    return geo;
+  }, []);
+  const arrowGeometry = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(24 * 3), 3));
     return geo;
   }, []);
 
@@ -90,6 +113,14 @@ export function SelectionBoundsBox() {
     geometry.computeBoundingSphere();
     invalidate();
   }, [geometry, invalidate, positions]);
+  useLayoutEffect(() => {
+    if (!arrowPositions) return;
+    const attribute = arrowGeometry.getAttribute('position') as THREE.BufferAttribute;
+    (attribute.array as Float32Array).set(arrowPositions);
+    attribute.needsUpdate = true;
+    arrowGeometry.computeBoundingSphere();
+    invalidate();
+  }, [arrowGeometry, invalidate, arrowPositions]);
 
   return (
     <>
@@ -101,6 +132,11 @@ export function SelectionBoundsBox() {
           // Shift+click fallbacks raycast the raw scene children).
           raycast={() => undefined}
         >
+          <lineBasicMaterial color={SELECTION_BOX_COLOR} />
+        </lineSegments>
+      )}
+      {arrowPositions && (
+        <lineSegments geometry={arrowGeometry} frustumCulled={false} raycast={() => undefined}>
           <lineBasicMaterial color={SELECTION_BOX_COLOR} />
         </lineSegments>
       )}

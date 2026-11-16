@@ -12,6 +12,7 @@ import { applyPlateResultMutation, invalidateAffectedPlateResults } from '@/stor
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { runProjectHistoryMutation } from '../actions/historyMutation';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 
 type ListHistoryResult = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
 
@@ -176,4 +177,22 @@ export async function setInstancePrintableInList(runtime: SlicerRuntime, instanc
   });
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };
+}
+
+/** Change the object-level setting atomically; enabling may also move instances. */
+export async function setObjectsAutoDropInList(
+  runtime: SlicerRuntime, objectIds: number[], enabled: boolean, sceneInteraction?: SceneInteractionController | null,
+): Promise<MutationOutcome> {
+  const prepared = await prepareObjectListMutation();
+  if (!prepared.ok) return prepared;
+  const history = await runProjectHistoryMutation(runtime, enabled ? 'Enable Auto Drop' : 'Disable Auto Drop',
+    () => runtime.setObjectsAutoDrop(objectIds, enabled), sceneInteraction, {
+      publish: async (result) => {
+        if (!result.ok) return;
+        if ((result.plateSession?.affectedPlateIds?.length ?? 0) > 0)
+          await refreshAfterModelMutation(runtime, result.plateSession);
+        sceneInteraction?.notifyTransformsChanged();
+      },
+    });
+  return history.result.ok ? { ok: true } : { ok: false, error: history.result.error };
 }
