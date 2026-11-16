@@ -3815,14 +3815,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectVolumeTransforms[obj][volume] = JSON.parse(volumeJson);
       return { ok: true };
     },
-    orc_set_model_transforms(transactionId: string, transformsJson: string) {
+    orc_set_model_transforms(transactionId: string, transformsJson: string, operation: string) {
       if (transactionId !== historyTransaction?.id) return { error: 'history transaction is stale or belongs to another writer' };
+      if (!['direct', 'move', 'rotate', 'scale'].includes(operation)) return { error: 'invalid transform operation' };
       const transforms = JSON.parse(transformsJson) as Array<{ objectIdx: number; volumeIdx: number; instanceIdx: number; instanceTransform: unknown; volumeTransform: unknown }>;
       if (!Array.isArray(transforms) || transforms.length === 0) return { error: 'transforms must be a non-empty array' };
       const composites = new Set<string>();
       const instanceUpdates = new Map<string, string>();
       const volumeUpdates = new Map<string, string>();
-      const changedObjects = new Set<number>();
+      const previousVolumes = new Map<string, string>();
+      const affectedInstances = new Map<string, { objectIndex: number; instanceIndex: number }>();
       for (const transform of transforms) {
         if (!Number.isInteger(transform.objectIdx) || !Number.isInteger(transform.volumeIdx) || !Number.isInteger(transform.instanceIdx) ||
             transform.objectIdx < 0 || transform.objectIdx >= objectTransforms.length ||
@@ -3840,17 +3842,48 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           return { error: 'transform request contains conflicting shared transforms' };
         instanceUpdates.set(instanceKey, instance);
         volumeUpdates.set(volumeKey, volume);
-        if (instance !== JSON.stringify(objectTransforms[transform.objectIdx][transform.instanceIdx]) ||
-            volume !== JSON.stringify(objectVolumeTransforms[transform.objectIdx][transform.volumeIdx]))
-          changedObjects.add(transform.objectIdx);
+        const previousVolume = JSON.stringify(objectVolumeTransforms[transform.objectIdx][transform.volumeIdx]);
+        previousVolumes.set(volumeKey, previousVolume);
+        if (instance !== JSON.stringify(objectTransforms[transform.objectIdx][transform.instanceIdx]))
+          affectedInstances.set(instanceKey, { objectIndex: transform.objectIdx, instanceIndex: transform.instanceIdx });
+        if (volume !== previousVolume)
+          objectTransforms[transform.objectIdx].forEach((_value, instanceIndex) => {
+            affectedInstances.set(`${transform.objectIdx}:${instanceIndex}`, { objectIndex: transform.objectIdx, instanceIndex });
+          });
       }
+      const saved = [...affectedInstances.values()].map(({ objectIndex, instanceIndex }) => ({
+        objectIndex, instanceIndex, transform: clone(objectTransforms[objectIndex][instanceIndex]),
+        minZ: operation !== 'direct' && objectMeta[objectIndex].autoDrop ? mockWorldMinZ(objectIndex, instanceIndex) : 0,
+      }));
       for (const transform of transforms) {
         objectTransforms[transform.objectIdx][transform.instanceIdx] = clone(transform.instanceTransform as ReturnType<typeof identityTransform>);
         objectVolumeTransforms[transform.objectIdx][transform.volumeIdx] = clone(transform.volumeTransform as ReturnType<typeof identityTransform>);
       }
+      const corrected: Array<Record<string, unknown>> = [];
+      for (const entry of saved) {
+        const { objectIndex: oi, instanceIndex: ii } = entry;
+        if (operation === 'direct' || !objectMeta[oi].autoDrop) continue;
+        const minZ = mockWorldMinZ(oi, ii);
+        const snap = operation === 'move' ? minZ > -0.001 : entry.minZ >= -0.001 || minZ > -0.001;
+        if (!Number.isFinite(minZ) || !snap || minZ === 0) continue;
+        const transform = objectTransforms[oi][ii] as ReturnType<typeof identityTransform> & { matrix?: number[] };
+        transform.offset[2] -= minZ;
+        if (transform.matrix) transform.matrix[14] -= minZ;
+        corrected.push({ object_id: objectMeta[oi].id, instance_id: instanceMeta[oi][ii].id,
+          object_index: oi, instance_index: ii, world_transform: clone(transform) });
+      }
+      const changedObjects = new Set<number>();
+      for (const entry of saved)
+        if (JSON.stringify(objectTransforms[entry.objectIndex][entry.instanceIndex]) !== JSON.stringify(entry.transform))
+          changedObjects.add(entry.objectIndex);
+      for (const transform of transforms) {
+        const key = `${transform.objectIdx}:${transform.volumeIdx}`;
+        if (JSON.stringify(objectVolumeTransforms[transform.objectIdx][transform.volumeIdx]) !== previousVolumes.get(key))
+          changedObjects.add(transform.objectIdx);
+      }
       const plates = [...new Set([...changedObjects].map(index => objectPlateIds[index]).filter(Boolean))];
       if (plates.length > 0) sliced = false;
-      return plateMutation('model-transform', plates, plates);
+      return plateMutation('model-transform', plates, plates, corrected);
     },
     orc_get_model_mesh() {
       return modelGeometry(new Set(objectMeta.map((object) => object.id)), new Set());
@@ -4356,7 +4389,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_instance_printable: { ret: 'number', args: ['number', 'number'] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
-    orc_set_model_transforms: { ret: 'number', args: ['string', 'string'] },
+    orc_set_model_transforms: { ret: 'number', args: ['string', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
     orc_get_model_scene_patch: { ret: 'number', args: ['string'] },
     orc_get_model_structure: { ret: 'number', args: [] },

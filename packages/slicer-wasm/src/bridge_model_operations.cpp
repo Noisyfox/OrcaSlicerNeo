@@ -1394,7 +1394,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
 // request and the transaction revision first, then publish all transforms and
 // one plate-session receipt, or leave the live model untouched.
 EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
-    const char* transaction_id_cstr, const char* transforms_json)
+    const char* transaction_id_cstr, const char* transforms_json, const char* operation_cstr)
 {
     struct StagedTransform {
         ModelObject* object;
@@ -1405,6 +1405,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         Slic3r::Geometry::Transformation previous_instance;
         Slic3r::Geometry::Transformation previous_volume;
     };
+    struct SavedInstance {
+        ModelObject* object;
+        ModelInstance* instance;
+        std::size_t index;
+        Slic3r::Geometry::Transformation previous;
+        double min_z;
+        bool has_geometry;
+    };
     try {
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const std::string transaction_id = transaction_id_cstr ? transaction_id_cstr : "";
@@ -1413,6 +1421,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             return error_json("history transaction is stale or belongs to another writer");
         if (active->base_history_revision != state().history_revision)
             return error_json("history transaction revision is stale");
+        const std::string operation = operation_cstr ? operation_cstr : "";
+        if (operation != "direct" && operation != "move" && operation != "rotate" && operation != "scale")
+            return error_json("invalid transform operation");
 
         const double input_decode_started_at = Neo::Bridge::Performance::now_ms();
         const json requests = json::parse(transforms_json ? transforms_json : "");
@@ -1467,6 +1478,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         // A volume is shared by every instance of its object, even if only one
         // renderer composite carried that part in this gesture.
         for (const auto* object : changed_volume_objects) append_instance_ids(*object, affected_instances);
+        std::set<ModelObject*> touched_objects;
+        for (const auto& item : staged) touched_objects.insert(item.object);
+        std::vector<SavedInstance> saved_instances;
+        for (auto* object : touched_objects) {
+            const bool has_geometry = std::any_of(object->volumes.begin(), object->volumes.end(),
+                [](const ModelVolume* volume) { return volume->is_model_part() && !volume->mesh().its.indices.empty(); });
+            for (std::size_t i = 0; i < object->instances.size(); ++i) {
+                auto* instance = object->instances[i];
+                if (!affected_instances.count(instance->id().id)) continue;
+                const double min_z = operation != "direct" && object->auto_drop && has_geometry
+                    ? object->get_instance_min_z(i) : 0.0;
+                saved_instances.push_back({object, instance, i, instance->get_transformation(), min_z, has_geometry});
+            }
+        }
         const double validation_finished_at = Neo::Bridge::Performance::now_ms();
 
         const double membership_lookup_started_at = Neo::Bridge::Performance::now_ms();
@@ -1476,13 +1501,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         const auto before_parked = state().parked_instance_ids;
         const auto before_pending = state().pending_membership_instance_ids;
         const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
-        const auto affected_before = affected_instances.empty()
-            ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
-        const bool projection_geometry_changed = std::any_of(staged.begin(), staged.end(),
-            [](const StagedTransform& item) {
-                return transform_geometry_changed(item.previous_instance, item.next_instance) ||
-                    transform_geometry_changed(item.previous_volume, item.next_volume);
-            });
         const double membership_lookup_finished_at = Neo::Bridge::Performance::now_ms();
         const double mutation_started_at = Neo::Bridge::Performance::now_ms();
         try {
@@ -1491,13 +1509,39 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.volume->set_transformation(item.next_volume);
                 item.object->invalidate_bounding_box();
             }
+            std::map<std::size_t, Vec3d> corrected;
+            if (operation != "direct") {
+                for (const auto& entry : saved_instances) {
+                    if (!entry.object->auto_drop || !entry.has_geometry) continue;
+                    const double min_z = entry.object->get_instance_min_z(entry.index);
+                    const bool snap = operation == "move" ? min_z > SINKING_Z_THRESHOLD
+                        : entry.min_z >= SINKING_Z_THRESHOLD || min_z > SINKING_Z_THRESHOLD;
+                    if (!std::isfinite(min_z) || !snap || min_z == 0.0) continue;
+                    entry.object->translate_instance(entry.index, Vec3d(0, 0, -min_z));
+                    corrected.emplace(entry.instance->id().id, Vec3d::Zero());
+                }
+            }
+            std::set<std::size_t> final_affected;
+            bool projection_geometry_changed = false;
+            for (const auto& entry : saved_instances) {
+                const auto& current = entry.instance->get_transformation();
+                if (current != entry.previous) final_affected.insert(entry.instance->id().id);
+                projection_geometry_changed = projection_geometry_changed || transform_geometry_changed(entry.previous, current);
+            }
+            for (const auto& item : staged) {
+                if (item.volume->get_transformation() != item.previous_volume)
+                    append_instance_ids(*item.object, final_affected);
+                projection_geometry_changed = projection_geometry_changed ||
+                    transform_geometry_changed(item.previous_volume, item.volume->get_transformation());
+            }
+            const auto affected_before = member_plate_ids_for_instances(final_affected);
             if (projection_geometry_changed)
                 Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
             const double mutation_finished_at = Neo::Bridge::Performance::now_ms();
             const double membership_reflow_started_at = Neo::Bridge::Performance::now_ms();
-            rebuild_plate_membership(true, &affected_instances);
+            if (!final_affected.empty()) rebuild_plate_membership(true, &final_affected);
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
-                                                           json::array(), &affected_instances);
+                                                           reflow_instance_transforms(corrected), &final_affected);
             const double membership_reflow_finished_at = Neo::Bridge::Performance::now_ms();
             const double response_started_at = Neo::Bridge::Performance::now_ms();
             const std::string response = mutation.dump();
@@ -1515,9 +1559,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             return result;
         } catch (...) {
             for (const auto& item : staged) {
-                item.instance->set_transformation(item.previous_instance);
                 item.volume->set_transformation(item.previous_volume);
                 item.object->invalidate_bounding_box();
+            }
+            for (const auto& entry : saved_instances) {
+                entry.instance->set_transformation(entry.previous);
+                entry.object->invalidate_bounding_box();
             }
             state().plate_input_revisions = before_revisions;
             state().instance_plate_ids = before_members;

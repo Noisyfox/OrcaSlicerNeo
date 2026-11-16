@@ -50,7 +50,7 @@ export type {
   PresetDraftEditorEnumOption, PresetDraftEditorBinding,
   PresetDraftEditorPoint, PresetDraftVectorValue, PresetDraftEditorVector,
   PresetDraftMutationRequest, PresetDraftMutationResult, PresetDraftMutationSuccess, PresetDraftError,
-  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelRenderable, ModelGeometry, ModelPaintDrawGroup, ModelPaintGeometry, NativeModelObjectBuffer, ModelTransform, ModelTransformMutation,
+  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelRenderable, ModelGeometry, ModelPaintDrawGroup, ModelPaintGeometry, NativeModelObjectBuffer, ModelTransform, ModelTransformMutation, ModelTransformOperation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,

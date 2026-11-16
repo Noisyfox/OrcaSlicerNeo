@@ -3052,10 +3052,10 @@ export function createClient(
       ) as { ok: boolean; error?: string };
     },
 
-    async setModelTransforms(transactionId, transforms) {
+    async setModelTransforms(transactionId, transforms, operation) {
       const m = await module();
-      const raw = callProfiledJson(m, 'orc_set_model_transforms', ['string', 'string'],
-        [transactionId, JSON.stringify(transforms)]);
+      const raw = callProfiledJson(m, 'orc_set_model_transforms', ['string', 'string', 'string'],
+        [transactionId, JSON.stringify(transforms), operation]);
       if (!raw || typeof raw !== 'object' || (raw as Record<string, unknown>).ok !== true)
         return { ok: false, error: typeof (raw as Record<string, unknown> | null)?.error === 'string'
           ? (raw as Record<string, unknown>).error as string : 'atomic model transform failed' };

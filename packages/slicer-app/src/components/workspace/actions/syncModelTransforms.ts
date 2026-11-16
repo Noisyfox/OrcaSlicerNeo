@@ -55,7 +55,7 @@ export async function syncModelTransformsAtomically(
     instanceIdx: volume.buffer.instanceIdx,
     instanceTransform: structuredClone(volume.instanceTransform),
     volumeTransform: structuredClone(volume.volumeTransform),
-  })));
+  })), 'direct');
 }
 
 /** Apply authoritative world transforms returned by a plate mutation.

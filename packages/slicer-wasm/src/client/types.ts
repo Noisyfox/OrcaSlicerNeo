@@ -1036,6 +1036,8 @@ export type SliceResultStatus = SliceResultFields & (
 );
 
 /** One renderer CompositeID transform in an atomic Worker transform command. */
+export type ModelTransformOperation = 'direct' | 'move' | 'rotate' | 'scale';
+
 export interface ModelTransformMutation {
   readonly objectIdx: number;
   readonly volumeIdx: number;
@@ -1851,6 +1853,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   setModelTransforms(
     transactionId: import('./history').HistoryTransactionId,
     transforms: readonly ModelTransformMutation[],
+    operation: ModelTransformOperation,
   ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Materialize only objects touched by a native history SceneDelta. */

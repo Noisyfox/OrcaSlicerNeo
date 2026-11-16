@@ -65,7 +65,7 @@ export function installScopedConfigurationGate(platform: PlatformCapabilities, c
         (transactionId) => platform.runtime.setModelTransforms(transactionId, [{
           objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx,
           instanceTransform, volumeTransform: volume.volumeTransform,
-        }]), historyContextForStructure,
+        }], 'direct'), historyContextForStructure,
         (result) => {
           if (!result.ok) throw new Error(result.error);
           for (const item of glVolumeCollection.volumes) {

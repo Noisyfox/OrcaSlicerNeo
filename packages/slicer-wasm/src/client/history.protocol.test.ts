@@ -16,6 +16,49 @@ class Channel implements WorkerTransport {
 }
 
 describe('Worker-owned project history protocol', () => {
+  it('settles automatic moves without creating a history entry for a snapped-back no-op', async () => {
+    const client = createClient(async () => createMockModule());
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const before = (await client.getModelMesh()).objects[0];
+    const revision = (await client.getHistoryStatus()).revision;
+    const tx = await client.beginHistory('Move', 'project', context());
+    const result = await client.setModelTransforms(tx, [{ objectIdx: before.objectIdx, volumeIdx: before.volumeIdx,
+      instanceIdx: before.instanceIdx, volumeTransform: before.volumeTransform,
+      instanceTransform: { ...before.instanceTransform, offset: [0, 0, 7] } }], 'move');
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.plateSession?.instanceTransforms[0]?.worldTransform.offset[2]).toBe(0);
+    expect(result.plateSession?.affectedPlateIds).toEqual([]);
+    await client.commitHistory(tx, context());
+    expect((await client.getHistoryStatus()).revision).toBe(revision);
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(0);
+  });
+
+  it('retains deliberate sinking and respects disabled Auto Drop', async () => {
+    const client = createClient(async () => createMockModule());
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const id = (await client.getModelStructure()).objects[0].id;
+    const setZ = async (z: number, operation: 'move' | 'rotate' | 'scale') => {
+      const item = (await client.getModelMesh()).objects[0];
+      const tx = await client.beginHistory('Transform', 'project', context());
+      const result = await client.setModelTransforms(tx, [{ objectIdx: item.objectIdx, volumeIdx: item.volumeIdx,
+        instanceIdx: item.instanceIdx, volumeTransform: item.volumeTransform,
+        instanceTransform: { ...item.instanceTransform, offset: [0, 0, z] } }], operation);
+      await client.commitHistory(tx, context());
+      return result;
+    };
+    await setZ(-5, 'move');
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(-5);
+    await setZ(-3, 'rotate');
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(-3);
+    await setZ(3, 'scale');
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(0);
+    await client.runProjectHistoryTransaction('Disable Auto Drop', 'project', context(),
+      () => client.setObjectsAutoDrop([id], false), context());
+    await setZ(9, 'move');
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(9);
+  });
+
   it('commits and restores synchronized sibling instance transforms as one history edit', async () => {
     const client = createClient(async () => createMockModule({ instanceCount: 2 }));
     await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
@@ -25,7 +68,7 @@ describe('Worker-owned project history protocol', () => {
       instanceIdx: item.instanceIdx, volumeTransform: item.volumeTransform,
       instanceTransform: { ...item.instanceTransform, offset: [item.instanceTransform.offset[0], item.instanceTransform.offset[1], 5] as [number, number, number] },
     }));
-    expect((await client.setModelTransforms(tx, transforms)).ok).toBe(true);
+    expect((await client.setModelTransforms(tx, transforms, 'direct')).ok).toBe(true);
     await client.commitHistory(tx, context());
     expect((await client.getModelMesh()).objects.map(item => item.instanceTransform.offset[2])).toEqual([5, 5]);
     expect((await client.undoHistory()).ok).toBe(true);
@@ -43,7 +86,7 @@ describe('Worker-owned project history protocol', () => {
       instanceIdx: item.instanceIdx, instanceTransform: item.instanceTransform,
       volumeTransform: { ...item.volumeTransform, offset: [index, 0, 0] as [number, number, number] },
     }));
-    expect(await client.setModelTransforms(tx, transforms)).toMatchObject({ ok: false, error: expect.stringContaining('conflicting') });
+    expect(await client.setModelTransforms(tx, transforms, 'direct')).toMatchObject({ ok: false, error: expect.stringContaining('conflicting') });
     expect((await client.getModelMesh()).objects.map(item => item.volumeTransform.offset)).toEqual([[0, 0, 0], [0, 0, 0]]);
     await client.abortHistory(tx);
   });
@@ -145,7 +188,7 @@ describe('Worker-owned project history protocol', () => {
     const transform = { offset: [10, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
     expect((await client.setModelTransforms(move, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform, volumeTransform: { ...transform, offset: [0, 0, 0] } },
-    ])).ok).toBe(true);
+    ], 'direct')).ok).toBe(true);
     await client.commitHistory(move, editingContext);
 
     const addPlate = await client.runProjectHistoryTransaction('Add Plate', 'project', editingContext,
@@ -226,7 +269,7 @@ describe('Worker-owned project history protocol', () => {
     const identity = { ...moved, offset: [0, 0, 0] as [number, number, number] };
     expect((await client.setModelTransforms(move, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
-    ])).ok).toBe(true);
+    ], 'direct')).ok).toBe(true);
     await client.commitHistory(move, editingContext);
 
     expect((await client.undoHistory()).ok).toBe(true);
@@ -270,7 +313,7 @@ describe('Worker-owned project history protocol', () => {
     const result = await client.setModelTransforms(transaction, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(10), volumeTransform: transform(0) },
       { objectIdx: 1, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(20), volumeTransform: transform(0) },
-    ]);
+    ], 'direct');
     expect(result.ok).toBe(true);
     const { status: committed } = await client.commitHistory(transaction, before);
     expect(committed.undoEntries).toHaveLength(1);
@@ -293,14 +336,14 @@ describe('Worker-owned project history protocol', () => {
     await expect(client.setModelTransforms(transaction, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
       { objectIdx: 99, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
-    ])).resolves.toMatchObject({ ok: false });
+    ], 'direct')).resolves.toMatchObject({ ok: false });
     expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([0, 0]);
     await client.abortHistory(transaction);
     expect((await client.getHistoryStatus()).revision).toBe(revision);
     const fresh = await client.beginHistory('Move', 'project', before);
     await expect(client.setModelTransforms('tx-stale', [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
-    ])).resolves.toMatchObject({ ok: false });
+    ], 'direct')).resolves.toMatchObject({ ok: false });
     expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset).toEqual([0, 0, 0]);
     await client.abortHistory(fresh);
   });

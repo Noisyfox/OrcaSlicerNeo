@@ -305,14 +305,14 @@ for (const legacyValues of [[1, 0], [1, 1], [undefined, undefined]]) {
     conflict[1].volumeTransform.offset[0] += 1;
     conflict[1].volumeTransform.matrix[12] += 1;
     const rejectedTx = begin('Conflicting transforms');
-    const rejectedTransform = call('orc_set_model_transforms', ['string', 'string'],
-      [rejectedTx, JSON.stringify(conflict)]);
+    const rejectedTransform = call('orc_set_model_transforms', ['string', 'string', 'string'],
+      [rejectedTx, JSON.stringify(conflict), 'direct']);
     assert.equal(rejectedTransform.ok, false);
     assert.match(rejectedTransform.error, /conflicting/);
     assert.equal(call('orc_history_abort', ['string'], [rejectedTx]).ok, true);
     assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), dropped);
     const syncTx = begin('Synchronize instances');
-    assert.equal(call('orc_set_model_transforms', ['string', 'string'], [syncTx, JSON.stringify(requests)]).ok, true);
+    assert.equal(call('orc_set_model_transforms', ['string', 'string', 'string'], [syncTx, JSON.stringify(requests), 'direct']).ok, true);
     commit(syncTx);
     const raised = fullModel().renderables.map(item => item.instance_transform.offset[2]);
     assert.deepEqual(raised, dropped.map(z => z + 5));
@@ -322,6 +322,49 @@ for (const legacyValues of [[1, 0], [1, 1], [undefined, undefined]]) {
     assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), raised);
   }
 }
+// Exercise settling against native mesh geometry and history, not a mock
+// bounding box. The imported fixture is a 20 mm cube resting at Z = 0.
+{
+  loadAutoDropFixture(readZipEntries(buildIndependentReader3mf()));
+  const baseline = fullModel().renderables[0];
+  const restZ = baseline.instance_transform.offset[2];
+  // A transform must carry the ID of its enclosing history transaction.
+  function setZ(z, operation) {
+    const body = fullModel().renderables[0];
+    const transform = structuredClone(body.instance_transform);
+    transform.matrix[14] += z - transform.offset[2];
+    transform.offset[2] = z;
+    const request = { objectIdx: body.object_idx, volumeIdx: body.volume_idx, instanceIdx: body.instance_idx,
+      instanceTransform: transform, volumeTransform: body.volume_transform };
+    const tx = begin(`Auto Drop ${operation}`);
+    const result = call('orc_set_model_transforms', ['string', 'string', 'string'], [tx, JSON.stringify([request]), operation]);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    const committed = commit(tx);
+    return { result, committed };
+  }
+  const revision = call('orc_history_status').revision;
+  const snapped = setZ(restZ + 5, 'move');
+  assert.equal(snapped.result.instance_transforms.length, 1);
+  assert.deepEqual(snapped.result.affected_plate_ids, []);
+  assert.equal(snapped.committed.status.revision, revision);
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - restZ) < 1e-8);
+  setZ(restZ - 0.0005, 'move');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - restZ) < 1e-8);
+  setZ(restZ - 0.002, 'move');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - (restZ - 0.002)) < 1e-8);
+  setZ(restZ - 3, 'rotate');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - (restZ - 3)) < 1e-8);
+  setZ(restZ + 3, 'scale');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - restZ) < 1e-8);
+  assert.equal(call('orc_history_undo').ok, true);
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - (restZ - 3)) < 1e-8);
+  assert.equal(call('orc_history_redo').ok, true);
+  const object = call('orc_get_model_structure').objects[0];
+  edit('Disable Auto Drop', () => call('orc_set_objects_auto_drop', ['string', 'number'], [JSON.stringify([object.id]), 0]));
+  setZ(restZ + 5, 'move');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - (restZ + 5)) < 1e-8);
+}
+
 for (const autoDrop of [0, 1]) {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
