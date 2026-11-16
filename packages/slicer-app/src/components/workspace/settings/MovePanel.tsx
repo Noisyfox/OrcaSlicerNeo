@@ -42,6 +42,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
     const next = [...current] as Vec3;
     next[axis] = parsed;
     moveTo(next);
+    setDraft(null);
   };
 
   return (

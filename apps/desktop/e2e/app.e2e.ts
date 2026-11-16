@@ -1553,6 +1553,46 @@ test('object list Auto Drop supports menu, shortcut, undo and redo', async () =>
   } finally { await app.close(); }
 });
 
+test('Auto Drop settles moves and enabling it restores bed contact', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const row = page.getByTestId('object-list').locator('div[data-testid^="object-"]:not([data-testid="object-list"])').first();
+    await row.locator(':scope > div > button.object-list-row').click({ position: { x: 40, y: 10 } });
+    await page.getByTestId('gizmo-btn-move').click();
+    const z = page.getByTestId('move-z');
+    const initial = Number(await z.inputValue());
+    const initialText = initial.toFixed(3);
+    const raisedText = (initial + 10).toFixed(3);
+    const previousUndo = await page.getByTestId('history-undo').getAttribute('aria-label');
+    await z.fill(raisedText); await z.press('Enter');
+    await expect(z).toHaveValue(initialText);
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', previousUndo!);
+    const toggle = async () => {
+      await row.click({ button: 'right', position: { x: 40, y: 4 } });
+      await page.getByTestId('objectlist-auto-drop').click();
+    };
+    await toggle();
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Disable Auto Drop');
+    await z.fill(raisedText); await z.press('Enter');
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
+    await expect(z).toHaveValue(raisedText);
+    await toggle();
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Enable Auto Drop');
+    await expect(z).toHaveValue(initialText);
+    await page.getByTestId('history-undo').click();
+    await expect(z).toHaveValue(raisedText);
+    await page.getByTestId('history-redo').click();
+    await expect(z).toHaveValue(initialText);
+  } finally { await app.close(); }
+});
+
 test('split floating parts offers preserving positions or placing on bed', async () => {
   test.skip(REAL, 'uses the deterministic multi-part mock fixture');
   const { app } = await launchApp();
