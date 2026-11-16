@@ -160,6 +160,25 @@ project-load receipt (file name and byte length) and the active artifact
 identity. Do not report a real-project result when either rebuild,
 staging/copy, or receipt verification was skipped.
 
+### Measure native suites
+
+With the Emscripten environment active and the chosen variant already
+configured, run `node scripts/run-measure-native-tests.mjs --variant serial`
+or `--variant threaded`. Add `--wasm32` for a configured Web wasm32 build
+tree and `--jobs N` to set build parallelism. The runner builds and executes
+the geometry, selection-session and service suites, then restores the previous
+CMake test option. The real-WASM bridge smoke is separate:
+`node packages/slicer-wasm/harness/measure-bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
+For real threaded slice/measurement concurrency, run
+`node packages/slicer-wasm/harness/measure-slice-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js`.
+The real-host journey is `node scripts/run-measure-e2e.mjs`; use
+`--desktop-only` or `--web-only` for a host, and add `--serial` and/or
+`--wasm32` to the Web run to exercise the corresponding runtime selection.
+`node packages/slicer-wasm/harness/measure-profile.mjs packages/slicer-wasm/out/serial/orca_slice.js 6`
+samples three open/hover/close cycles on an 81,920-triangle synthetic sphere.
+It reports process peak RSS and WASM heap capacity, which include initialization
+and model resources and do not shrink simply because a session is released.
+
 ## Test Quality and Maintenance
 
 - All workspace packages use Vitest 5.0.3. Follow the

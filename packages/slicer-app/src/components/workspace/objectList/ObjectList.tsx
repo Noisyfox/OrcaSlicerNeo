@@ -375,10 +375,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     let dragged: { kind?: string; objectId?: number; id?: number } | null = null;
     try { dragged = JSON.parse(event.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
     if (dragged?.kind === 'object' && dragged.id !== undefined) {
-      void reorderObjectsInList(platform.runtime, dragged.id, structure.length);
+      void reorderObjectsInList(platform.runtime, dragged.id, structure.length, sceneInteraction);
     } else if (dragged?.kind === 'part' && dragged.objectId !== undefined && dragged.id !== undefined) {
       const obj = structure.find((o) => o.id === dragged.objectId);
-      if (obj) void reorderVolumesInList(platform.runtime, dragged.objectId, dragged.id, obj.volumes.length);
+      if (obj) void reorderVolumesInList(platform.runtime, dragged.objectId, dragged.id, obj.volumes.length, sceneInteraction);
     }
   }
 
@@ -442,7 +442,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               let dragged: { kind: string; id: number } | null = null;
               try { dragged = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
               if (dragged?.kind === 'object' && dragged.id !== obj.id) {
-                void reorderObjectsInList(platform.runtime, dragged.id, obj.index);
+                void reorderObjectsInList(platform.runtime, dragged.id, obj.index, sceneInteraction);
               }
             }}
             onContextMenu={(e) => {
@@ -531,7 +531,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       let dragged: { kind: string; objectId: number; id: number } | null = null;
                       try { dragged = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
                       if (dragged?.kind === 'part' && dragged.objectId === obj.id && dragged.id !== vol.id) {
-                        void reorderVolumesInList(platform.runtime, obj.id, dragged.id, vol.index);
+                        void reorderVolumesInList(platform.runtime, obj.id, dragged.id, vol.index, sceneInteraction);
                       }
                     }}
                     onContextMenu={(e) => {

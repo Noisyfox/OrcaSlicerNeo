@@ -731,6 +731,8 @@ describe('SettingsPanel preset transitions', () => {
     const getPlateSessionSnapshot = vi.fn(async () => finalSession);
     const slicePlate = vi.fn(async () => ({ ok: false, error: 'fixture slice terminal' }));
     Object.assign(runtime, { getPlateSessionSnapshot, slicePlate,
+      recomputePlateMembership: vi.fn(async () => ({ ...finalSession,
+        affectedPlateIdsBefore: [], affectedPlateIdsAfter: [], affectedPlateIds: [], dirtyReasons: ['model-transform'] })),
       getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: finalSession.inputRevisions?.['plate-1'] })) });
     const { container, root } = await render(platform); roots.push(root);
     await chooseBed(container, 'Smooth PEI Plate');

@@ -1,4 +1,4 @@
-import type { PlateSessionMutation, SlicerClient } from '@slicer/client';
+import type { ModelMutationResult, ModelPlateSessionMutation, PlateSessionMutation, SlicerClient } from '@slicer/client';
 import type { GLVolume } from '../viewport/GLVolume';
 
 type TransformableVolume = Pick<GLVolume, 'instanceTransform' | 'volumeTransform'> & {
@@ -9,11 +9,15 @@ type StableTransformableVolume = TransformableVolume & {
   buffer: Pick<GLVolume['buffer'], 'objectId' | 'instanceId' | 'objectIdx' | 'volumeIdx' | 'instanceIdx'>;
 };
 
+export type TransformSyncResult =
+  | { ok: true; plateSession: ModelPlateSessionMutation }
+  | { ok: false; error?: string };
+
 /** Synchronize a stable snapshot of every rendered CompositeID. */
 export async function syncModelTransforms(
-  client: Pick<SlicerClient, 'setModelTransform'> & Partial<Pick<SlicerClient, 'recomputePlateMembership'>>,
+  client: Pick<SlicerClient, 'setModelTransform' | 'recomputePlateMembership'>,
   volumes: readonly TransformableVolume[],
-): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }> {
+): Promise<TransformSyncResult> {
   const snapshot = volumes.map((volume) => ({
     objectIdx: volume.buffer.objectIdx,
     volumeIdx: volume.buffer.volumeIdx,
@@ -29,14 +33,11 @@ export async function syncModelTransforms(
       volume.instanceTransform,
       volume.volumeTransform,
     );
-    if (!result.ok) return result;
-  }
-  if (client.recomputePlateMembership) {
-    const result = await client.recomputePlateMembership();
     if (!result.ok) return { ok: false, error: result.error };
-    return { ok: true, plateSession: result };
   }
-  return { ok: true };
+  const result = await client.recomputePlateMembership();
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true, plateSession: result };
 }
 
 /** Submit the final transforms for one history gesture as one native mutation.
@@ -47,7 +48,7 @@ export async function syncModelTransformsAtomically(
   client: Pick<SlicerClient, 'setModelTransforms'>,
   transactionId: string,
   volumes: readonly TransformableVolume[],
-): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }> {
+): Promise<ModelMutationResult> {
   if (volumes.length === 0) return { ok: false, error: 'no renderer transforms to commit' };
   return client.setModelTransforms(transactionId, volumes.map((volume) => ({
     objectIdx: volume.buffer.objectIdx,

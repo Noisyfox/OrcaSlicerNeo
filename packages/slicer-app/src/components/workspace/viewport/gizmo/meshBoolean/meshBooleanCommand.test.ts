@@ -45,6 +45,9 @@ it('publishes committed structure/selection before releasing the wait, rejecting
   const patch = runtime.getModelScenePatch.bind(runtime);
   runtime.getModelScenePatch = vi.fn(async (...args: Parameters<typeof patch>) => { await publication; return patch(...args); });
   let resumedRead: Promise<unknown> = Promise.resolve();
+  let selectionRead: Promise<unknown> = Promise.resolve();
+  const onSelection = vi.fn(() => { selectionRead = enqueueProjectReadOperation(async () => 'selection updated'); });
+  const unsubscribeScene = scene.subscribe(onSelection);
   const unsubscribe = useMeshBooleanStore.subscribe((current, previous) => {
     if (previous.busy && !current.busy) resumedRead = enqueueProjectReadOperation(async () => 'editor resumed');
   });
@@ -54,8 +57,11 @@ it('publishes committed structure/selection before releasing the wait, rejecting
   const foreign = vi.fn(async () => {});
   await expect(enqueueProjectMutationOperation(foreign)).rejects.toThrow('mesh_boolean_busy');
   expect(await executeMeshBoolean(platform, request, scene)).toEqual({ ok: false, error: 'mesh_boolean_busy' });
+  expect(onSelection).not.toHaveBeenCalled();
   release(); const result = await task;
   unsubscribe(); await expect(resumedRead).resolves.toBe('editor resumed');
+  unsubscribeScene(); await expect(selectionRead).resolves.toBe('selection updated');
+  expect(onSelection).toHaveBeenCalledOnce();
   expect(result.ok && result.changed).toBe(true);
   if (!result.ok || !result.changed) throw new Error(JSON.stringify(result));
   expect(useObjectListStore.getState().structure[0].volumes.map(volume => volume.id)).toContain(result.volumeId);

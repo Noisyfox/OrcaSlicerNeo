@@ -60,6 +60,7 @@ const historyMutationOperations = new Set([
 // must fail before postMessage so no edit, history frame, Slice, or Export can
 // wait behind the running task and execute against a later epoch.
 const paintingOperations = new Set(['openPaintingSession', 'targetPaintingSession', 'readPaintingSession', 'closePaintingSession', 'previewPainting', 'beginPaintingStroke', 'samplePaintingStroke', 'finishPaintingStroke', 'cancelPaintingStroke', 'commitPaintingStroke', 'getPaintingGeometry', 'settlePainting']);
+const measureOperations = new Set(['openMeasureSession', 'readMeasureSession', 'getMeasureDisplay', 'clickMeasure', 'resetMeasure', 'rebaseMeasure', 'getMeasurePlane']);
 const setupWizardOperations = new Set([
   'openSetupWizardCatalogue', 'closeSetupWizardCatalogue', 'prepareProfileActivation', 'applyProfileActivation',
 ]);
@@ -68,6 +69,7 @@ const restrictedWhileSerialSlicing = new Set([
   'arrange', 'reorderPlates',
   ...setupWizardOperations,
   ...paintingOperations,
+  ...measureOperations,
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
   'assignFilament', 'setFilamentRouting', 'setFlushingVolumes', 'getFlushingVolumes', 'setAutoFlushPolicy', 'beginHistory', 'commitHistory',
@@ -188,7 +190,7 @@ export function startWorker(
     const startedAt = historyNow();
     const isRestore = op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory';
     const isSessionTransition = op === 'openHistorySession' || op === 'closeHistorySession';
-    const isHistoryTransition = isRestore || isSessionTransition || op === 'resetHistory' || paintingOperations.has(op);
+    const isHistoryTransition = isRestore || isSessionTransition || op === 'resetHistory' || paintingOperations.has(op) || measureOperations.has(op);
     let ownsTransition = false;
     let ownsTransactionStart = false;
     let ownsArrangement = false;

@@ -24,6 +24,10 @@ function fixture(mapping = snapshot()) {
   usePlateSessionStore.getState().setSnapshot(session);
   const runtime = {
     getPlateSessionSnapshot: vi.fn(async () => session),
+    recomputePlateMembership: vi.fn(async () => ({ ...session, instanceTransforms: [],
+      affectedPlateIdsBefore: [], affectedPlateIdsAfter: [], affectedPlateIds: [], dirtyReasons: ['model-transform'],
+      nativeScopedConfig: { version: 1 as const, revision: 0, kind: 'full' as const,
+        snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [] } })),
     getNozzleMapping: vi.fn(async () => mapping),
     getHistoryStatus: vi.fn(async () => ({ revision: 42, dirty: false, canUndo: false, canRedo: false, undoEntries: [], redoEntries: [] })),
     slicePlate: vi.fn(async (target: { plateId: string; inputRevision: number }) => ({

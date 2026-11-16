@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createWorkspaceSliceCoordinator } from './sliceCoordinator';
+import { registerMeasureCommands } from './viewport/gizmo/measure/projectCommands';
+import type { MeasureController } from './viewport/gizmo/measure/MeasureController';
 
 function deferred() {
   let resolve!: () => void;
@@ -8,6 +10,56 @@ function deferred() {
 }
 
 describe('Workspace slice coordinator', () => {
+  it('opens Preview immediately but waits for Measure cleanup before slicing', async () => {
+    const events: string[] = []; const gate = deferred();
+    let active = true;
+    const owner = { get active() { return active; },
+      close: vi.fn(() => { active = false; events.push('close'); return gate.promise; }),
+      settled: () => gate.promise } as unknown as MeasureController;
+    const unregister = registerMeasureCommands(owner);
+    try {
+      const coordinator = createWorkspaceSliceCoordinator({ isModelLoaded: () => true, getStatus: () => 'idle',
+        slice: async () => { events.push('slice'); }, requestPreview: () => { events.push('preview'); } });
+      const task = coordinator.requestPreviewSlice();
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      expect(events).toEqual(['close', 'preview']); gate.resolve(); await task;
+      expect(events).toEqual(['close', 'preview', 'slice']);
+    } finally { unregister(); }
+  });
+
+  it('waits for already queued Measure cleanup before starting an automatic Preview slice', async () => {
+    const gate = deferred();
+    const owner = { active: false, settled: () => gate.promise } as unknown as MeasureController;
+    const unregister = registerMeasureCommands(owner);
+    try {
+      const slice = vi.fn(async () => undefined);
+      const coordinator = createWorkspaceSliceCoordinator({ isModelLoaded: () => true, getStatus: () => 'idle',
+        slice, requestPreview: vi.fn() });
+      const task = coordinator.ensureSlice();
+      await Promise.resolve();
+      expect(slice).not.toHaveBeenCalled();
+      gate.resolve(); await task;
+      expect(slice).toHaveBeenCalledOnce();
+    } finally { unregister(); }
+  });
+
+  it('opens Preview during an existing slice without waiting for Measure cleanup', async () => {
+    const gate = deferred();
+    const events: string[] = [];
+    const owner = { active: true, close: () => { events.push('close'); return gate.promise; } } as unknown as MeasureController;
+    const unregister = registerMeasureCommands(owner);
+    try {
+      const slice = vi.fn(async () => undefined);
+      const coordinator = createWorkspaceSliceCoordinator({ isModelLoaded: () => true, getStatus: () => 'slicing',
+        slice, requestPreview: () => { events.push('preview'); } });
+      const task = coordinator.requestPreviewSlice();
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      expect(events).toEqual(['close', 'preview']);
+      expect(slice).not.toHaveBeenCalled();
+      gate.resolve(); await task;
+      expect(slice).not.toHaveBeenCalled();
+    } finally { unregister(); }
+  });
   it('starts a slice when entering Preview and navigates first', async () => {
     const events: string[] = [];
     const slice = vi.fn(async () => { events.push('slice'); });
@@ -51,8 +103,7 @@ describe('Workspace slice coordinator', () => {
     const first = coordinator.ensureSlice();
     const second = coordinator.ensureSlice();
     expect(slice).not.toHaveBeenCalled();
-    await Promise.resolve();
-    expect(slice).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(slice).toHaveBeenCalledOnce());
 
     gate.resolve();
     await Promise.all([first, second]);
@@ -84,7 +135,7 @@ describe('Workspace slice coordinator', () => {
     });
 
     const first = coordinator.ensureSlice();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(slice).toHaveBeenCalledOnce());
     const second = coordinator.ensureSlice();
     expect(slice).toHaveBeenCalledOnce();
 

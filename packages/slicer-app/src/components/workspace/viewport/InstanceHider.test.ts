@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { InstanceHider, visibleInstanceVolumes } from './InstanceHider';
+import { hidesWipeTowers, InstanceHider, visibleToolVolumes } from './InstanceHider';
 
 const first = { objectId: 10, instanceId: 20 };
 const second = { objectId: 10, instanceId: 21 };
@@ -12,15 +12,15 @@ const volumes = [
 
 it('projects every Part of one instance without changing or disposing the loaded collection', () => {
   const hider = new InstanceHider();
-  expect(visibleInstanceVolumes(volumes, hider.getSnapshot())).toBe(volumes);
+  expect(visibleToolVolumes(volumes, hider.getSnapshot())).toBe(volumes);
   const lease = hider.acquire(first);
-  expect(visibleInstanceVolumes(volumes, hider.getSnapshot())).toEqual(volumes.slice(0, 2));
+  expect(visibleToolVolumes(volumes, hider.getSnapshot())).toEqual(volumes.slice(0, 2));
   expect(hider.isVisible(volumes[2])).toBe(false);
   expect(hider.isVisible(volumes[3])).toBe(false);
   lease.update(second);
-  expect(visibleInstanceVolumes(volumes, hider.getSnapshot())).toEqual([volumes[2]]);
+  expect(visibleToolVolumes(volumes, hider.getSnapshot())).toEqual([volumes[2]]);
   lease.release();
-  expect(visibleInstanceVolumes(volumes, hider.getSnapshot())).toBe(volumes);
+  expect(visibleToolVolumes(volumes, hider.getSnapshot())).toBe(volumes);
   expect(volumes).toHaveLength(4);
 });
 
@@ -47,4 +47,42 @@ it('ignores an old tool cleanup or target update after a successor acquires isol
   nextTool.release(); nextTool.release(); nextTool.update(first);
   expect(hider.getSnapshot()).toBeNull();
   expect(changed).toHaveBeenCalledTimes(3);
+});
+
+it('isolates specific volumes across instances and objects while keeping towers visible', () => {
+  const hider = new InstanceHider();
+  const targets = [{ ...volumes[0].buffer }, { ...volumes[2].buffer }, { ...volumes[3].buffer }];
+  const lease = hider.acquire({ kind: 'volumes', volumes: targets });
+  const snapshot = hider.getSnapshot();
+  expect(visibleToolVolumes(volumes, snapshot)).toEqual([volumes[0], volumes[2], volumes[3]]);
+  expect(volumes.map(volume => hider.isVisible(volume))).toEqual([true, false, true, true]);
+  expect(hidesWipeTowers(snapshot)).toBe(false);
+
+  // Equivalent target sets do not invalidate React's external-store snapshot,
+  // and later changes to the caller's data cannot change the active scope.
+  lease.update({ kind: 'volumes', volumes: [targets[2], targets[0], targets[1], targets[0]] });
+  expect(hider.getSnapshot()).toBe(snapshot);
+  targets[0].volumeId = 99;
+  expect(hider.isVisible(volumes[0])).toBe(true);
+
+  lease.update({ kind: 'volumes', volumes: [volumes[1].buffer] });
+  expect(visibleToolVolumes(volumes, hider.getSnapshot())).toEqual([volumes[1]]);
+  lease.release();
+  expect(visibleToolVolumes(volumes, hider.getSnapshot())).toBe(volumes);
+});
+
+it('preserves lease ownership and tower behavior when switching isolation kinds', () => {
+  const hider = new InstanceHider(), changed = vi.fn(); hider.subscribe(changed);
+  const oldTool = hider.acquire(first);
+  expect(hidesWipeTowers(hider.getSnapshot())).toBe(true);
+  const nextTool = hider.acquire({ kind: 'volumes', volumes: [volumes[3].buffer] });
+  oldTool.update(second); oldTool.release();
+  expect(visibleToolVolumes(volumes, hider.getSnapshot())).toEqual([volumes[3]]);
+  expect(hidesWipeTowers(hider.getSnapshot())).toBe(false);
+  nextTool.update(second);
+  expect(visibleToolVolumes(volumes, hider.getSnapshot())).toEqual([volumes[2]]);
+  expect(hidesWipeTowers(hider.getSnapshot())).toBe(true);
+  nextTool.release();
+  expect(hidesWipeTowers(hider.getSnapshot())).toBe(false);
+  expect(changed).toHaveBeenCalledTimes(4);
 });

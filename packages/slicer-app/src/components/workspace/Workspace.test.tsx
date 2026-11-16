@@ -480,7 +480,7 @@ describe('Workspace ownership', () => {
       }],
     };
     let currentProjection = projected;
-    const runtime = { getPrimeTowerProjection: vi.fn(async () => currentProjection) };
+    const runtime = { getPrimeTowerProjection: vi.fn(async () => currentProjection), cancel: vi.fn(async () => ({ ok: true })) };
     platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
     usePlateSessionStore.getState().setSnapshot(twoPlateSnapshot);
     const container = document.createElement('div');
@@ -500,8 +500,11 @@ describe('Workspace ownership', () => {
       useProjectStore.getState().beginProjectMutation();
       applySettledTransformSyncResult({ ok: true, plateSession: { ...twoPlateSnapshot,
         instanceTransforms: [],
-        inputRevisions: { 'plate-a': 2, 'plate-b': 1 }, affectedPlateIds: ['plate-a'], dirtyReasons: ['model-transform'],
-      } });
+        inputRevisions: { 'plate-a': 2, 'plate-b': 1 }, affectedPlateIdsBefore: ['plate-a'], affectedPlateIdsAfter: ['plate-a'],
+        affectedPlateIds: ['plate-a'], dirtyReasons: ['model-transform'], nativeScopedConfig: {
+          version: 1, revision: 2, kind: 'full', snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+        },
+      } }, runtime);
     });
     // A mutation receipt precedes the native history commit. Keep the previous
     // projection until the same project transaction finishes publication.
@@ -516,8 +519,11 @@ describe('Workspace ownership', () => {
     await act(async () => {
       applySettledTransformSyncResult({ ok: true, plateSession: { ...twoPlateSnapshot,
         instanceTransforms: [],
-        inputRevisions: { 'plate-a': 3, 'plate-b': 1 }, affectedPlateIds: ['plate-a'], dirtyReasons: ['model-transform'],
-      } });
+        inputRevisions: { 'plate-a': 3, 'plate-b': 1 }, affectedPlateIdsBefore: ['plate-a'], affectedPlateIdsAfter: ['plate-a'],
+        affectedPlateIds: ['plate-a'], dirtyReasons: ['model-transform'], nativeScopedConfig: {
+          version: 1, revision: 3, kind: 'full', snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+        },
+      } }, runtime);
     });
     expect(towers.volumes).toHaveLength(1);
     expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(3);
