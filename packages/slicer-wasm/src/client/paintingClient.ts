@@ -166,6 +166,9 @@ export function createPaintingApi(module: () => Promise<OrcaModule>, normalizeHi
         if (typeof raw.committed !== 'boolean' || !Array.isArray(raw.affectedPlateIds) ||
             !raw.affectedPlateIds.every(id => typeof id === 'string' && id.length > 0) ||
             new Set(raw.affectedPlateIds).size !== raw.affectedPlateIds.length) throw new Error('invalid painting commit');
+        if (!record(raw.plateInputRevisions) || Object.entries(raw.plateInputRevisions).some(([id, revision]) => !id || !integer(revision)) ||
+            !raw.affectedPlateIds.every(id => Object.hasOwn(raw.plateInputRevisions as object, id)))
+          throw new Error('invalid painting plate input revisions');
         raw.history = normalizeHistory(raw.history);
       }
     } else if (kind === 'close' && (!channel(raw.channel) || raw.channel !== input.channel)) throw new Error('invalid painting close receipt');

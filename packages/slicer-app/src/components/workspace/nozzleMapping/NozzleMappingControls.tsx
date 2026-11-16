@@ -31,7 +31,7 @@ export function useMappingCommit(snapshot: NozzleMappingSnapshot | null, revisio
 export function PlateNozzleMapping({ snapshot, revision }: { snapshot: NozzleMappingSnapshot; revision: number | undefined }) {
   const rack = useFilamentSessionStore(s => s.snapshot);
   const { disabled, commit } = useMappingCommit(snapshot, revision);
-  return <NozzleMappingEditor snapshot={snapshot} disabled={disabled}
+  return <NozzleMappingEditor snapshot={snapshot} disabled={disabled} className="px-0"
     slots={rack?.slots}
     onMode={mode => void commit({ kind: 'mode', mode })}
     onMapping={filamentMap => void commit({ kind: 'mapping', mode: snapshot.effective.mode, filamentMap })} />;

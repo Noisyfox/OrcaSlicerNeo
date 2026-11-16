@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
+import { cn } from 'cn';
 
 export const mappingModeLabel = (mode: NozzleMappingMode) => mode === 0 ? 'Auto For Flush' : mode === 1 ? 'Convenience Mode' : 'Manual';
 
@@ -43,15 +44,16 @@ export function NozzleMappingModeControl({ snapshot, disabled, onChange }: {
 /** The same controlled editor serves immediate Sidebar edits and a temporary
  * confirmation draft. Hidden unused entries always travel with the full map. */
 export function NozzleMappingEditor({ snapshot, filamentMap = snapshot.effective.filamentMap,
-  disabled, onMode, onMapping, slots = [] }: {
+  disabled, onMode, onMapping, slots = [], className }: {
   snapshot: NozzleMappingSnapshot; filamentMap?: readonly number[]; disabled?: boolean;
   onMode?: (mode: NozzleMappingMode) => void; onMapping: (map: readonly number[]) => void;
   slots?: readonly FilamentSessionSlot[];
+  className?: string;
 }) {
   if (!snapshot.eligible) return null;
   const manual = snapshot.effective.mode === 2 || snapshot.effective.mode === 3;
   const overCapacity = manual ? snapshot.nozzles.filter(n => snapshot.usedFilaments.filter(id => filamentMap[id - 1] === n.id).length > n.capacity) : [];
-  return <div className="space-y-2 p-2" data-testid="nozzle-mapping-editor">
+  return <div className={cn("space-y-2 p-2", className)} data-testid="nozzle-mapping-editor">
     {onMode ? <NozzleMappingModeControl snapshot={snapshot} disabled={disabled} onChange={onMode} /> :
       <p className="text-xs text-muted-foreground">{mappingModeLabel(snapshot.effective.mode)}</p>}
     {manual && <div className="space-y-1" data-testid="mapping-materials">

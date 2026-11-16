@@ -40,7 +40,7 @@ export interface PaintingPorts {
   targetAvailable(objectId: number, instanceId: number): boolean;
   api: PaintingApi & Pick<SlicerClient, 'openHistorySession' | 'closeHistorySession'>;
   history(status: HistoryStatus): void;
-  committed(plates: readonly string[]): void;
+  committed(plates: readonly string[], inputRevisions: Readonly<Record<string, number>>): void;
   prepareClosed(paintedObjectIds: readonly number[]): Promise<void>;
   schedule(callback: () => void): () => void;
 }
@@ -329,7 +329,7 @@ export class PaintingController {
       if ('error' in result) throw this.commandFailure(result);
       if (result.committed && this.state.session?.channel === 'mmu') this.paintedObjectIds.add(this.state.session.objectId);
       this.receipt(result, terminal.generation); this.ports.history(result.history);
-      if (result.committed) this.ports.committed(result.affectedPlateIds);
+      if (result.committed) this.ports.committed(result.affectedPlateIds, result.plateInputRevisions);
     }
     this.terminal = null; this.terminalExecuting = false; this.update({ phase: 'idle' });
     this.previewDirty = this.previewReady();

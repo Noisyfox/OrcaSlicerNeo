@@ -4159,6 +4159,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let paintingBusy = false;
   const painting = paintingMock({
     free,
+    plateInputRevisions: () => plateSessionSnapshot().input_revisions,
     pending: value => { paintingBusy = value; },
     historySession: () => editingSession?.id,
     objects: () => objectMeta.map((object, i) => ({ id: object.id, instanceIds: instanceMeta[i].map(instance => instance.id), volumes: volumeMeta[i] })),

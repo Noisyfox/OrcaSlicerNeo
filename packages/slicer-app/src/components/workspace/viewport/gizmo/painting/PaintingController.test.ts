@@ -34,7 +34,7 @@ function fixture() {
       samplePaintingStroke: vi.fn(async () => receipt()),
       finishPaintingStroke: vi.fn(async () => receipt('finished')),
       cancelPaintingStroke: vi.fn(async () => receipt('idle')),
-      commitPaintingStroke: vi.fn(async () => ({ ...receipt('idle'), committed: true, affectedPlateIds: ['plate1'], history: status })),
+      commitPaintingStroke: vi.fn(async () => ({ ...receipt('idle'), committed: true, affectedPlateIds: ['plate1'], plateInputRevisions: { plate1: 2 }, history: status })),
       getPaintingGeometry: vi.fn(async () => ({ ok: true as const, version: 1 as const, channel: session.channel, sessionId: session.id, revision: session.revision, parts: [], candidates: [], resources: [] })),
       settlePainting: vi.fn(async () => ({ ok: true as const, version: 1 as const, settledVersion: 1, projections: {} })),
     },
@@ -254,7 +254,7 @@ describe('painting session and display ownership', () => {
   });
   it('does not refresh Prepare for an ineffective commit', async () => {
     const { controller: c, ports: p, frame, receipt } = fixture(); await c.open(1, 2, 'mmu'); await frame();
-    vi.mocked(p.api.commitPaintingStroke).mockImplementationOnce(async () => ({ ...receipt('idle'), committed: false, affectedPlateIds: [], history: status }));
+    vi.mocked(p.api.commitPaintingStroke).mockImplementationOnce(async () => ({ ...receipt('idle'), committed: false, affectedPlateIds: [], plateInputRevisions: { plate1: 1 }, history: status }));
     await c.apply('eraseAll'); expect(await c.close()).toBe(true);
     expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
   });
@@ -270,7 +270,7 @@ describe('painting session and display ownership', () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); c.setSettings({ gapArea: 2.5 });
     expect(await c.apply('gap')).toBe(true);
     expect(p.api.beginPaintingStroke).toHaveBeenCalledWith(expect.objectContaining({ tool: 'gap', candidateRevision: 2, settings: expect.objectContaining({ gapArea: 2.5 }) }));
-    expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1); expect(p.committed).toHaveBeenCalledWith(['plate1']);
+    expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1); expect(p.committed).toHaveBeenCalledWith(['plate1'], { plate1: 2 });
   });
   it('history reconciliation adopts latest selector revision before another stroke', async () => {
     const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
@@ -563,7 +563,7 @@ describe.each(['triangle', 'region', 'gap'] as const)('%s shared candidate previ
     const apply = c.apply('gap'); await tick();
     expect(c.unfinished).toBe(true); expect(await c.press(event(1))).toBe('ignored');
     applyResult.resolve(f.receipt('finished')); await tick(); expect(c.getSnapshot().phase).toBe('ending'); expect(await c.press(event(1))).toBe('ignored');
-    commitResult.resolve({ ...f.receipt('idle'), committed: true, affectedPlateIds: ['plate1'], history: status }); await apply; await f.frame();
+    commitResult.resolve({ ...f.receipt('idle'), committed: true, affectedPlateIds: ['plate1'], plateInputRevisions: { plate1: 2 }, history: status }); await apply; await f.frame();
     expect(await c.press(event(1))).toBe('camera');
     const cancelled = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.beginPaintingStroke).mockReturnValueOnce(cancelled.promise);
     const cancelledApply = c.apply('gap'); await tick(); c.cancel();
@@ -763,7 +763,7 @@ describe('seam channel switching and memory-only parameters', () => {
   it('seam commits invalidate results without exporting ordinary MMU geometry', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'seam'); await frame();
     c.setSettings({ state: 2 }); await c.press(event(1)); c.release(event(2), true); await tick(); await c.close();
-    expect(p.committed).toHaveBeenCalledWith(['plate1']); expect(p.prepareClosed).toHaveBeenCalledWith([]);
+    expect(p.committed).toHaveBeenCalledWith(['plate1'], { plate1: 2 }); expect(p.prepareClosed).toHaveBeenCalledWith([]);
     expect(p.api.commitPaintingStroke).toHaveBeenCalledWith(expect.objectContaining({ channel: 'seam', settings: expect.objectContaining({ state: 2, erase: true }) }));
   });
 });

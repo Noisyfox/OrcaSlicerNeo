@@ -51,16 +51,15 @@
 
 ## Plate list cards
 
-The planned [nozzle-mapping extension](Multi-Filament%20Support.md#14-nozzle-filament-mapping-design)
-replaces the lower Plates Properties editor with Settings and Filament Mapping
-tabs, in that order, targeting the selected Plate. It adds no separate mapping
-button or popup to the cards. This accepted design is not yet delivered; the
-current layout described below remains the implementation baseline.
+The [nozzle-mapping extension](Multi-Filament%20Support.md#14-nozzle-filament-mapping-design)
+provides Settings and Filament Mapping tabs, in that order, in the lower Plates
+Properties editor, targeting the selected Plate. It adds no separate mapping
+button or popup to the cards.
 
 - The existing Plates list uses square model thumbnails beside each plate's
   name, state, valid slice totals, and plate actions. Its surrounding sidebar
   layout, configuration editor, and viewport remain unchanged. Within Plates,
-  the options section reserves a fixed 170px for options, its header, and
+  the Settings section reserves a fixed 170px for options, its header, and
   expanded search, capped at half the shared scrollable area
   below the top title and plate toolbar (those controls are excluded).
   Filtering options does not shrink this section. The plate list takes its
@@ -69,6 +68,12 @@ current layout described below remains the implementation baseline.
   the divider and options, while long lists scroll independently.
   The height budget includes expanded search, but collapsed search leaves no
   empty placeholder between the header and options.
+  With Filament Mapping selected, the plate list takes its content height up
+  to half the shared scrollable area, and the mapping section fills all
+  remaining space below it. Its tab bar keeps its full height; mapping content
+  scrolls only when it exceeds the available section height. The scroll area
+  retains the sidebar's horizontal insets and adds the same overflow-only
+  content-to-scrollbar gap as the configuration options.
 - Selecting a plate uses its card content, name, or thumbnail. Action buttons operate on their
   explicit plate target and do not also select a plate.
 - Thumbnails use a fixed orthographic isometric view of printable model parts,
