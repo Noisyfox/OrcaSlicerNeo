@@ -2328,7 +2328,7 @@ describe('SlicerClient bridge contract', () => {
       expect(r.objects).toHaveLength(1);
       const obj = r.objects[0];
       expect(obj).toMatchObject({
-        index: 0, name: 'Object 1', printable: true, instanceCount: 2,
+        index: 0, name: 'Object 1', printable: true, autoDrop: true, instanceCount: 2,
       });
       expect(obj.id).toBeGreaterThan(0);
       expect(obj.volumes).toHaveLength(2);
@@ -2348,6 +2348,25 @@ describe('SlicerClient bridge contract', () => {
       expect(r.objects).toEqual([]);
     });
 
+    it('rejects model structures that omit the object Auto Drop state', async () => {
+      const module = createMockModule();
+      const c = createClient(async () => module);
+      await c.addModel(new Uint8Array(4), 'stl');
+      const ccall = module.ccall;
+      module.ccall = (name, ret, types, args) => {
+        const pointer = ccall(name, ret, types, args);
+        if (name !== 'orc_get_model_structure') return pointer;
+        const response = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        delete response.objects[0].autoDrop;
+        const bytes = new TextEncoder().encode(JSON.stringify(response) + '\0');
+        const replacement = module._malloc(bytes.length);
+        module.HEAPU8.set(bytes, replacement);
+        return replacement;
+      };
+      expect(await c.getModelStructure()).toEqual({ ok: false, objects: [], error: 'invalid model structure' });
+    });
+
     it('keeps stable IDs after deleting an earlier object', async () => {
       const c = createClient(async () => createMockModule());
       await c.addModel(new Uint8Array(4), 'stl');
@@ -2363,6 +2382,26 @@ describe('SlicerClient bridge contract', () => {
   });
 
   describe('Step 2 metadata mutations (stable ObjectID)', () => {
+    it('sets Auto Drop atomically and drops all instances when re-enabled', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const ids = objects.map(object => object.id);
+      expect((await c.setObjectsAutoDrop([...ids, 99999], false)).ok).toBe(false);
+      expect((await c.getModelStructure()).objects.map(object => object.autoDrop)).toEqual([true, true]);
+      expect((await c.setObjectsAutoDrop([ids[0], ids[0]], false)).ok).toBe(true);
+      await c.setInstanceOffset(0, 0, 0, 0, 12);
+      await c.setInstanceOffset(0, 1, 50, 0, 12);
+      const result = await c.setObjectsAutoDrop([ids[0]], true);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(result.error);
+      expect(result.plateSession.instanceTransforms).toHaveLength(2);
+      expect((await c.getModelStructure()).objects.map(object => object.autoDrop)).toEqual([true, true]);
+      expect((await c.getModelMesh()).objects.filter(item => item.objectIdx === 0)
+        .map(item => item.instanceTransform.offset[2])).toEqual([0, 0]);
+    });
+
     it('renameObject renames an object by stable ID', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');

@@ -16,6 +16,19 @@ class Channel implements WorkerTransport {
 }
 
 describe('Worker-owned project history protocol', () => {
+  it('restores an object Auto Drop change with its instances through Undo and Redo', async () => {
+    const client = createClient(async () => createMockModule({ instanceCount: 2 }));
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const id = (await client.getModelStructure()).objects[0].id;
+    await client.runProjectHistoryTransaction('Disable Auto Drop', 'project', context(),
+      () => client.setObjectsAutoDrop([id], false), context());
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(false);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(true);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(false);
+  });
+
   it.each(['missing', 'version', 'profileSelection'])('rejects an incomplete restore receipt: %s', async (fault) => {
     const module = createMockModule();
     const client = createClient(async () => module);

@@ -1644,7 +1644,7 @@ function modelIds(value: unknown): value is number[] {
 function modelStructure(value: unknown): boolean {
   return Array.isArray(value) && value.every(object => isRecord(object) &&
     modelCounts(object, 'id', 'index', 'instanceCount') && object.id !== 0 && typeof object.name === 'string' &&
-    typeof object.printable === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
+    typeof object.printable === 'boolean' && typeof object.autoDrop === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
       isRecord(volume) && modelCounts(volume, 'id', 'index') && volume.id !== 0 && typeof volume.name === 'string' &&
       ['model_part', 'negative_volume', 'parameter_modifier', 'support_blocker', 'support_enforcer'].includes(volume.type as string) &&
       typeof volume.isSplittable === 'boolean') &&
@@ -3087,14 +3087,18 @@ export function createClient(
           known_paint_keys: nativeKnownPaintKeys })]);
       const decoded = decodeModelGeometry(m, raw, geometrySession, knownGeometryKeys, knownPaintGeometryKeys);
       const patch = raw as { object_order: number[]; objects: ModelStructureResult['objects'] };
-      if (!Array.isArray(patch.object_order) || !Array.isArray(patch.objects))
+      if (!Array.isArray(patch.object_order) || !modelStructure(patch.objects))
         throw new Error('invalid model scene patch');
       return { ok: true, objectOrder: patch.object_order, objects: patch.objects, ...decoded };
     },
 
     async getModelStructure(): Promise<ModelStructureResult> {
       const m = await module();
-      return callJson(m, 'orc_get_model_structure', [], []) as ModelStructureResult;
+      const raw = callJson(m, 'orc_get_model_structure', [], []);
+      if (!isRecord(raw) || raw.ok !== true)
+        return { ok: false, objects: [], error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'model structure read failed' };
+      if (!modelStructure(raw.objects)) return { ok: false, objects: [], error: 'invalid model structure' };
+      return { ok: true, objects: raw.objects as ModelObjectStructure[] };
     },
 
     async deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult> {
@@ -3202,6 +3206,12 @@ export function createClient(
       const m = await module();
       return normalizeStructuralResult<ModelMutationResult>(callJson(m, 'orc_set_object_printable', ['number', 'number'],
                       [objectId, printable ? 1 : 0]));
+    },
+
+    async setObjectsAutoDrop(objectIds: number[], enabled: boolean): Promise<ModelMutationResult> {
+      const m = await module();
+      return normalizeStructuralResult<ModelMutationResult>(callJson(m, 'orc_set_objects_auto_drop', ['string', 'number'],
+                      [JSON.stringify(objectIds), enabled ? 1 : 0]));
     },
 
     async setInstancePrintable(instanceId: number, printable: boolean): Promise<ModelMutationResult> {

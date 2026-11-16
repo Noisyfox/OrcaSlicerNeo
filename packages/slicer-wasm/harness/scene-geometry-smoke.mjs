@@ -261,16 +261,38 @@ for (const legacyValues of [[1, 0], [1, 1], [undefined, undefined]]) {
   const entries = readZipEntries(buildIndependentReader3mf());
   const modelEntry = entries.find(entry => entry.name === '3D/3dmodel.model');
   const items = legacyValues.map((value, index) =>
-    `<item objectid="1" transform="1 0 0 0 1 0 0 0 1 ${100 + 30 * index} 100 10" printable="1"${value === undefined ? '' : ` auto_drop="${value}"`}/>`);
+    `<item objectid="1" transform="1 0 0 0 1 0 0 0 1 ${100 + 30 * index} 100 20" printable="1"${value === undefined ? '' : ` auto_drop="${value}"`}/>`);
   modelEntry.content = encoder.encode(decoder.decode(modelEntry.content)
     .replace(/<build>[\s\S]*?<\/build>/, `<build>${items.join('')}</build>`));
   const settingsEntry = entries.find(entry => entry.name === 'Metadata/model_settings.config');
   settingsEntry.content = encoder.encode(decoder.decode(settingsEntry.content).replace('</model_instance>',
     '</model_instance><model_instance><metadata key="object_id" value="1"/><metadata key="instance_id" value="1"/><metadata key="identify_id" value="2"/></model_instance>'));
   loadAutoDropFixture(entries);
-  assert.equal(call('orc_get_model_structure').objects[0].instances.length, 2,
+  const object = call('orc_get_model_structure').objects[0];
+  assert.equal(object.instances.length, 2,
     'the legacy any-off case must load both build items');
+  assert.equal(object.autoDrop, !legacyValues.includes(0));
   assertSavedAutoDrop(1, legacyValues.includes(0) ? 0 : 1);
+  if (legacyValues.includes(0)) {
+    const before = fullModel().renderables.map(item => item.instance_transform.offset[2]);
+    const rejected = call('orc_set_objects_auto_drop', ['string', 'number'], [JSON.stringify([object.id, 99999999]), 1]);
+    assert.equal(rejected.ok, false);
+    assert.equal(call('orc_get_model_structure').objects[0].autoDrop, false);
+    const enabled = edit('Enable Auto Drop', () => call('orc_set_objects_auto_drop', ['string', 'number'],
+      [JSON.stringify([object.id]), 1]));
+    assert.equal(enabled.result.plate_session.instance_transforms.length, 2);
+    const dropped = fullModel().renderables.map(item => item.instance_transform.offset[2]);
+    assert.notDeepEqual(dropped, before);
+    assert.ok(Math.abs((before[0] - dropped[0]) - (before[1] - dropped[1])) < 1e-8);
+    assertSavedAutoDrop(1, 1);
+    assert.equal(call('orc_history_undo').ok, true);
+    assert.equal(call('orc_get_model_structure').objects[0].autoDrop, false);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), before);
+    assertSavedAutoDrop(1, 0);
+    assert.equal(call('orc_history_redo').ok, true);
+    assert.equal(call('orc_get_model_structure').objects[0].autoDrop, true);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), dropped);
+  }
 }
 for (const autoDrop of [0, 1]) {
   const encoder = new TextEncoder();
@@ -294,6 +316,7 @@ for (const autoDrop of [0, 1]) {
   loadAutoDropFixture(entries);
   assertSavedAutoDrop(1, autoDrop);
   const source = call('orc_get_model_structure').objects[0];
+  assert.equal(source.autoDrop, Boolean(autoDrop));
   assert.equal(source.volumes[0].isSplittable, true);
   const parts = edit('Split parts', () => call('orc_split_volume_to_parts', ['number', 'number', 'number'],
     [source.volumes[0].id, 2, 0]));

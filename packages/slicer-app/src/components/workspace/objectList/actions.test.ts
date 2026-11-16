@@ -17,7 +17,7 @@ vi.mock('../actions/persistModelTransforms', () => ({
 const structure = {
   ok: true as const,
   objects: [{
-    id: 1, index: 0, name: 'Cube', printable: true, instanceCount: 1,
+    id: 1, index: 0, name: 'Cube', printable: true, autoDrop: true, instanceCount: 1,
     volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part' as const, isSplittable: false }],
     instances: [{ id: 20, index: 0, printable: true }],
   }],
@@ -76,7 +76,7 @@ describe('object list action helpers', () => {
   it('renameObjectInList leaves part names alone for multi-volume objects', async () => {
     useObjectListStore.setState({
       structure: [{
-        id: 1, index: 0, name: 'Cube', printable: true, instanceCount: 1,
+        id: 1, index: 0, name: 'Cube', printable: true, autoDrop: true, instanceCount: 1,
         volumes: [
           { id: 10, index: 0, name: 'A', type: 'model_part' as const, isSplittable: false },
           { id: 11, index: 1, name: 'B', type: 'model_part' as const, isSplittable: false },

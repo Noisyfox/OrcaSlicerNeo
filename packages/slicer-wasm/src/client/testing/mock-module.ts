@@ -519,7 +519,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextObjectId = 1000;
   let nextVolumeId = 2000;
   let nextInstanceId = 3000;
-  let objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }> = [];
+  let objectMeta: Array<{ id: number; name: string; printable: boolean; autoDrop: boolean; primitive?: string }> = [];
   let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }>> = [];
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
@@ -558,7 +558,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     modelLoaded: boolean;
     objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
-    objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }>;
+    objectMeta: Array<{ id: number; name: string; printable: boolean; autoDrop: boolean; primitive?: string }>;
     volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }>>;
     instanceMeta: Array<Array<{ id: number; printable: boolean }>>;
     objectPlateIds: string[];
@@ -2094,6 +2094,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       index: oi,
       name: objectMeta[oi].name,
       printable: objectMeta[oi].printable,
+      autoDrop: objectMeta[oi].autoDrop,
       instanceCount: instanceMeta[oi].length,
       volumes: volumeMeta[oi].map((v, vi) => ({
         id: v.id, index: vi, name: v.name, type: v.type, isSplittable: v.isSplittable,
@@ -2246,7 +2247,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     objectTransforms.push(createObjectTransforms(plateOrigins[currentPlateIndex]?.slice(0, 2) as [number, number] ?? [0, 0]));
     objectVolumeTransforms.push(createObjectVolumeTransforms());
     objectPlateIds.push(currentPlateId);
-    objectMeta.push({ id: nextObjectId++, name, printable: true });
+    objectMeta.push({ id: nextObjectId++, name, printable: true, autoDrop: true });
     volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
       id: nextVolumeId++, name: `Part ${vi + 1}`,
       type: 'model_part' as VolumeType, isSplittable: vi === 0,
@@ -2255,6 +2256,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       id: nextInstanceId++, printable: true,
     })));
     sliced = false;
+  }
+
+  function mockWorldMinZ(objectIndex: number, instanceIndex: number): number {
+    type Transform = ReturnType<typeof identityTransform> & { matrix?: number[] };
+    const transformPoint = (point: number[], transform: Transform): number[] => {
+      const m = transform.matrix;
+      if (m) return [
+        m[0] * point[0] + m[4] * point[1] + m[8] * point[2] + m[12],
+        m[1] * point[0] + m[5] * point[1] + m[9] * point[2] + m[13],
+        m[2] * point[0] + m[6] * point[1] + m[10] * point[2] + m[14],
+      ];
+      const [rx, ry, rz] = transform.rotation;
+      let [x, y, z] = point.map((value, axis) => value * transform.scale[axis] * transform.mirror[axis]);
+      [y, z] = [y * Math.cos(rx) - z * Math.sin(rx), y * Math.sin(rx) + z * Math.cos(rx)];
+      [x, z] = [x * Math.cos(ry) + z * Math.sin(ry), -x * Math.sin(ry) + z * Math.cos(ry)];
+      [x, y] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)];
+      return [x + transform.offset[0], y + transform.offset[1], z + transform.offset[2]];
+    };
+    let min = Infinity;
+    volumeMeta[objectIndex].forEach((volume, volumeIndex) => {
+      if (volume.type !== 'model_part') return;
+      const mesh = primitiveMesh(volume.primitive ?? objectMeta[objectIndex].primitive);
+      for (const vertex of mesh.verts) {
+        const part = transformPoint(vertex, objectVolumeTransforms[objectIndex][volumeIndex]);
+        min = Math.min(min, transformPoint(part, objectTransforms[objectIndex][instanceIndex])[2]);
+      }
+    });
+    return min;
   }
 
   let wizardCatalogue: SetupWizardCatalogue | null = null;
@@ -3397,7 +3426,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectTransforms.push(createObjectTransforms(plateOrigins[currentPlateIndex]?.slice(0, 2) as [number, number] ?? [0, 0]));
       objectVolumeTransforms.push([identityTransform()]);
       objectPlateIds.push(currentPlateId);
-      objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true, primitive: type });
+      objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true, autoDrop: true, primitive: type });
       volumeMeta.push([{ id: nextVolumeId++, name: shapeName, type: 'model_part' as VolumeType, isSplittable: false }]);
       instanceMeta.push(Array.from({ length: instanceCount }, (_, ii) => ({
         id: nextInstanceId++,
@@ -3515,7 +3544,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const sourceVolumeIds = volumeMeta[oi].map((volume) => String(volume.id));
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
-        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, autoDrop: objectMeta[oi].autoDrop, primitive: objectMeta[oi].primitive });
         const clonedObjectId = objectMeta[objectMeta.length - 1].id;
         if (nativeScopedConfig.objects[sourceObjectId])
           nativeScopedConfig.objects[String(clonedObjectId)] = clone(nativeScopedConfig.objects[sourceObjectId]);
@@ -3638,7 +3667,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (let p = 0; p < splitParts; p++) {
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0]))]);
-        objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable });
+        objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable, autoDrop: objectMeta[oi].autoDrop });
         const newObjectId = objectMeta[objectMeta.length - 1].id;
         // ModelObject::split() starts each derived object's config from the
         // source object and applies the source volume config over it. The
@@ -3694,7 +3723,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[srcIdxs[0]][0]))]);
       objectVolumeTransforms.push(newVolTransforms);
-      objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable });
+      objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable, autoDrop: true });
       volumeMeta.push(newVolumes);
       instanceMeta.push([{ id: nextInstanceId++, printable: instanceMeta[srcIdxs[0]][0].printable }]);
       objectPlateIds.push(objectPlateIds[srcIdxs[0]] ?? currentPlateId);
@@ -3729,7 +3758,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const srcInst = instanceMeta[oi][ii];
         objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[oi][ii]))]);
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
-        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, autoDrop: objectMeta[oi].autoDrop, primitive: objectMeta[oi].primitive });
         const separatedVolumes = volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ }));
         volumeMeta.push(separatedVolumes);
         separatedVolumes.forEach((volume, volumeIndex) => {
@@ -3863,6 +3892,32 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         }
       }
       return { error: 'volume not found' };
+    },
+    orc_set_objects_auto_drop(objectIdsJson: string, enabled: number) {
+      const ids = JSON.parse(objectIdsJson) as unknown;
+      if (!Array.isArray(ids) || ids.length === 0 || ids.some(id => !Number.isSafeInteger(id) || id < 1))
+        return { ok: false, error: 'no object ids' };
+      const indices = [...new Set(ids)].map(id => objectMeta.findIndex(object => object.id === id));
+      if (indices.some(index => index < 0)) return { ok: false, error: 'object not found' };
+      const movedPlates = new Set<string>();
+      const transforms: Array<Record<string, unknown>> = [];
+      for (const oi of indices) {
+        objectMeta[oi].autoDrop = enabled !== 0;
+        if (!enabled || objectTransforms[oi].length === 0) continue;
+        const minZ = mockWorldMinZ(oi, 0);
+        if (!Number.isFinite(minZ) || minZ === 0) continue;
+        if (objectPlateIds[oi]) movedPlates.add(objectPlateIds[oi]);
+        for (let ii = 0; ii < objectTransforms[oi].length; ii++) {
+          const transform = objectTransforms[oi][ii] as ReturnType<typeof identityTransform> & { matrix?: number[] };
+          transform.offset[2] -= minZ;
+          if (transform.matrix) transform.matrix[14] -= minZ;
+          transforms.push({ object_id: objectMeta[oi].id, instance_id: instanceMeta[oi][ii].id,
+            object_index: oi, instance_index: ii, world_transform: transform });
+        }
+      }
+      const plates = [...movedPlates];
+      if (plates.length > 0) sliced = false;
+      return { ok: true, plate_session: plateMutation('model-transform', plates, plates, transforms) };
     },
     orc_set_object_printable(objectId: number, printable: number) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
@@ -4276,6 +4331,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_rename_object: { ret: 'number', args: ['number', 'string'] },
     orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
     orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },
+    orc_set_objects_auto_drop: { ret: 'number', args: ['string', 'number'] },
     orc_set_object_printable: { ret: 'number', args: ['number', 'number'] },
     orc_set_instance_printable: { ret: 'number', args: ['number', 'number'] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },

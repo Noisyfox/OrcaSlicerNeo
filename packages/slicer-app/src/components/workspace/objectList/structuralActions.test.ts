@@ -22,7 +22,7 @@ vi.mock('../actions/persistModelTransforms', () => ({
 
 const structure = {
   ok: true as const,
-  objects: [{ id: 1, index: 0, name: 'A', printable: true, instanceCount: 1, volumes: [], instances: [] }],
+  objects: [{ id: 1, index: 0, name: 'A', printable: true, autoDrop: true, instanceCount: 1, volumes: [], instances: [] }],
 };
 
 function makeRuntime(): SlicerRuntime {

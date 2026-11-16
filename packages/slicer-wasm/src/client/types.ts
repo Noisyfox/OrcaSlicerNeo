@@ -984,6 +984,8 @@ export interface ModelObjectStructure {
   name: string;
   /** Object-level flag; distinct from per-instance `printable`. */
   printable: boolean;
+  /** Automatic bed placement is shared by every instance of the object. */
+  autoDrop: boolean;
   instanceCount: number;
   volumes: ModelVolumeStructure[];
   instances: ModelInstanceStructure[];
@@ -1887,6 +1889,8 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   setVolumeType(volumeId: number, type: VolumeType): Promise<ModelMutationResult>;
   /** Toggle the object-level printable gate and every one of its instances. */
   setObjectPrintable(objectId: number, printable: boolean): Promise<ModelMutationResult>;
+  /** Set Auto Drop on the selected objects; enabling also places them on the bed. */
+  setObjectsAutoDrop(objectIds: number[], enabled: boolean): Promise<ModelMutationResult>;
   /** Toggle a single instance's printable state by its stable ObjectID. */
   setInstancePrintable(instanceId: number, printable: boolean): Promise<ModelMutationResult>;
   /** Select a printer or process profile and return the final atomic

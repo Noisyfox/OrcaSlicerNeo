@@ -18,7 +18,7 @@ const snapshot: NativeScopedConfigSnapshot = {
 };
 
 const structure = [{
-  id: 10, index: 0, name: 'Cube', printable: true, instanceCount: 1,
+  id: 10, index: 0, name: 'Cube', printable: true, autoDrop: true, instanceCount: 1,
   volumes: [{ id: 20, index: 0, name: 'Modifier', type: 'parameter_modifier' as const, isSplittable: false }],
   instances: [{ id: 30, index: 0, printable: true }],
 }];

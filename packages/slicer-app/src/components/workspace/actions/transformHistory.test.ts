@@ -46,13 +46,14 @@ const emptyProjection = {
 
 function structureFor(volumes: readonly GLVolume[]) {
   const objects = new Map<number, {
-    id: number; index: number; name: string; printable: boolean; instanceCount: number;
+    id: number; index: number; name: string; printable: boolean; autoDrop: boolean; instanceCount: number;
     volumes: { id: number; index: number; name: string; type: 'model_part'; isSplittable: boolean }[];
     instances: { id: number; index: number; printable: boolean }[];
   }>();
   for (const volume of volumes) {
     const object = objects.get(volume.buffer.objectIdx) ?? {
       id: 100 + volume.buffer.objectIdx, index: volume.buffer.objectIdx, name: 'Object', printable: true,
+      autoDrop: true,
       instanceCount: 0, volumes: [], instances: [],
     };
     if (!objects.has(volume.buffer.objectIdx)) objects.set(volume.buffer.objectIdx, object);

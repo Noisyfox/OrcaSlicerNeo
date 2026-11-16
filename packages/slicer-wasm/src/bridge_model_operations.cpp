@@ -162,7 +162,7 @@ json model_structure_json_filtered(const std::set<std::size_t>* object_ids) {
             instances.push_back(json{{"id", instance->id().id}, {"index", ii}, {"printable", instance->printable}});
         }
         objects.push_back(json{{"id", object->id().id}, {"index", oi}, {"name", object->name},
-            {"printable", object->printable}, {"instanceCount", object->instances.size()},
+            {"printable", object->printable}, {"autoDrop", object->auto_drop}, {"instanceCount", object->instances.size()},
             {"volumes", std::move(volumes)}, {"instances", std::move(instances)}});
     }
     return objects;
@@ -1595,6 +1595,80 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Auto Drop belongs to the object, including all of its instances. Resolve the
+// entire selection before changing it; enabling follows Orca's object-list
+// action and drops the object's instances together using its first instance.
+EMSCRIPTEN_KEEPALIVE const char* orc_set_objects_auto_drop(const char* object_ids_json, double enabled) {
+    struct SavedObject {
+        ModelObject* object;
+        bool auto_drop;
+        std::vector<Slic3r::Geometry::Transformation> instances;
+    };
+    try {
+        const auto ids = parse_positive_id_array(json::parse(object_ids_json ? object_ids_json : ""));
+        if (!ids) return error_json("no object ids");
+        std::vector<SavedObject> saved;
+        saved.reserve(ids->size());
+        for (const auto id : *ids) {
+            ModelObject* object = find_object_by_id(id);
+            if (!object) return error_json("object not found");
+            SavedObject entry{object, object->auto_drop, {}};
+            for (const auto* instance : object->instances)
+                entry.instances.push_back(instance->get_transformation());
+            saved.push_back(std::move(entry));
+        }
+        auto& live = state();
+        const auto old_members = live.instance_plate_ids;
+        const auto old_outside = live.plate_out_of_bounds_ids;
+        const auto old_parked = live.parked_instance_ids;
+        const auto old_revisions = live.plate_input_revisions;
+        const auto old_pending = live.pending_membership_instance_ids;
+        const auto old_lifecycle = live.plate_runtime_registry.capture_lifecycle();
+        try {
+            std::set<std::size_t> moved;
+            std::map<std::size_t, Vec3d> changed;
+            for (auto& entry : saved) {
+                auto* object = entry.object;
+                object->auto_drop = enabled != 0.0;
+                const bool has_mesh = std::any_of(object->volumes.begin(), object->volumes.end(),
+                    [](const ModelVolume* volume) { return volume->is_model_part() && !volume->mesh().empty(); });
+                if (object->auto_drop && has_mesh && !object->instances.empty())
+                    object->ensure_on_bed();
+                for (std::size_t i = 0; i < object->instances.size(); ++i) {
+                    auto* instance = object->instances[i];
+                    if (instance->get_transformation() != entry.instances[i]) {
+                        moved.insert(instance->id().id);
+                        changed.emplace(instance->id().id, Vec3d::Zero());
+                    }
+                }
+            }
+            const auto before = member_plate_ids_for_instances(moved);
+            if (!moved.empty()) rebuild_plate_membership(true, &moved);
+            const auto mutation = plate_mutation_snapshot(before, {"model-transform"},
+                reflow_instance_transforms(changed), &moved);
+            return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
+        } catch (...) {
+            for (const auto& entry : saved) {
+                entry.object->auto_drop = entry.auto_drop;
+                for (std::size_t i = 0; i < entry.instances.size(); ++i)
+                    entry.object->instances[i]->set_transformation(entry.instances[i]);
+                entry.object->invalidate_bounding_box();
+            }
+            live.instance_plate_ids = old_members;
+            live.plate_out_of_bounds_ids = old_outside;
+            live.parked_instance_ids = old_parked;
+            live.plate_input_revisions = old_revisions;
+            live.pending_membership_instance_ids = old_pending;
+            live.plate_runtime_registry.restore_lifecycle(old_lifecycle);
+            throw;
+        }
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

@@ -5,7 +5,7 @@ import type { PlateSessionSnapshot } from '@slicer/client';
 
 const structure: ModelObjectStructure[] = [
   {
-    id: 1, index: 0, name: 'Cube', printable: true, instanceCount: 2,
+    id: 1, index: 0, name: 'Cube', printable: true, autoDrop: true, instanceCount: 2,
     volumes: [
       { id: 10, index: 0, name: 'Part 1', type: 'model_part', isSplittable: false },
       { id: 11, index: 1, name: 'Part 2', type: 'model_part', isSplittable: false },
@@ -16,7 +16,7 @@ const structure: ModelObjectStructure[] = [
     ],
   },
   {
-    id: 2, index: 1, name: 'Cube2', printable: true, instanceCount: 1,
+    id: 2, index: 1, name: 'Cube2', printable: true, autoDrop: true, instanceCount: 1,
     volumes: [{ id: 12, index: 0, name: 'Part 1', type: 'model_part', isSplittable: false }],
     instances: [{ id: 22, index: 0, printable: true }],
   },
@@ -133,7 +133,7 @@ describe('buildSelectableRows', () => {
 
   it('omits part/instance rows for single-part/single-instance objects', () => {
     const single: ModelObjectStructure[] = [{
-      id: 1, index: 0, name: 'One', printable: true, instanceCount: 1,
+      id: 1, index: 0, name: 'One', printable: true, autoDrop: true, instanceCount: 1,
       volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
       instances: [{ id: 20, index: 0, printable: true }],
     }];

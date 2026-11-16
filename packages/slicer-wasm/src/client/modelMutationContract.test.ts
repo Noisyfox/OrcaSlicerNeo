@@ -27,6 +27,7 @@ const operations: Operation[] = [
   { name: 'orc_remove_instance', fields: [], invoke: (c, o) => c.removeInstance(o[0].id, o[0].instances[1].id) },
   { name: 'orc_set_volume_type', fields: [], invoke: (c, o) => c.setVolumeType(o[0].volumes[0].id, 'model_part') },
   { name: 'orc_set_object_printable', fields: [], invoke: (c, o) => c.setObjectPrintable(o[0].id, true) },
+  { name: 'orc_set_objects_auto_drop', fields: [], invoke: (c, o) => c.setObjectsAutoDrop([o[0].id], false) },
   { name: 'orc_set_instance_printable', fields: [], invoke: (c, o) => c.setInstancePrintable(o[0].instances[0].id, true) },
 ];
 
