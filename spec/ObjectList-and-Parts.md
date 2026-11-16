@@ -333,7 +333,10 @@ objects do not expose Rename.
 
 Split eligibility follows native disconnected-shell / multipart rules.
 Assemble requires at least two full objects and uses the selected set only;
-there is no empty-list Assemble menu. A printable command applies to the
+there is no empty-list Assemble menu. If any source has Auto Drop disabled,
+the assembled object inherits the disabled setting and preserves source
+heights. Otherwise it inherits the enabled setting and is placed on the bed
+as one object, preserving the relative part positions. A printable command applies to the
 complete applicable selection, with its label derived from the clicked target.
 Row context events stop propagation; hovering preserves the current selected-row
 highlighting. Part-set preservation follows the projected-row rule above,

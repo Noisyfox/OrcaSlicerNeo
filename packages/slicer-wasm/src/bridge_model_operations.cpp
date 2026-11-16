@@ -1080,6 +1080,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
         auto& model = state().model;
         ModelObject* new_obj = model.add_object();
         new_obj->name = (name_cstr && *name_cstr) ? name_cstr : "Assembly";
+        // Auto Drop is shared by the resulting object; as in Orca, one
+        // disabled source takes precedence over any enabled sources.
+        new_obj->auto_drop = std::all_of(sources.begin(), sources.end(),
+            [](const ModelObject* source) { return source->auto_drop; });
 
         bool first_instance = true;
         for (ModelObject* src : sources) {
@@ -1103,6 +1107,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
             new_obj->add_instance();
         }
         new_obj->sort_volumes(true);
+        const bool has_model_mesh = std::any_of(new_obj->volumes.begin(), new_obj->volumes.end(),
+            [](const ModelVolume* volume) { return volume->is_model_part() && !volume->mesh().empty(); });
+        if (new_obj->auto_drop && has_model_mesh)
+            new_obj->ensure_on_bed();
         append_instance_ids(*new_obj, affected_instances);
 
         // Remove the source objects from the live model.

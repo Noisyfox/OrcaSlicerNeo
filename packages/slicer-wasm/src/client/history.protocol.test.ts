@@ -16,6 +16,36 @@ class Channel implements WorkerTransport {
 }
 
 describe('Worker-owned project history protocol', () => {
+  it.each([true, false])('assembles with Auto Drop %s and restores source settings through history', async (allEnabled) => {
+    const client = createClient(async () => createMockModule());
+    await client.runProjectHistoryTransaction('Add objects', 'project', context(), async () => {
+      await client.addShape('Cube');
+      return client.addShape('Cube');
+    }, context());
+    const sources = (await client.getModelStructure()).objects;
+    if (!allEnabled) await client.runProjectHistoryTransaction('Disable Auto Drop', 'project', context(),
+      () => client.setObjectsAutoDrop([sources[1].id], false), context());
+    const bodies = (await client.getModelMesh()).objects;
+    const tx = await client.beginHistory('Raise objects', 'project', context());
+    const raised = bodies.map((body, index) => ({ objectIdx: body.objectIdx, volumeIdx: body.volumeIdx,
+      instanceIdx: body.instanceIdx, volumeTransform: body.volumeTransform,
+      instanceTransform: { ...body.instanceTransform, offset: [0, 0, 5 + index * 5] as [number, number, number] } }));
+    expect((await client.setModelTransforms(tx, raised, 'direct')).ok).toBe(true);
+    await client.commitHistory(tx, context());
+    const merged = await client.runProjectHistoryTransaction('Assemble', 'project', context(),
+      () => client.mergeObjectsToMultipart(sources.map((object) => object.id), 'Assembly'), context());
+    expect(merged.result.ok).toBe(true);
+    const assembled = (await client.getModelStructure()).objects[0];
+    expect(assembled.autoDrop).toBe(allEnabled);
+    const parts = (await client.getModelMesh()).objects;
+    const heights = parts.map((part) => part.instanceTransform.offset[2] + (part.volumeTransform.matrix?.[14] ?? part.volumeTransform.offset[2]));
+    expect(heights).toEqual(allEnabled ? [0, 5] : [5, 10]);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects.map((object) => object.autoDrop)).toEqual([true, allEnabled]);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(allEnabled);
+  });
+
   it('settles automatic moves without creating a history entry for a snapped-back no-op', async () => {
     const client = createClient(async () => createMockModule());
     await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());

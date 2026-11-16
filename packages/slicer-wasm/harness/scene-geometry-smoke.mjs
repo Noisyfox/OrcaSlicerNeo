@@ -231,6 +231,50 @@ function assertSavedAutoDrop(expectedCount, autoDrop) {
   assert.equal(objects.length, expectedCount);
   for (const object of objects) assert.match(object, new RegExp(`\\bauto_drop="${autoDrop}"`));
 }
+
+for (const allEnabled of [false, true]) {
+  loadAutoDropFixture(readZipEntries(buildIndependentReader3mf()));
+  const source = call('orc_get_model_structure').objects[0];
+  const firstClone = edit('Clone first', () => call('orc_clone_objects', ['string'], [JSON.stringify([source.id])])).result.newObjectIds[0];
+  const unrelated = edit('Clone unrelated', () => call('orc_clone_objects', ['string'], [JSON.stringify([source.id])])).result.newObjectIds[0];
+  if (!allEnabled) edit('Disable source Auto Drop', () => call('orc_set_objects_auto_drop', ['string', 'number'],
+    [JSON.stringify([firstClone]), 0]));
+  const ids = [source.id, firstClone];
+  const requests = fullModel().renderables.filter((body) => ids.includes(body.object_id)).map((body, index) => {
+    const transform = structuredClone(body.instance_transform);
+    transform.offset[2] += 5 + index * 5;
+    transform.matrix[14] += 5 + index * 5;
+    return { objectIdx: body.object_idx, volumeIdx: body.volume_idx, instanceIdx: body.instance_idx,
+      instanceTransform: transform, volumeTransform: body.volume_transform };
+  });
+  const tx = begin('Raise assembly sources');
+  assert.equal(call('orc_set_model_transforms', ['string', 'string', 'string'], [tx, JSON.stringify(requests), 'direct']).ok, true);
+  commit(tx);
+  const before = fullModel().renderables;
+  const worldHeights = (items) => items.map((body) => body.instance_transform.matrix[14] + body.volume_transform.matrix[14]).sort((a, b) => a - b);
+  const oldHeights = worldHeights(before.filter((body) => ids.includes(body.object_id)));
+  const otherZ = before.find((body) => body.object_id === unrelated).instance_transform.offset[2];
+  const merged = edit('Assemble Auto Drop', () => call('orc_merge_objects_to_multipart', ['string', 'string'],
+    [JSON.stringify(ids), 'Assembly'])).result;
+  assert.equal(call('orc_get_model_structure').objects.find((object) => object.id === merged.objectId).autoDrop, allEnabled);
+  const after = fullModel().renderables;
+  const heights = worldHeights(after.filter((body) => body.object_id === merged.objectId));
+  const shift = allEnabled ? 10 - oldHeights[0] : 0;
+  assert.ok(heights.every((height, index) => Math.abs(height - oldHeights[index] - shift) < 1e-8));
+  assert.equal(after.find((body) => body.object_id === unrelated).instance_transform.offset[2], otherZ);
+  const exported = call('orc_export_project', ['string'], ['{}']);
+  assert.equal(exported.ok, true);
+  const bytes = module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
+  module._free(Number(exported.bytes_ptr));
+  const settings = readZipEntries(bytes).find((entry) => entry.name === 'Metadata/model_settings.config');
+  const flags = [...new TextDecoder().decode(settings.content).matchAll(/<object\b[^>]*\bauto_drop="([01])"/g)]
+    .map((match) => Number(match[1])).sort();
+  assert.deepEqual(flags, [allEnabled ? 1 : 0, 1]);
+  assert.equal(call('orc_history_undo').ok, true);
+  assert.deepEqual(call('orc_get_model_structure').objects.filter((object) => ids.includes(object.id)).map((object) => object.autoDrop), [true, allEnabled]);
+  assert.equal(call('orc_history_redo').ok, true);
+  assert.equal(call('orc_get_model_structure').objects.find((object) => object.id === merged.objectId).autoDrop, allEnabled);
+}
 function loadAutoDropFixture(entries) {
   // The minimal reader asset omits some per-slot arrays. Like the painted
   // fixture, materialize its two-slot shape before exercising strict history

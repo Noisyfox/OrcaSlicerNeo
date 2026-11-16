@@ -2258,29 +2258,39 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = false;
   }
 
+  type MockTransform = ReturnType<typeof identityTransform> & { matrix?: number[] };
+  function mockTransformPoint(point: number[], transform: MockTransform): number[] {
+    const m = transform.matrix;
+    if (m) return [
+      m[0] * point[0] + m[4] * point[1] + m[8] * point[2] + m[12],
+      m[1] * point[0] + m[5] * point[1] + m[9] * point[2] + m[13],
+      m[2] * point[0] + m[6] * point[1] + m[10] * point[2] + m[14],
+    ];
+    const [rx, ry, rz] = transform.rotation;
+    let [x, y, z] = point.map((value, axis) => value * transform.scale[axis] * transform.mirror[axis]);
+    [y, z] = [y * Math.cos(rx) - z * Math.sin(rx), y * Math.sin(rx) + z * Math.cos(rx)];
+    [x, z] = [x * Math.cos(ry) + z * Math.sin(ry), -x * Math.sin(ry) + z * Math.cos(ry)];
+    [x, y] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)];
+    return [x + transform.offset[0], y + transform.offset[1], z + transform.offset[2]];
+  }
+
+  function mockComposeTransforms(left: MockTransform, right: MockTransform): MockTransform {
+    const point = (p: number[]) => mockTransformPoint(mockTransformPoint(p, right), left);
+    const origin = point([0, 0, 0]);
+    const axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((axis) => point(axis).map((value, i) => value - origin[i]));
+    return { ...identityTransform(), offset: origin, matrix: [
+      ...axes[0], 0, ...axes[1], 0, ...axes[2], 0, ...origin, 1,
+    ] };
+  }
+
   function mockWorldMinZ(objectIndex: number, instanceIndex: number): number {
-    type Transform = ReturnType<typeof identityTransform> & { matrix?: number[] };
-    const transformPoint = (point: number[], transform: Transform): number[] => {
-      const m = transform.matrix;
-      if (m) return [
-        m[0] * point[0] + m[4] * point[1] + m[8] * point[2] + m[12],
-        m[1] * point[0] + m[5] * point[1] + m[9] * point[2] + m[13],
-        m[2] * point[0] + m[6] * point[1] + m[10] * point[2] + m[14],
-      ];
-      const [rx, ry, rz] = transform.rotation;
-      let [x, y, z] = point.map((value, axis) => value * transform.scale[axis] * transform.mirror[axis]);
-      [y, z] = [y * Math.cos(rx) - z * Math.sin(rx), y * Math.sin(rx) + z * Math.cos(rx)];
-      [x, z] = [x * Math.cos(ry) + z * Math.sin(ry), -x * Math.sin(ry) + z * Math.cos(ry)];
-      [x, y] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)];
-      return [x + transform.offset[0], y + transform.offset[1], z + transform.offset[2]];
-    };
     let min = Infinity;
     volumeMeta[objectIndex].forEach((volume, volumeIndex) => {
       if (volume.type !== 'model_part') return;
       const mesh = primitiveMesh(volume.primitive ?? objectMeta[objectIndex].primitive);
       for (const vertex of mesh.verts) {
-        const part = transformPoint(vertex, objectVolumeTransforms[objectIndex][volumeIndex]);
-        min = Math.min(min, transformPoint(part, objectTransforms[objectIndex][instanceIndex])[2]);
+        const part = mockTransformPoint(vertex, objectVolumeTransforms[objectIndex][volumeIndex]);
+        min = Math.min(min, mockTransformPoint(part, objectTransforms[objectIndex][instanceIndex])[2]);
       }
     });
     return min;
@@ -3715,18 +3725,25 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (const oi of srcIdxs) {
         for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
           const newVolumeId = nextVolumeId++;
-          newVolumes.push({ id: newVolumeId, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
+          newVolumes.push({ id: newVolumeId, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type,
+            primitive: volumeMeta[oi][vi].primitive ?? objectMeta[oi].primitive, isSplittable: false });
           const values = nativeScopedConfig.parts[String(volumeMeta[oi][vi].id)];
           if (values) nativeScopedConfig.parts[String(newVolumeId)] = clone(values);
-          newVolTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][vi])) as ReturnType<typeof identityTransform>);
+          newVolTransforms.push(mockComposeTransforms(objectTransforms[oi][0], objectVolumeTransforms[oi][vi]));
         }
       }
-      objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[srcIdxs[0]][0]))]);
+      objectTransforms.push([identityTransform()]);
       objectVolumeTransforms.push(newVolTransforms);
-      objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable, autoDrop: true });
+      objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable,
+        autoDrop: srcIdxs.every((oi) => objectMeta[oi].autoDrop) });
       volumeMeta.push(newVolumes);
       instanceMeta.push([{ id: nextInstanceId++, printable: instanceMeta[srcIdxs[0]][0].printable }]);
       objectPlateIds.push(objectPlateIds[srcIdxs[0]] ?? currentPlateId);
+      const assemblyIndex = objectMeta.length - 1;
+      if (objectMeta[assemblyIndex].autoDrop) {
+        const minZ = mockWorldMinZ(assemblyIndex, 0);
+        if (Number.isFinite(minZ)) objectTransforms[assemblyIndex][0].offset[2] -= minZ;
+      }
       srcIdxs.sort((a, b) => b - a);
       for (const oi of srcIdxs) {
         delete nativeScopedConfig.objects[String(objectMeta[oi].id)];
