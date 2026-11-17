@@ -3673,17 +3673,29 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true, newObjectIds: newIds, objects: objectTransforms.length,
         plate_session: modelStructureMutation(affectedBefore) };
     },
-    orc_merge_objects_to_multipart(objectIdsJson: string, name: string) {
-      const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
-      if (!Array.isArray(ids) || ids.length === 0) return { error: 'no object ids' };
-      const srcIdxs: number[] = [];
-      for (const item of ids) {
-        if (!Number.isInteger(item) || item < 1) return { error: 'object id must be a positive integer' };
-        const oi = objectMeta.findIndex((o) => o.id === item);
+    orc_merge_objects_to_multipart(targetsJson: string, name: string) {
+      const targets = JSON.parse(targetsJson ?? '[]') as unknown;
+      if (!Array.isArray(targets) || targets.length === 0) return { error: 'no assembly targets' };
+      const selections = new Map<number, number[]>();
+      for (const target of targets) {
+        if (!target || typeof target !== 'object' || Object.keys(target).length !== 2 ||
+            !Number.isInteger(target.objectId) || target.objectId < 1 || !Array.isArray(target.instanceIds))
+          return { error: 'invalid assembly target' };
+        const oi = objectMeta.findIndex(object => object.id === target.objectId);
         if (oi < 0) return { error: 'object not found' };
-        if (!srcIdxs.includes(oi)) srcIdxs.push(oi);
+        if (selections.has(oi)) return { error: 'duplicate assembly object' };
+        if (!target.instanceIds.length || new Set(target.instanceIds).size !== target.instanceIds.length)
+          return { error: 'invalid or duplicate assembly instance ids' };
+        const indices: number[] = [];
+        for (const id of target.instanceIds) {
+          if (!Number.isInteger(id) || id < 1) return { error: 'invalid assembly instance id' };
+          const ii = instanceMeta[oi].findIndex(instance => instance.id === id);
+          if (ii < 0) return { error: 'instance not found in object' };
+          indices.push(ii);
+        }
+        selections.set(oi, indices.sort((a, b) => a - b));
       }
-      srcIdxs.sort((a, b) => a - b);
+      const srcIdxs = [...selections.keys()].sort((a, b) => a - b);
       const affectedBefore = srcIdxs.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       const newObjectId = nextObjectId++;
       const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
@@ -3691,10 +3703,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const newVolTransforms: typeof objectVolumeTransforms[number] = [];
       const mergedConfig: Record<string, string> = {};
       let printable = true;
-      // Orca merges the retained first instances before the appended splits.
-      const sources = srcIdxs.map((oi) => ({ oi, ii: 0 }));
-      for (const oi of srcIdxs)
-        for (let ii = instanceMeta[oi].length - 1; ii > 0; ii--) sources.push({ oi, ii });
+      // Original all-selected objects precede every appended split copy.
+      const sources: Array<{ oi: number; ii: number }> = [];
+      const appended: typeof sources = [];
+      for (const oi of srcIdxs) {
+        const indices = selections.get(oi)!;
+        const first = { oi, ii: indices[0] };
+        (indices.length === instanceMeta[oi].length ? sources : appended).push(first);
+        for (let i = indices.length - 1; i > 0; i--) appended.push({ oi, ii: indices[i] });
+      }
+      sources.push(...appended);
       for (const { oi, ii } of sources) {
         const config = { extruder: '1', ...nativeScopedConfig.objects[String(objectMeta[oi].id)] };
         for (const [key, value] of Object.entries(config))
@@ -3722,6 +3740,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectPlateIds.push(objectPlateIds[srcIdxs[0]] ?? currentPlateId);
       srcIdxs.sort((a, b) => b - a);
       for (const oi of srcIdxs) {
+        const indices = selections.get(oi)!;
+        if (indices.length < instanceMeta[oi].length) {
+          for (const ii of [...indices].reverse()) {
+            instanceMeta[oi].splice(ii, 1); objectTransforms[oi].splice(ii, 1);
+          }
+          continue;
+        }
         delete nativeScopedConfig.objects[String(objectMeta[oi].id)];
         for (const volume of volumeMeta[oi]) delete nativeScopedConfig.parts[String(volume.id)];
         objectTransforms.splice(oi, 1);

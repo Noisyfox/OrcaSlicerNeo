@@ -96,7 +96,7 @@ function assign(kind, id, slot) {
   ok(command('orc_assign_filament', { version: 1, revision: snapshot.revisions.session, targets: [{ kind, id }], slot }));
 }
 const set = (object, key, value) => ok(setNativeScopedConfig(call, 'object', String(object.id), key, value));
-const merge = ids => ok(call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(ids), 'Assembly']));
+const merge = ids => ok(call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(ids.map(id => ({ objectId: id, instanceIds: structure().find(o => o.id === id).instances.map(i => i.id) }))), 'Assembly']));
 const painted = await buildPaintingChannelProject();
 for (const autoDrop of [false, true]) {
   load(fixture(painted, autoDrop));
@@ -167,8 +167,70 @@ assert.equal(config().parts[a.volumes[0].id].wall_loops, '7');
 assert.equal(call('orc_get_filament_session_snapshot').assignments.parts.find(p => p.id === a.volumes[0].id).effective_slot, 1,
   'multipart sources retain explicit Part assignment');
 console.log('PASS multipart overrides and all five volume types survive splitting and assembly');
-// Reject all unresolved input before splitting or creating anything.
-const unchanged = structure();
-assert.equal(typeof call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify([unchanged[0].id, 999999999]), 'Invalid']).error, 'string');
-assert.deepEqual(structure(), unchanged);
-console.log('PASS invalid assembly leaves the model unchanged');
+for (const withOtherObject of [false, true]) {
+  load(fixture(painted, false));
+  const a = structure()[0];
+  ok(call('orc_add_instance', ['number'], [a.id]));
+  assign('object', a.id, 2); set(a, 'layer_height', '0.12');
+  ok(call('orc_set_instance_printable', ['number', 'number'], [a.instances[0].id, withOtherObject ? 1 : 0]));
+  let untouchedPlate;
+  if (withOtherObject) {
+    const originalPlate = call('orc_get_plate_session_snapshot').current_plate_id;
+    ok(call('orc_add_plate'));
+    untouchedPlate = call('orc_get_plate_session_snapshot').plates.at(-1);
+    ok(call('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
+      [a.index, 0, untouchedPlate.origin[0] + 100, untouchedPlate.origin[1] + 100, 10]));
+    ok(call('orc_select_plate', ['string'], [originalPlate]));
+    ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'B']));
+    set(structure()[1], 'layer_height', '0.2');
+  }
+  const before = structure(), beforeWorld = worldVertices(), beforeConfig = config();
+  const beforePlates = call('orc_get_plate_session_snapshot');
+  const counts = paintCounts(before[0]);
+  const targets = [{ objectId: a.id, instanceIds: before[0].instances.slice(1).map(i => i.id) }];
+  if (withOtherObject) targets.push({ objectId: before[1].id, instanceIds: before[1].instances.map(i => i.id) });
+  command('orc_history_reset', context);
+  const transaction = ok(call('orc_history_begin', ['string', 'string', 'string', 'string'], ['Assemble instances', 'project', JSON.stringify(context), '']));
+  const merged = ok(call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(targets), 'Selected instances']));
+  const commit = call('orc_history_commit', ['string', 'string'], [transaction.transactionId, JSON.stringify(context)]);
+  assert.equal(commit.status.undoEntries.length, 1);
+  const after = structure(), kept = after.find(o => o.id === a.id), result = after.find(o => o.id === merged.objectId);
+  assert.deepEqual(kept.instances, [before[0].instances[0]]);
+  assert.deepEqual(kept.volumes, before[0].volumes);
+  assert.deepEqual(config().objects[kept.id], beforeConfig.objects[kept.id]);
+  assert.equal(result.volumes.length, withOtherObject ? 3 : 2);
+  assert.equal(result.printable, true, 'unselected non-printable instance does not disable assembly');
+  assert.equal(config().objects[result.id].layer_height, withOtherObject ? '0.2' : '0.12',
+    'native original objects precede appended partial-instance copies');
+  if (untouchedPlate) {
+    assert.ok(!merged.plate_session.affected_plate_ids.includes(untouchedPlate.plate_id));
+    assert.equal(merged.plate_session.input_revisions[untouchedPlate.plate_id], beforePlates.input_revisions[untouchedPlate.plate_id],
+      'unselected instance on another plate keeps its input revision');
+  }
+  const ids = after.flatMap(o => o.volumes.map(v => v.id));
+  assert.equal(new Set(ids).size, ids.length, 'original and extracted copies never share Part IDs');
+  const resultCounts = paintCounts(result);
+  for (const channel of Object.keys(counts))
+    assert.equal(resultCounts[channel].filter(c => JSON.stringify(c) === JSON.stringify(counts[channel][0])).length, 2);
+  assert.deepEqual(paintCounts(kept), counts);
+  assert.deepEqual(worldVertices(), beforeWorld);
+  ok(call('orc_history_undo')); assert.deepEqual(structure(), before); assert.deepEqual(config(), beforeConfig);
+  ok(call('orc_history_redo')); assert.deepEqual(structure(), after);
+  console.log(`PASS partial-instance assembly preserves unselected identity, flags, paint, transforms and atomic history; mixed=${withOtherObject}`);
+}
+// Every malformed or unresolved target must fail before any temporary copy.
+const unchanged = structure(), unchangedConfig = config(), unchangedPlates = call('orc_get_plate_session_snapshot');
+const first = { objectId: unchanged[0].id, instanceIds: [unchanged[0].instances[0].id] };
+for (const targets of [
+  [], [unchanged[0].id], [null], [{ ...first, extra: true }], [{ ...first, objectId: -1 }],
+  [{ ...first, objectId: 1.5 }], [{ ...first, instanceIds: [] }],
+  [{ ...first, instanceIds: [first.instanceIds[0], first.instanceIds[0]] }], [first, first],
+  [first, { objectId: 999999999, instanceIds: [1] }],
+  [{ ...first, instanceIds: [first.instanceIds[0], 999999999] }],
+  [{ ...first, instanceIds: [unchanged[1].instances[0].id] }],
+]) {
+  assert.equal(typeof call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(targets), 'Invalid']).error, 'string');
+  assert.deepEqual(structure(), unchanged); assert.deepEqual(config(), unchangedConfig);
+  assert.deepEqual(call('orc_get_plate_session_snapshot'), unchangedPlates);
+}
+console.log('PASS malformed, legacy, duplicate, stale and wrong-owner targets leave model, configuration and plates unchanged');

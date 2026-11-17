@@ -6,7 +6,7 @@ import {
   type MutationOutcome,
 } from './actions';
 import { runProjectHistoryMutation } from '../actions/historyMutation';
-import type { ModelMutationResult } from '@slicer/client';
+import type { AssemblyTarget, ModelMutationResult } from '@slicer/client';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 
 type StructuralMutation = ModelMutationResult;
@@ -71,11 +71,11 @@ export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectI
   return { ok: true };
 }
 
-export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: number[], scene: SceneInteractionController | null, name = 'Assembly'): Promise<MutationOutcome> {
-  if (!await beforePaintingTopologyChange({ objects: objectIds })) return { ok: false };
+export async function assembleObjectsInList(runtime: SlicerRuntime, targets: AssemblyTarget[], scene: SceneInteractionController | null, name = 'Assembly'): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ objects: targets.map(target => target.objectId) })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
-  const r = await runStructuralHistory(runtime, 'Assemble Objects', () => runtime.mergeObjectsToMultipart(objectIds, name), scene);
+  const r = await runStructuralHistory(runtime, 'Assemble Objects', () => runtime.mergeObjectsToMultipart(targets, name), scene);
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };
 }

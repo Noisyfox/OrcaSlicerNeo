@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelObjectStructure } from '@slicer/client';
-import { buildSelectableRows, objectListValidity, projectObjectGroups, projectSelection } from './projection';
+import { buildSelectableRows, objectListValidity, projectObjectGroups, projectSelection, resolveAssemblyTargets } from './projection';
 import type { PlateSessionSnapshot } from '@slicer/client';
 
 const structure: ModelObjectStructure[] = [
@@ -178,5 +178,26 @@ describe('projectObjectGroups', () => {
         : instance),
     };
     expect(objectListValidity(structure[0], outOfBounds)).toBe('out-of-bounds');
+  });
+});
+
+
+describe('resolveAssemblyTargets', () => {
+  it('resolves mixed whole-object and partial-instance selection without dropping instances', () => {
+    expect(resolveAssemblyTargets(structure, { objectIds: new Set([2]), instanceIds: new Set([21]), volumeIds: new Set() }))
+      .toEqual([{ objectId: 1, instanceIds: [21] }, { objectId: 2, instanceIds: [22] }]);
+  });
+  it('gives identical targets for object and Instances-group highlighting', () => {
+    const objects = resolveAssemblyTargets(structure, { objectIds: new Set([1]), instanceIds: new Set(), volumeIds: new Set() });
+    const instances = resolveAssemblyTargets(structure, { objectIds: new Set(), instanceIds: new Set([20, 21]), volumeIds: new Set() });
+    expect(objects).toEqual([{ objectId: 1, instanceIds: [20, 21] }]);
+    expect(instances).toEqual(objects);
+  });
+  it.each([
+    { objectIds: new Set([1]), instanceIds: new Set<number>(), volumeIds: new Set([10]) },
+    { objectIds: new Set([999]), instanceIds: new Set([20]), volumeIds: new Set<number>() },
+    { objectIds: new Set([2]), instanceIds: new Set([999]), volumeIds: new Set<number>() },
+  ])('refuses partial or stale selections rather than assembling a subset', projection => {
+    expect(resolveAssemblyTargets(structure, projection)).toEqual([]);
   });
 });

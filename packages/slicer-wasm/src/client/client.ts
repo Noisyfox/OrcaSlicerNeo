@@ -38,7 +38,7 @@ import type {
   ExportProjectRequest, ExportProjectResult, RgbaThumbnail, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, ModelObjectStructure, MutationResult, SplitVolumeResult, SplitObjectResult,
-  MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
+  AssemblyTarget, MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
@@ -3141,10 +3141,10 @@ export function createClient(
                       [objectId, autoDrop ? 1 : 0]), value => modelIds(value.newObjectIds) && modelCounts(value, 'objects'));
     },
 
-    async mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult> {
+    async mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult> {
       const m = await module();
       return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
-                      [JSON.stringify(objectIds), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
+                      [JSON.stringify(targets), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
     },
 
     async meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult> {

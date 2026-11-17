@@ -113,8 +113,8 @@ describe('object list structural actions', () => {
 
   it('assembleObjectsInList passes a name and refreshes', async () => {
     const runtime = makeRuntime();
-    await assembleObjectsInList(runtime, [1, 2], null, 'Asm');
-    expect(runtime.mergeObjectsToMultipart).toHaveBeenCalledWith([1, 2], 'Asm');
+    await assembleObjectsInList(runtime, [{ objectId: 1, instanceIds: [11] }, { objectId: 2, instanceIds: [22] }], null, 'Asm');
+    expect(runtime.mergeObjectsToMultipart).toHaveBeenCalledWith([{ objectId: 1, instanceIds: [11] }, { objectId: 2, instanceIds: [22] }], 'Asm');
   });
 
   it('reorderObjectsInList calls the bridge with the source object ID and a destination index', async () => {

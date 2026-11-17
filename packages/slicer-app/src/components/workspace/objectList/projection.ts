@@ -1,4 +1,4 @@
-import type { ModelObjectStructure, PlateSessionSnapshot, PlateSessionInstance } from '@slicer/client';
+import type { AssemblyTarget, ModelObjectStructure, PlateSessionSnapshot, PlateSessionInstance } from '@slicer/client';
 
 /** The state shown next to an object row in the plate-aware Object List. */
 export type ObjectListValidity = 'valid' | 'out-of-bounds' | 'unprintable';
@@ -92,6 +92,20 @@ export interface SelectionProjection {
   objectIds: Set<number>;
   volumeIds: Set<number>;
   instanceIds: Set<number>;
+}
+
+/** Resolve complete-instance operation targets independently of row highlighting. */
+export function resolveAssemblyTargets(structure: ModelObjectStructure[], projection: SelectionProjection): AssemblyTarget[] {
+  if (projection.volumeIds.size > 0) return [];
+  const knownObjects = new Set(structure.map(object => object.id));
+  const knownInstances = new Set(structure.flatMap(object => object.instances.map(instance => instance.id)));
+  if ([...projection.objectIds].some(id => !knownObjects.has(id)) ||
+      [...projection.instanceIds].some(id => !knownInstances.has(id))) return [];
+  return structure.flatMap(object => {
+    const instanceIds = object.instances.filter(instance => projection.objectIds.has(object.id) ||
+      projection.instanceIds.has(instance.id)).map(instance => instance.id);
+    return instanceIds.length ? [{ objectId: object.id, instanceIds }] : [];
+  });
 }
 
 export const EMPTY_PROJECTION: SelectionProjection = {

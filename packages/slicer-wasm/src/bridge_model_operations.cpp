@@ -1060,40 +1060,75 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
 // Match ObjectList::merge(true)'s instance path: split copies first, then
 // consume only those single-instance objects. Publication/history remain one
 // operation; no temporary object is exposed to the renderer.
-EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* object_ids_json, const char* name_cstr) {
+EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* targets_json, const char* name_cstr) {
     try {
-        const auto ids = parse_positive_id_array(json::parse(object_ids_json ? object_ids_json : ""));
-        if (!ids) return error_json("no object ids");
-        for (const std::size_t id : *ids) {
-            const ModelObject* object = find_object_by_id(id);
+        const json targets = json::parse(targets_json ? targets_json : "");
+        if (!targets.is_array() || targets.empty()) return error_json("no assembly targets");
+        std::map<ModelObject*, std::set<std::size_t>> selected;
+        std::set<std::size_t> affected_instances;
+        // Resolve every object and instance before creating any temporary copy.
+        for (const auto& target : targets) {
+            if (!target.is_object() || target.size() != 2 || !target.contains("objectId") ||
+                !target.contains("instanceIds") || !target["objectId"].is_number())
+                return error_json("invalid assembly target");
+            const auto id = to_object_id(target["objectId"].get<double>());
+            if (!id) return error_json("invalid assembly object id");
+            ModelObject* object = find_object_by_id(*id);
             if (!object) return error_json("object not found");
+            if (selected.count(object)) return error_json("duplicate assembly object");
+            if (object->is_cut()) return error_json("cut objects cannot be assembled");
             if (object->instances.empty() || object->volumes.empty())
                 return error_json("assembly source must have volumes and instances");
+            const auto ids = parse_positive_id_array(target["instanceIds"]);
+            if (!ids || ids->size() != target["instanceIds"].size())
+                return error_json("invalid or duplicate assembly instance ids");
+            auto& indices = selected[object];
+            for (const auto instance_id : *ids) {
+                const auto found = std::find_if(object->instances.begin(), object->instances.end(),
+                    [instance_id](const ModelInstance* instance) { return instance->id().id == instance_id; });
+                if (found == object->instances.end()) return error_json("instance not found in object");
+                indices.insert(std::distance(object->instances.begin(), found));
+                affected_instances.insert(instance_id);
+            }
         }
-        auto& model = state().model;
-        std::vector<ModelObject*> sources;
-        // Orca visits source objects in model order, regardless of click order.
-        for (ModelObject* object : model.objects)
-            if (std::find(ids->begin(), ids->end(), object->id().id) != ids->end())
-                sources.push_back(object);
-        std::set<std::size_t> affected_instances;
-        for (const ModelObject* source : sources) append_instance_ids(*source, affected_instances);
         const auto affected_before = member_plate_ids_for_instances(affected_instances);
-
+        auto& model = state().model;
         const std::size_t original_count = model.objects.size();
-        for (ModelObject* source : sources) {
-            // Like instances_to_separated_objects(): keep the first instance
-            // on the source, append the remaining copies in reverse order.
+        std::vector<ModelObject*> sources;
+        auto split_all = [&](ModelObject* source) {
+            // Keep instance zero on its object; append the other single-instance
+            // clones in native order, with fresh recursive IDs.
             for (std::size_t i = source->instances.size(); i-- > 1;) {
                 ModelObject* copy = model.add_object(*source);
                 for (std::size_t j = copy->instances.size(); j-- > 0;)
                     if (j != i) copy->delete_instance(j);
                 source->delete_instance(i);
-                append_instance_ids(*copy, affected_instances);
+            }
+        };
+        // Orca's original single/all-selected objects precede the appended
+        // splits. This order also defines first-explicit-setting precedence.
+        for (std::size_t i = 0; i < original_count; ++i) {
+            ModelObject* source = model.objects[i];
+            const auto found = selected.find(source);
+            if (found == selected.end()) continue;
+            const auto& indices = found->second;
+            if (indices.size() == source->instances.size()) {
+                split_all(source);
+                sources.push_back(source);
+            } else {
+                ModelObject* copy = model.add_object(*source);
+                for (std::size_t j = copy->instances.size(); j-- > 0;)
+                    if (!indices.count(j)) copy->delete_instance(j);
+                for (auto index = indices.rbegin(); index != indices.rend(); ++index)
+                    source->delete_instance(*index);
+                source->config.touch();
+                split_all(copy);
             }
         }
-        for (std::size_t i = original_count; i < model.objects.size(); ++i)
+        for (std::size_t i = original_count; i < model.objects.size(); ++i) {
             sources.push_back(model.objects[i]);
+            append_instance_ids(*model.objects[i], affected_instances);
+        }
 
         ModelObject* result = model.add_object();
         result->name = name_cstr && *name_cstr ? name_cstr : "Assembly";

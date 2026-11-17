@@ -407,8 +407,28 @@ assert.deepEqual(paintedSlice.tools, [0, 1], 'actual extrusion did not consume b
 // annotations and ordinary MMU resources. This executes in production too;
 // only fault injection requires the existing compile-gated test artifact.
 const allAttrs = { mmu: 'paint_color', support: 'paint_supports', seam: 'paint_seam', fuzzy: 'paint_fuzzy_skin' };
-const annotationBytes = xml => Object.fromEntries(Object.entries(allAttrs).map(([channel, attr]) => [channel,
-  [...xml.matchAll(/<triangle\b[^>]*\/>/g)].map(match => match[0].match(new RegExp(`${attr}="([^"]*)"`))?.[1] ?? '')]));
+function annotationBytes(xml) {
+  // The writer shares identical mesh resources. Painting one assembly copy
+  // can expand that storage without changing any other annotation channel.
+  // Compare each logical component in build order, following its references.
+  const objects = new Map([...xml.matchAll(/<object\b([^>]*)>([\s\S]*?)<\/object>/g)]
+    .map(match => [match[1].match(/\bid="(\d+)"/)[1], match[2]]));
+  function triangles(id, parents = new Set()) {
+    assert.ok(objects.has(id), `missing 3MF object ${id}`);
+    assert.ok(!parents.has(id), 'cyclic 3MF component');
+    const body = objects.get(id);
+    if (body.includes('<mesh>')) return [...body.matchAll(/<triangle\b[^>]*\/>/g)].map(match => match[0]);
+    const next = new Set([...parents, id]);
+    return [...body.matchAll(/<component\b[^>]*\bobjectid="(\d+)"[^>]*\/>/g)]
+      .flatMap(match => triangles(match[1], next));
+  }
+  const build = xml.match(/<build>([\s\S]*?)<\/build>/)[1];
+  const logicalTriangles = [...build.matchAll(/<item\b[^>]*\bobjectid="(\d+)"[^>]*\/>/g)]
+    .flatMap(match => triangles(match[1]));
+  assert.ok(logicalTriangles.length > 0, '3MF build has no mesh triangles');
+  return Object.fromEntries(Object.entries(allAttrs).map(([channel, attr]) => [channel,
+    logicalTriangles.map(triangle => triangle.match(new RegExp(`${attr}="([^"]*)"`))?.[1] ?? '')]));
+}
 function preservesOtherFields(before, active) {
   const after = annotationBytes(exportedPaint());
   for (const channel of Object.keys(allAttrs)) if (channel !== active) assert.deepEqual(after[channel], before[channel], `${active} changed ${channel} native tree bytes`);
@@ -419,7 +439,7 @@ for (const channel of ['support', 'seam', 'fuzzy']) {
   ok(command('orc_merge_filament_slots', { version: 1, revision: rack.revisions.session, source: 2, destination: 1 }));
   ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Channel second solid']));
   ok(call('orc_set_instance_offset', ['number','number','number','number','number'], [1,0,180,100,10]));
-  ok(call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(structure().map(o => o.id)), 'Channel multipart']));
+  ok(call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(structure().map(o => ({ objectId: o.id, instanceIds: o.instances.map(i => i.id) }))), 'Channel multipart']));
   ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Channel other target']));
   command('orc_history_reset', context);
   open(channel);
@@ -429,7 +449,7 @@ for (const channel of ['support', 'seam', 'fuzzy']) {
   const loaded = refresh();
   const loadedCounts = loaded.parts.map(p => p.facetCounts);
   const timestamps = loaded.parts.map(p => p.annotationTimestamp);
-  assert.equal(loaded.parts.length, 2);
+  assert.equal(loaded.parts.length, 3);
   assert.ok(loadedCounts[0].reduce((a,b) => a+b,0) > 12, `${channel} lost imported subdivision`);
   const ordinary = mesh();
   assert.ok(ordinary.renderables.every(r => Number.isSafeInteger(r.volume_id) && Object.hasOwn(r, 'paint_key')));
@@ -486,9 +506,11 @@ for (const channel of ['support', 'seam', 'fuzzy']) {
   preservesOtherFields(baseline, channel);
   const painted = refresh();
   assert.notEqual(painted.parts[0].annotationTimestamp, timestamps[0]);
-  assert.equal(painted.parts[1].annotationTimestamp, timestamps[1]);
+  assert.deepEqual(painted.parts.slice(1).map(p => p.annotationTimestamp), timestamps.slice(1));
+  assert.deepEqual(painted.parts.slice(1).map(p => p.facetCounts), loadedCounts.slice(1),
+    'painting one extracted copy must not alter the other copy');
   assert.notEqual(painted.parts[0].draftResourceId, loaded.parts[0].draftResourceId);
-  assert.equal(painted.parts[1].draftResourceId, loaded.parts[1].draftResourceId);
+  assert.deepEqual(painted.parts.slice(1).map(p => p.draftResourceId), loaded.parts.slice(1).map(p => p.draftResourceId));
   assert.deepEqual(mesh().renderables.map(r => [r.volume_id, r.paint_key]), originalResources, `${channel} changed ordinary MMU resources`);
   const paintedBytes = annotationBytes(exportedPaint());
   const paintedCounts = painted.parts.map(p => p.facetCounts);

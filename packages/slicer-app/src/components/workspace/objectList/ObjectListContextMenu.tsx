@@ -9,6 +9,7 @@ import {
   ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
 } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
+import { resolveAssemblyTargets } from './projection';
 import {
   addInstanceInList,
   assembleObjectsInList,
@@ -74,15 +75,16 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const projection = useObjectListStore((s) => s.projection);
   const act = (p: Promise<{ ok: boolean; error?: string }>) => { void p; onClose(); };
 
-  // "Assemble" merges the fully-selected objects only (never the whole list).
+  const structure = useObjectListStore((s) => s.structure);
+  const assemblyTargets = resolveAssemblyTargets(structure, projection);
   const selectedObjectIds = [...projection.objectIds];
-  const canAssemble = selectedObjectIds.length >= 2;
+  const canAssemble = assemblyTargets.reduce((count, target) => count + target.instanceIds.length, 0) >= 2;
   // Rename targets the row's object/part, which is ambiguous while several
   // full objects are selected (Orca hides the rename item there too).
   const canRename = selectedObjectIds.length < 2;
   const assembleItem = canAssemble ? (
     <MenuItem key="assemble" label="Assemble" testid="objectlist-assemble"
-      onClick={() => act(assembleObjectsInList(runtime, selectedObjectIds, sceneInteraction ?? null))} />
+      onClick={() => act(assembleObjectsInList(runtime, assemblyTargets, sceneInteraction ?? null))} />
   ) : null;
 
   function changeFilamentItems(target: ObjectListCtxTarget): ReactNode[] {
@@ -245,6 +247,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
       )),
     );
   } else if (target.kind === 'instance') {
+    if (assembleItem) items.push(assembleItem);
     const inst = target.instance;
     const selectedInstanceIds = [...projection.instanceIds];
     // "Set as an individual object" is selection-based like the other items: it
