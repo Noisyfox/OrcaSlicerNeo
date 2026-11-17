@@ -39,7 +39,8 @@ function useArrangementControls(scene: SceneInteractionController) {
 
   return {
     platform, structure, mode: arrangementMode(sequence),
-    disabled: !ready || active || !modelLoaded || !!painting?.unfinished || owner !== 'none' ||
+    pointerBusy: owner !== 'none',
+    disabled: !ready || active || !modelLoaded || !!painting?.unfinished ||
       isSerialSliceBusy(platform.runtime, sliceStatus) || platform.runtime.getRuntimeExecutionState().serialSliceActive,
   };
 }
@@ -76,7 +77,8 @@ export function ArrangementPanel({ sceneInteraction, onClose }: {
   sceneInteraction: SceneInteractionController;
   onClose: () => void;
 }) {
-  const { platform, structure, mode, disabled } = useArrangementControls(sceneInteraction);
+  const { platform, structure, mode, disabled: unavailable, pointerBusy } = useArrangementControls(sceneInteraction);
+  const disabled = unavailable || pointerBusy;
   const preferences = useArrangementStore((state) => state.preferences);
   const alignY = useArrangementStore((state) => state.alignY);
   const active = useArrangementStore((state) => state.active);
@@ -160,7 +162,7 @@ export function ArrangeCurrentPlateButton({ sceneInteraction, disabled = false, 
   const current = usePlateSessionStore((state) => state.snapshot?.plates.find((plate) => plate.plateId === state.snapshot?.currentPlateId));
   return (
     <Button size={compact ? 'sm' : 'xs'} variant="secondary" data-testid="arrange-current-plate" aria-label="Arrange current plate"
-      disabled={disabled || controls.disabled || !current || current.locked}
+      disabled={disabled || controls.disabled || controls.pointerBusy || !current || current.locked}
       onClick={() => { void arrangeModels(controls.platform, sceneInteraction, 'current'); }}>
       {compact ? 'Arrange' : 'Arrange current plate'}
     </Button>
