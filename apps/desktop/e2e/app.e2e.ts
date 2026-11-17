@@ -1,3 +1,4 @@
+import { assemblyJourney } from './assembly-journey';
 import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
 import { selectGcodeOutput, expectCurrentPlate, clickPlateControl } from './plate-controls.helpers';
@@ -1685,6 +1686,26 @@ test('object list: ctrl and shift multi-select (mock)', async () => {
   }
 });
 
+test('object list: Assemble selected instances preserves unselected copies and restores in one undo', async () => {
+  const { app } = await launchApp({ isolatePrinterServices: true });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    if (REAL) {
+      await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.runtimeExecutionForAcceptance().threaded)).toBe(true);
+      expect(page.workers()).toHaveLength(0);
+      expect(await app.evaluate(({ app }) => app.getAppMetrics().filter(metric => metric.name === 'Orca Slicer Runtime'))).toHaveLength(1);
+    }
+    let imports = 0;
+    await assemblyJourney(page, async () => {
+      await page.getByTestId('btn-add-model').click();
+      if (REAL && ++imports === 1)
+        await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.meshBooleanMeshes().length)).toBe(1);
+    });
+  } finally { await app.close(); }
+});
+
 // Object list structural actions: clone, assemble, delete. Mock-only.
 test('object list: clone, assemble, delete (structural, mock)', async () => {
   const { app } = await launchApp();
@@ -1721,8 +1742,8 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     await expect(rows.nth(0).locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
-    // Assemble is selection-driven: with no multi-selection the menu carries
-    // no assemble item — the old "Assemble all" is gone.
+    // Orca offers Assemble for cross-object selections only, even when a
+    // selected whole object contains multiple instances.
     await objectRow().click({ button: 'right' });
     await expect(page.getByTestId('objectlist-assemble')).toBeHidden();
     // Base UI context menus are modal while open; dismiss the menu before
@@ -2219,7 +2240,7 @@ test('scene context menu: right-click on a model body opens the object menu', as
     await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(1);
     await expect(objectRows.first().locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     // With a single object selected the selection-driven Assemble item is
-    // absent (needs ≥ 2 full objects).
+    // absent (needs at least two complete instances).
     await expect(objectMenu.getByTestId('objectlist-assemble')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(objectMenu).toBeHidden();

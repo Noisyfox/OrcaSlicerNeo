@@ -197,9 +197,9 @@ function buildGolden(Module) {
   for (const name of shapeNames)
     requireOk(`add ${name}`, callJson(Module, 'orc_add_shape', ['string', 'string'], [name, name]));
   const initial = requireOk('initial model structure', callJson(Module, 'orc_get_model_structure'));
-  const sourceIds = initial.objects.map((object) => object.id);
+  const targets = initial.objects.map(object => ({ objectId: object.id, instanceIds: object.instances.map(instance => instance.id) }));
   const merged = requireOk('assemble multipart golden', callJson(Module, 'orc_merge_objects_to_multipart',
-    ['string', 'string'], [JSON.stringify(sourceIds), 'Scoped Configuration Golden']));
+    ['string', 'string'], [JSON.stringify(targets), 'Scoped Configuration Golden']));
   let structure = requireOk('assembled structure', callJson(Module, 'orc_get_model_structure'));
   const object = structure.objects[0];
   const types = ['model_part', 'parameter_modifier', 'negative_volume', 'support_blocker'];

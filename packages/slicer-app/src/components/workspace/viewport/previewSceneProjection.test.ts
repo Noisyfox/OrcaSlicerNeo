@@ -24,7 +24,7 @@ function snapshot(overrides: Partial<PlateSessionSnapshot> = {}): PlateSessionSn
 
 const structure: ModelObjectStructure[] = [
   {
-    id: 1, index: 0, name: 'Painted cube', printable: true, instanceCount: 3,
+    id: 1, index: 0, name: 'Painted cube', printable: true, isCut: false, instanceCount: 3,
     volumes: [], instances: [
       { id: 10, index: 0, printable: true },
       { id: 11, index: 1, printable: true },
@@ -32,11 +32,11 @@ const structure: ModelObjectStructure[] = [
     ],
   },
   {
-    id: 2, index: 1, name: 'Unprintable object', printable: false, instanceCount: 1,
+    id: 2, index: 1, name: 'Unprintable object', printable: false, isCut: false, instanceCount: 1,
     volumes: [], instances: [{ id: 13, index: 0, printable: true }],
   },
   {
-    id: 3, index: 2, name: 'Unprintable instance', printable: true, instanceCount: 1,
+    id: 3, index: 2, name: 'Unprintable instance', printable: true, isCut: false, instanceCount: 1,
     volumes: [], instances: [{ id: 14, index: 0, printable: false }],
   },
 ];

@@ -82,7 +82,7 @@ describe('filament session store lifecycle', () => {
     const transform = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number],
       scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
     const structures: ModelObjectStructure[] = [10, 20].map((id, index) => ({
-      id, index, name: `object-${id}`, printable: true, instanceCount: 1,
+      id, index, name: `object-${id}`, printable: true, isCut: false, instanceCount: 1,
       volumes: [{ id: id + 100, index: 0, name: 'part', type: 'model_part', isSplittable: false }],
       instances: [{ id: id + 200, index: 0, printable: true }],
     }));

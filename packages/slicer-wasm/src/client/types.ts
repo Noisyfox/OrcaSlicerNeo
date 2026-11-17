@@ -910,6 +910,11 @@ export type SplitVolumeResult = ModelMutationResult<{
   parts: number; newVolumeIds: number[]; objects: ModelObjectStructure[];
 }>;
 export type SplitObjectResult = ModelMutationResult<{ newObjectIds: number[]; objects: number }>;
+/** Complete selected instances, grouped by their current owning object. */
+export interface AssemblyTarget {
+  objectId: number;
+  instanceIds: number[];
+}
 export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
 /** Both UI entries operate on one shared object's native, object-local geometry. */
 export type MeshBooleanRequest = {
@@ -983,6 +988,8 @@ export interface ModelObjectStructure {
   id: number;
   index: number;
   name: string;
+  /** Native cut identity; cut objects cannot participate in Assemble. */
+  isCut: boolean;
   /** Object-level flag; distinct from per-instance `printable`. */
   printable: boolean;
   instanceCount: number;
@@ -1872,7 +1879,7 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   /** Split an object into one object per connected shell; returns the generated object IDs. */
   splitObjectToObjects(objectId: number, autoDrop?: boolean): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
-  mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult>;
+  mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult>;
   meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;
   /** Separate selected instances into their own objects; returns the new object IDs. */
   separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult>;

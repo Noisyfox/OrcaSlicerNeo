@@ -11,7 +11,7 @@ import {
 import type { FilamentSessionSnapshot, ModelObjectStructure } from '@slicer/client';
 
 const structure: ModelObjectStructure[] = [{
-  id: 10, index: 0, name: 'Cube', printable: true, instanceCount: 1,
+  id: 10, index: 0, name: 'Cube', printable: true, isCut: false, instanceCount: 1,
   volumes: [
     { id: 20, index: 0, name: 'Body', type: 'model_part', isSplittable: false },
     { id: 21, index: 1, name: 'Modifier', type: 'parameter_modifier', isSplittable: false },

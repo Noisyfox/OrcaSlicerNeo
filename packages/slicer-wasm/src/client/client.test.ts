@@ -2328,7 +2328,7 @@ describe('SlicerClient bridge contract', () => {
       expect(r.objects).toHaveLength(1);
       const obj = r.objects[0];
       expect(obj).toMatchObject({
-        index: 0, name: 'Object 1', printable: true, instanceCount: 2,
+        index: 0, name: 'Object 1', printable: true, isCut: false, instanceCount: 2,
       });
       expect(obj.id).toBeGreaterThan(0);
       expect(obj.volumes).toHaveLength(2);
@@ -2339,6 +2339,47 @@ describe('SlicerClient bridge contract', () => {
       expect(obj.volumes[0].id).toBeGreaterThan(0);
       expect(obj.instances[0]).toMatchObject({ index: 0, printable: true });
       expect(obj.instances[0].id).toBeGreaterThan(0);
+    });
+
+    it('exposes cut state in complete reads, scene patches and clones, and refuses cut assembly', async () => {
+      const c = createClient(async () => createMockModule({ cutObject: true }));
+      await c.addModel(new Uint8Array(4), 'stl'); await c.addShape('Cube', 'Ordinary');
+      const before = await c.getModelStructure();
+      expect(before.objects.map(o => o.isCut)).toEqual([true, false]);
+      const [cut, ordinary] = before.objects;
+      const patch = await c.getModelScenePatch([cut.id, ordinary.id], []);
+      expect(patch.objects.map(o => o.isCut)).toEqual([true, false]);
+      expect(await c.mergeObjectsToMultipart([cut, ordinary].map(o => ({
+        objectId: o.id, instanceIds: o.instances.map(i => i.id),
+      })), 'Rejected')).toMatchObject({ ok: false, error: 'cut objects cannot be assembled' });
+      expect(await c.getModelStructure()).toEqual(before);
+      const clone = await c.cloneObjects([cut.id]);
+      if (!clone.ok) throw new Error(clone.error);
+      expect((await c.getModelStructure()).objects.find(o => o.id === clone.newObjectIds[0])?.isCut).toBe(true);
+    });
+
+    it.each([undefined, null, 'false', 0])('rejects missing or invalid cut metadata in complete and incremental reads: %j', async isCut => {
+      const module = createMockModule(); const c = createClient(async () => module);
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const originalCall = module.ccall;
+      const geometryPointers: number[] = [];
+      module.ccall = (name, ret, types, args) => {
+        const pointer = Number(originalCall(name, ret, types, args));
+        if (name !== 'orc_get_model_structure' && name !== 'orc_get_model_scene_patch') return pointer;
+        const response = JSON.parse(module.UTF8ToString(pointer)); module._free(pointer);
+        if (name === 'orc_get_model_scene_patch')
+          for (const geometry of [...response.geometries, ...response.paint_geometries])
+            geometryPointers.push(geometry.vertex_ptr, geometry.index_ptr);
+        response.objects[0].isCut = isCut;
+        const json = new TextEncoder().encode(JSON.stringify(response)); const replacement = module._malloc(json.length + 1);
+        module.HEAPU8.set(json, replacement); module.HEAPU8[replacement + json.length] = 0;
+        return replacement;
+      };
+      expect(await c.getModelStructure()).toEqual({ ok: false, objects: [], error: 'invalid model structure' });
+      await expect(c.getModelScenePatch(objects.map(o => o.id), [])).rejects.toThrow('invalid model scene patch');
+      expect(geometryPointers.length).toBeGreaterThan(0);
+      for (const pointer of geometryPointers) expect(module._freedPointers).toContain(pointer);
     });
 
     it('returns an empty tree before any model is loaded', async () => {
@@ -2766,7 +2807,7 @@ describe('SlicerClient bridge contract', () => {
       await c.addModel(new Uint8Array(4), 'stl');
       const before = await c.getModelStructure();
       const [a, b] = before.objects;
-      const r = await c.mergeObjectsToMultipart([a.id, b.id], 'Assembly');
+      const r = await c.mergeObjectsToMultipart([a, b].map(o => ({ objectId: o.id, instanceIds: o.instances.map(i => i.id) })), 'Assembly');
       expect(r.ok).toBe(true);
       expect(r.objectId).toBeGreaterThan(0);
       expect(r.objects).toBe(1);
@@ -2780,10 +2821,67 @@ describe('SlicerClient bridge contract', () => {
       expect(after.objects.map((o) => o.id)).not.toContain(b.id);
     });
 
+    it('includes every instance and retains Orca object settings and printable precedence', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 3 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects: [a, b] } = await c.getModelStructure();
+      await c.setNativeScopedConfig({ scope: 'object', id: String(a.id) }, 'layer_height', '0.12');
+      await c.setNativeScopedConfig({ scope: 'object', id: String(b.id) }, 'layer_height', '0.2');
+      await c.setInstancePrintable(a.instances[2].id, false);
+      const result = await c.mergeObjectsToMultipart([b, a].map(o => ({ objectId: o.id, instanceIds: o.instances.map(i => i.id) })), 'Instances');
+      expect(result.ok).toBe(true);
+      const { objects: [assembly] } = await c.getModelStructure();
+      expect(assembly.volumes).toHaveLength(6);
+      expect(new Set(assembly.volumes.map(v => v.id)).size).toBe(6);
+      expect(assembly.instances).toHaveLength(1);
+      expect(assembly.printable).toBe(false);
+      expect(assembly.instances[0].printable).toBe(false);
+      expect(await c.getNativeScopedConfig()).toMatchObject({ nativeScopedConfig: { snapshot: {
+        objects: { [assembly.id]: { layer_height: '0.12' } },
+      } } });
+    });
+
+    it('consumes selected instances only and leaves unselected identities and flags intact', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 3 }));
+      await c.addModel(new Uint8Array(4), 'stl'); await c.addModel(new Uint8Array(4), 'stl');
+      const { objects: [a, b] } = await c.getModelStructure();
+      await c.setInstancePrintable(a.instances[0].id, false);
+      const result = await c.mergeObjectsToMultipart([
+        { objectId: a.id, instanceIds: [a.instances[1].id] },
+        { objectId: b.id, instanceIds: [b.instances[2].id] },
+      ], 'Selected');
+      expect(result.ok).toBe(true);
+      const { objects } = await c.getModelStructure();
+      expect(objects.find(o => o.id === a.id)?.instances).toEqual([
+        { ...a.instances[0], printable: false }, { ...a.instances[2], index: 1 },
+      ]);
+      expect(objects.find(o => o.id === b.id)?.instances).toHaveLength(2);
+      const assembly = objects.find(o => o.name === 'Selected')!;
+      expect(assembly.volumes).toHaveLength(2); expect(assembly.printable).toBe(true);
+      const partIds = objects.flatMap(o => o.volumes.map(v => v.id));
+      expect(new Set(partIds).size).toBe(partIds.length);
+    });
+
+    it('rejects stale and duplicate instance targets before any mutation', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const before = await c.getModelStructure(); const a = before.objects[0];
+      for (const targets of [
+        [{ objectId: a.id, instanceIds: [] }],
+        [{ objectId: a.id, instanceIds: [a.instances[0].id, a.instances[0].id] }],
+        [{ objectId: a.id, instanceIds: [a.instances[0].id, 999999] }],
+        [{ objectId: a.id, instanceIds: [a.instances[0].id] }, { objectId: a.id, instanceIds: [a.instances[1].id] }],
+      ]) {
+        expect((await c.mergeObjectsToMultipart(targets, 'Invalid')).ok).toBe(false);
+        expect(await c.getModelStructure()).toEqual(before);
+      }
+    });
+
     it('rejects an unknown object ID', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
-      const res = await c.mergeObjectsToMultipart([999999], 'X');
+      const res = await c.mergeObjectsToMultipart([{ objectId: 999999, instanceIds: [1] }], 'X');
       expect(res.ok).toBeFalsy();
       expect(res.error).toContain('object not found');
     });
@@ -2795,7 +2893,7 @@ describe('SlicerClient bridge contract', () => {
       const slice = await c.slice({});
       expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
-      await c.mergeObjectsToMultipart([objects[0].id, objects[1].id], 'Asm');
+      await c.mergeObjectsToMultipart(objects.map(o => ({ objectId: o.id, instanceIds: o.instances.map(i => i.id) })), 'Asm');
       const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
       expect(after.error).toContain('stale or unavailable');

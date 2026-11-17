@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelObjectStructure } from '@slicer/client';
-import { buildSelectableRows, objectListValidity, projectObjectGroups, projectSelection } from './projection';
+import { buildSelectableRows, objectListValidity, projectObjectGroups, projectSelection, resolveAssemblyTargets } from './projection';
 import type { PlateSessionSnapshot } from '@slicer/client';
 
 const structure: ModelObjectStructure[] = [
   {
-    id: 1, index: 0, name: 'Cube', printable: true, instanceCount: 2,
+    id: 1, index: 0, name: 'Cube', printable: true, isCut: false, instanceCount: 2,
     volumes: [
       { id: 10, index: 0, name: 'Part 1', type: 'model_part', isSplittable: false },
       { id: 11, index: 1, name: 'Part 2', type: 'model_part', isSplittable: false },
@@ -16,7 +16,7 @@ const structure: ModelObjectStructure[] = [
     ],
   },
   {
-    id: 2, index: 1, name: 'Cube2', printable: true, instanceCount: 1,
+    id: 2, index: 1, name: 'Cube2', printable: true, isCut: false, instanceCount: 1,
     volumes: [{ id: 12, index: 0, name: 'Part 1', type: 'model_part', isSplittable: false }],
     instances: [{ id: 22, index: 0, printable: true }],
   },
@@ -133,7 +133,7 @@ describe('buildSelectableRows', () => {
 
   it('omits part/instance rows for single-part/single-instance objects', () => {
     const single: ModelObjectStructure[] = [{
-      id: 1, index: 0, name: 'One', printable: true, instanceCount: 1,
+      id: 1, index: 0, name: 'One', printable: true, isCut: false, instanceCount: 1,
       volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
       instances: [{ id: 20, index: 0, printable: true }],
     }];
@@ -178,5 +178,26 @@ describe('projectObjectGroups', () => {
         : instance),
     };
     expect(objectListValidity(structure[0], outOfBounds)).toBe('out-of-bounds');
+  });
+});
+
+
+describe('resolveAssemblyTargets', () => {
+  it('resolves mixed whole-object and partial-instance selection without dropping instances', () => {
+    expect(resolveAssemblyTargets(structure, { objectIds: new Set([2]), instanceIds: new Set([21]), volumeIds: new Set() }))
+      .toEqual([{ objectId: 1, instanceIds: [21] }, { objectId: 2, instanceIds: [22] }]);
+  });
+  it('gives identical targets for object and Instances-group highlighting', () => {
+    const objects = resolveAssemblyTargets(structure, { objectIds: new Set([1]), instanceIds: new Set(), volumeIds: new Set() });
+    const instances = resolveAssemblyTargets(structure, { objectIds: new Set(), instanceIds: new Set([20, 21]), volumeIds: new Set() });
+    expect(objects).toEqual([{ objectId: 1, instanceIds: [20, 21] }]);
+    expect(instances).toEqual(objects);
+  });
+  it.each([
+    { objectIds: new Set([1]), instanceIds: new Set<number>(), volumeIds: new Set([10]) },
+    { objectIds: new Set([999]), instanceIds: new Set([20]), volumeIds: new Set<number>() },
+    { objectIds: new Set([2]), instanceIds: new Set([999]), volumeIds: new Set<number>() },
+  ])('refuses partial or stale selections rather than assembling a subset', projection => {
+    expect(resolveAssemblyTargets(structure, projection)).toEqual([]);
   });
 });

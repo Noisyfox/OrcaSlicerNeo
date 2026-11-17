@@ -25,7 +25,7 @@ vi.mock('../actions/persistModelTransforms', () => ({
 
 const structure = {
   ok: true as const,
-  objects: [{ id: 1, index: 0, name: 'A', printable: true, instanceCount: 1, volumes: [], instances: [] }],
+  objects: [{ id: 1, index: 0, name: 'A', printable: true, isCut: false, instanceCount: 1, volumes: [], instances: [] }],
 };
 
 function makeRuntime(): SlicerRuntime {
@@ -85,7 +85,7 @@ describe('object list structural actions', () => {
 
   it('captures the current scene selection and gizmo in structural history', async () => {
     const runtime = makeRuntime();
-    useObjectListStore.getState().setStructure([{ id: 1, index: 0, name: 'A', printable: true, instanceCount: 1,
+    useObjectListStore.getState().setStructure([{ id: 1, index: 0, name: 'A', printable: true, isCut: false, instanceCount: 1,
       volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
       instances: [{ id: 20, index: 0, printable: true }] }]);
     const scene = { gizmo: 'move', selectionMode: 'instance', selectedVolumes: () => [{ buffer: {
@@ -113,8 +113,8 @@ describe('object list structural actions', () => {
 
   it('assembleObjectsInList passes a name and refreshes', async () => {
     const runtime = makeRuntime();
-    await assembleObjectsInList(runtime, [1, 2], null, 'Asm');
-    expect(runtime.mergeObjectsToMultipart).toHaveBeenCalledWith([1, 2], 'Asm');
+    await assembleObjectsInList(runtime, [{ objectId: 1, instanceIds: [11] }, { objectId: 2, instanceIds: [22] }], null, 'Asm');
+    expect(runtime.mergeObjectsToMultipart).toHaveBeenCalledWith([{ objectId: 1, instanceIds: [11] }, { objectId: 2, instanceIds: [22] }], 'Asm');
   });
 
   it('reorderObjectsInList calls the bridge with the source object ID and a destination index', async () => {
