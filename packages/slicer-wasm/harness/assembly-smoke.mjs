@@ -146,7 +146,12 @@ for (const autoDrop of [false, true]) {
   assert.equal(receipt.plate_session.dirty_reasons.includes('model-structure'), true);
   ok(call('orc_history_undo')); assert.deepEqual(structure(), before); assert.deepEqual(config(), beforeConfig); assert.deepEqual(worldVertices(), beforeWorld);
   assert.deepEqual(paintCounts(structure()[0]), beforePaint);
+  const restoredArchive = entries(archive());
+  const nativeMetadata = ['Metadata/layer_heights_profile.txt', 'Metadata/layer_config_ranges.xml', 'Metadata/brim_ear_points.txt'];
+  for (const name of nativeMetadata) assert.equal(restoredArchive.get(name), beforeArchive.get(name), `Undo restores ${name}`);
   ok(call('orc_history_redo')); assert.deepEqual(structure(), [assembly]); assert.deepEqual(worldVertices(), afterWorld);
+  const redoneArchive = entries(archive());
+  for (const name of nativeMetadata) assert.equal(redoneArchive.get(name), afterArchive.get(name), `Redo restores ${name}`);
   console.log(`PASS native assembly attributes, affine copies, unique IDs, one-step history; auto_drop=${autoDrop}`);
 }
 load(fixture(painted, false));
