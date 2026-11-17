@@ -1645,7 +1645,7 @@ function modelIds(value: unknown): value is number[] {
 function modelStructure(value: unknown): boolean {
   return Array.isArray(value) && value.every(object => isRecord(object) &&
     modelCounts(object, 'id', 'index', 'instanceCount') && object.id !== 0 && typeof object.name === 'string' &&
-    typeof object.printable === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
+    typeof object.printable === 'boolean' && typeof object.isCut === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
       isRecord(volume) && modelCounts(volume, 'id', 'index') && volume.id !== 0 && typeof volume.name === 'string' &&
       ['model_part', 'negative_volume', 'parameter_modifier', 'support_blocker', 'support_enforcer'].includes(volume.type as string) &&
       typeof volume.isSplittable === 'boolean') &&
@@ -3087,16 +3087,21 @@ export function createClient(
       const raw = callJson(m, 'orc_get_model_scene_patch', ['string'],
         [JSON.stringify({ object_ids: objectIds, known_volume_ids: knownVolumeIds,
           known_paint_keys: nativeKnownPaintKeys })]);
-      const decoded = decodeModelGeometry(m, raw, geometrySession, knownGeometryKeys, knownPaintGeometryKeys);
       const patch = raw as { object_order: number[]; objects: ModelStructureResult['objects'] };
-      if (!Array.isArray(patch.object_order) || !Array.isArray(patch.objects))
+      // Decode first so native geometry allocations are released even when the
+      // accompanying structure metadata is invalid.
+      const decoded = decodeModelGeometry(m, raw, geometrySession, knownGeometryKeys, knownPaintGeometryKeys);
+      if (!Array.isArray(patch.object_order) || !modelStructure(patch.objects))
         throw new Error('invalid model scene patch');
       return { ok: true, objectOrder: patch.object_order, objects: patch.objects, ...decoded };
     },
 
     async getModelStructure(): Promise<ModelStructureResult> {
       const m = await module();
-      return callJson(m, 'orc_get_model_structure', [], []) as ModelStructureResult;
+      const result = callJson(m, 'orc_get_model_structure', [], []);
+      if (!isRecord(result) || result.ok !== true || !modelStructure(result.objects))
+        return { ok: false, objects: [], error: isRecord(result) && typeof result.error === 'string' ? result.error : 'invalid model structure' };
+      return result as unknown as ModelStructureResult;
     },
 
     async deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult> {

@@ -22,6 +22,21 @@ export async function assemblyJourney(page: Page, addModel: () => Promise<void>)
     await expect(row.locator('[data-testid^="instance-"]')).toHaveCount(2);
   }
   const a = list.getByTestId(`object-${ids[0]}`), b = list.getByTestId(`object-${ids[1]}`);
+  // Native menu routing excludes a single object and same-owner instances.
+  await a.getByRole('button').first().click({ button: 'right' });
+  await expect(page.getByTestId('objectlist-ctx-menu')).toBeVisible();
+  await expect(page.getByTestId('objectlist-assemble')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await list.getByTestId(`instances-select-${ids[0]}`).click({ button: 'right' });
+  await expect(page.getByTestId('objectlist-ctx-menu')).toBeVisible();
+  await expect(page.getByTestId('objectlist-assemble')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await a.locator('[data-testid^="instance-"]').first().click();
+  await a.locator('[data-testid^="instance-"]').nth(1).click({ modifiers: ['ControlOrMeta'] });
+  await a.locator('[data-testid^="instance-"]').nth(1).click({ button: 'right' });
+  await expect(page.getByTestId('objectlist-ctx-menu')).toBeVisible();
+  await expect(page.getByTestId('objectlist-assemble')).toBeHidden();
+  await page.keyboard.press('Escape');
   const aInstance = a.locator('[data-testid^="instance-"]').nth(1);
   const bInstance = b.locator('[data-testid^="instance-"]').first();
   const selectedIds = new Set([

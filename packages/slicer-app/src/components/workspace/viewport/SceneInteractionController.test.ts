@@ -150,7 +150,7 @@ describe('SceneInteractionController', () => {
 
   it('restores Measure only for surviving history targets', () => {
     const structure: ModelStructureResult = { ok: true, objects: [{
-      id: 100, index: 0, name: 'Owner', printable: true, instanceCount: 2,
+      id: 100, index: 0, name: 'Owner', printable: true, isCut: false, instanceCount: 2,
       volumes: [{ id: 200, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
       instances: [{ id: 300, index: 0, printable: true }, { id: 301, index: 1, printable: true }],
     }] };
@@ -424,7 +424,7 @@ describe('SceneInteractionController', () => {
     const structure: ModelStructureResult = {
       ok: true,
       objects: [{
-        id: 100, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
+        id: 100, index: 0, name: 'Survivor', printable: true, isCut: false, instanceCount: 1,
         volumes: [{ id: 200, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
         instances: [{ id: 300, index: 0, printable: true }],
       }],
@@ -439,7 +439,7 @@ describe('SceneInteractionController', () => {
   });
 
   it('restores an added part only in its anchored instance', () => {
-    const structure: ModelStructureResult = { ok: true, objects: [{ id: 100, index: 0, name: 'Owner', printable: true, instanceCount: 2,
+    const structure: ModelStructureResult = { ok: true, objects: [{ id: 100, index: 0, name: 'Owner', printable: true, isCut: false, instanceCount: 2,
       volumes: [{ id: 200, index: 0, name: 'Old', type: 'model_part', isSplittable: false },
         { id: 201, index: 1, name: 'Added', type: 'model_part', isSplittable: false }],
       instances: [{ id: 300, index: 0, printable: true }, { id: 301, index: 1, printable: true }] }] };
@@ -453,7 +453,7 @@ describe('SceneInteractionController', () => {
     const structure: ModelStructureResult = {
       ok: true,
       objects: [{
-        id: 100, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
+        id: 100, index: 0, name: 'Survivor', printable: true, isCut: false, instanceCount: 1,
         volumes: [{ id: 200, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
         instances: [{ id: 300, index: 0, printable: true }],
       }],

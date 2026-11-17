@@ -988,6 +988,8 @@ export interface ModelObjectStructure {
   id: number;
   index: number;
   name: string;
+  /** Native cut identity; cut objects cannot participate in Assemble. */
+  isCut: boolean;
   /** Object-level flag; distinct from per-instance `printable`. */
   printable: boolean;
   instanceCount: number;

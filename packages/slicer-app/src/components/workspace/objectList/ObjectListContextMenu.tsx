@@ -78,7 +78,9 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const structure = useObjectListStore((s) => s.structure);
   const assemblyTargets = resolveAssemblyTargets(structure, projection);
   const selectedObjectIds = [...projection.objectIds];
-  const canAssemble = assemblyTargets.reduce((count, target) => count + target.instanceIds.length, 0) >= 2;
+  // Orca offers Assemble through the cross-object multi-selection menu only.
+  const canAssemble = assemblyTargets.length >= 2 && !structure.some(object =>
+    object.isCut && assemblyTargets.some(target => target.objectId === object.id));
   // Rename targets the row's object/part, which is ambiguous while several
   // full objects are selected (Orca hides the rename item there too).
   const canRename = selectedObjectIds.length < 2;

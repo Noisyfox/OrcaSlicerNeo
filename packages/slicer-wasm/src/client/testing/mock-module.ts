@@ -109,6 +109,8 @@ export interface MockModuleOptions {
   printErr?: (msg: string) => void;
   /** Number of instances initially exposed by getModelMesh. */
   instanceCount?: number;
+  /** Imported cut-object metadata fixture; ordinary primitives remain uncut. */
+  cutObject?: boolean;
   /** Number of composite render volumes initially present in each object. */
   volumeCount?: number;
   /** Number of parts a splittable volume yields on orc_split_volume_to_parts. */
@@ -520,7 +522,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextObjectId = 1000;
   let nextVolumeId = 2000;
   let nextInstanceId = 3000;
-  let objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }> = [];
+  let objectMeta: Array<{ id: number; name: string; printable: boolean; isCut: boolean; primitive?: string }> = [];
   let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }>> = [];
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
@@ -559,7 +561,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     modelLoaded: boolean;
     objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
-    objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }>;
+    objectMeta: Array<{ id: number; name: string; printable: boolean; isCut: boolean; primitive?: string }>;
     volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }>>;
     instanceMeta: Array<Array<{ id: number; printable: boolean }>>;
     objectPlateIds: string[];
@@ -2097,6 +2099,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       index: oi,
       name: objectMeta[oi].name,
       printable: objectMeta[oi].printable,
+      isCut: objectMeta[oi].isCut,
       instanceCount: instanceMeta[oi].length,
       volumes: volumeMeta[oi].map((v, vi) => ({
         id: v.id, index: vi, name: v.name, type: v.type, isSplittable: v.isSplittable,
@@ -2249,7 +2252,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     objectTransforms.push(createObjectTransforms(plateOrigins[currentPlateIndex]?.slice(0, 2) as [number, number] ?? [0, 0]));
     objectVolumeTransforms.push(createObjectVolumeTransforms());
     objectPlateIds.push(currentPlateId);
-    objectMeta.push({ id: nextObjectId++, name, printable: true });
+    objectMeta.push({ id: nextObjectId++, name, printable: true, isCut: opts.cutObject === true });
     volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
       id: nextVolumeId++, name: `Part ${vi + 1}`,
       type: 'model_part' as VolumeType, isSplittable: vi === 0,
@@ -3402,7 +3405,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectTransforms.push(createObjectTransforms(plateOrigins[currentPlateIndex]?.slice(0, 2) as [number, number] ?? [0, 0]));
       objectVolumeTransforms.push([identityTransform()]);
       objectPlateIds.push(currentPlateId);
-      objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true, primitive: type });
+      objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true, isCut: false, primitive: type });
       volumeMeta.push([{ id: nextVolumeId++, name: shapeName, type: 'model_part' as VolumeType, isSplittable: false }]);
       instanceMeta.push(Array.from({ length: instanceCount }, (_, ii) => ({
         id: nextInstanceId++,
@@ -3520,7 +3523,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const sourceVolumeIds = volumeMeta[oi].map((volume) => String(volume.id));
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
-        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, isCut: objectMeta[oi].isCut, primitive: objectMeta[oi].primitive });
         const clonedObjectId = objectMeta[objectMeta.length - 1].id;
         if (nativeScopedConfig.objects[sourceObjectId])
           nativeScopedConfig.objects[String(clonedObjectId)] = clone(nativeScopedConfig.objects[sourceObjectId]);
@@ -3643,7 +3646,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (let p = 0; p < splitParts; p++) {
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0]))]);
-        objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable });
+        objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable, isCut: objectMeta[oi].isCut });
         const newObjectId = objectMeta[objectMeta.length - 1].id;
         // ModelObject::split() starts each derived object's config from the
         // source object and applies the source volume config over it. The
@@ -3684,6 +3687,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const oi = objectMeta.findIndex(object => object.id === target.objectId);
         if (oi < 0) return { error: 'object not found' };
         if (selections.has(oi)) return { error: 'duplicate assembly object' };
+        if (objectMeta[oi].isCut) return { error: 'cut objects cannot be assembled' };
         if (!target.instanceIds.length || new Set(target.instanceIds).size !== target.instanceIds.length)
           return { error: 'invalid or duplicate assembly instance ids' };
         const indices: number[] = [];
@@ -3734,7 +3738,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       nativeScopedConfig.objects[String(newObjectId)] = mergedConfig;
       objectTransforms.push([identityTransform()]);
       objectVolumeTransforms.push(newVolTransforms);
-      objectMeta.push({ id: newObjectId, name: newName, printable });
+      objectMeta.push({ id: newObjectId, name: newName, printable, isCut: false });
       volumeMeta.push(newVolumes);
       instanceMeta.push([{ id: nextInstanceId++, printable }]);
       objectPlateIds.push(objectPlateIds[srcIdxs[0]] ?? currentPlateId);
@@ -3776,7 +3780,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const srcInst = instanceMeta[oi][ii];
         objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[oi][ii]))]);
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
-        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, isCut: objectMeta[oi].isCut, primitive: objectMeta[oi].primitive });
         const separatedVolumes = volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ }));
         volumeMeta.push(separatedVolumes);
         separatedVolumes.forEach((volume, volumeIndex) => {

@@ -2328,7 +2328,7 @@ describe('SlicerClient bridge contract', () => {
       expect(r.objects).toHaveLength(1);
       const obj = r.objects[0];
       expect(obj).toMatchObject({
-        index: 0, name: 'Object 1', printable: true, instanceCount: 2,
+        index: 0, name: 'Object 1', printable: true, isCut: false, instanceCount: 2,
       });
       expect(obj.id).toBeGreaterThan(0);
       expect(obj.volumes).toHaveLength(2);
@@ -2339,6 +2339,47 @@ describe('SlicerClient bridge contract', () => {
       expect(obj.volumes[0].id).toBeGreaterThan(0);
       expect(obj.instances[0]).toMatchObject({ index: 0, printable: true });
       expect(obj.instances[0].id).toBeGreaterThan(0);
+    });
+
+    it('exposes cut state in complete reads, scene patches and clones, and refuses cut assembly', async () => {
+      const c = createClient(async () => createMockModule({ cutObject: true }));
+      await c.addModel(new Uint8Array(4), 'stl'); await c.addShape('Cube', 'Ordinary');
+      const before = await c.getModelStructure();
+      expect(before.objects.map(o => o.isCut)).toEqual([true, false]);
+      const [cut, ordinary] = before.objects;
+      const patch = await c.getModelScenePatch([cut.id, ordinary.id], []);
+      expect(patch.objects.map(o => o.isCut)).toEqual([true, false]);
+      expect(await c.mergeObjectsToMultipart([cut, ordinary].map(o => ({
+        objectId: o.id, instanceIds: o.instances.map(i => i.id),
+      })), 'Rejected')).toMatchObject({ ok: false, error: 'cut objects cannot be assembled' });
+      expect(await c.getModelStructure()).toEqual(before);
+      const clone = await c.cloneObjects([cut.id]);
+      if (!clone.ok) throw new Error(clone.error);
+      expect((await c.getModelStructure()).objects.find(o => o.id === clone.newObjectIds[0])?.isCut).toBe(true);
+    });
+
+    it.each([undefined, null, 'false', 0])('rejects missing or invalid cut metadata in complete and incremental reads: %j', async isCut => {
+      const module = createMockModule(); const c = createClient(async () => module);
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const originalCall = module.ccall;
+      const geometryPointers: number[] = [];
+      module.ccall = (name, ret, types, args) => {
+        const pointer = Number(originalCall(name, ret, types, args));
+        if (name !== 'orc_get_model_structure' && name !== 'orc_get_model_scene_patch') return pointer;
+        const response = JSON.parse(module.UTF8ToString(pointer)); module._free(pointer);
+        if (name === 'orc_get_model_scene_patch')
+          for (const geometry of [...response.geometries, ...response.paint_geometries])
+            geometryPointers.push(geometry.vertex_ptr, geometry.index_ptr);
+        response.objects[0].isCut = isCut;
+        const json = new TextEncoder().encode(JSON.stringify(response)); const replacement = module._malloc(json.length + 1);
+        module.HEAPU8.set(json, replacement); module.HEAPU8[replacement + json.length] = 0;
+        return replacement;
+      };
+      expect(await c.getModelStructure()).toEqual({ ok: false, objects: [], error: 'invalid model structure' });
+      await expect(c.getModelScenePatch(objects.map(o => o.id), [])).rejects.toThrow('invalid model scene patch');
+      expect(geometryPointers.length).toBeGreaterThan(0);
+      for (const pointer of geometryPointers) expect(module._freedPointers).toContain(pointer);
     });
 
     it('returns an empty tree before any model is loaded', async () => {

@@ -162,7 +162,7 @@ json model_structure_json_filtered(const std::set<std::size_t>* object_ids) {
             instances.push_back(json{{"id", instance->id().id}, {"index", ii}, {"printable", instance->printable}});
         }
         objects.push_back(json{{"id", object->id().id}, {"index", oi}, {"name", object->name},
-            {"printable", object->printable}, {"instanceCount", object->instances.size()},
+            {"printable", object->printable}, {"isCut", object->is_cut()}, {"instanceCount", object->instances.size()},
             {"volumes", std::move(volumes)}, {"instances", std::move(instances)}});
     }
     return objects;

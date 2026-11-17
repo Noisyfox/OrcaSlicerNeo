@@ -7,7 +7,7 @@ import { useObjectListStore } from '@/components/workspace/objectList/useObjectL
 import { useSettingsStore } from '@/stores/useSettingsStore';
 
 const transform = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
-const structure = (id: number, index: number): ModelObjectStructure => ({ id, index, name: `object-${id}`, printable: true, instanceCount: 1,
+const structure = (id: number, index: number): ModelObjectStructure => ({ id, index, name: `object-${id}`, printable: true, isCut: false, instanceCount: 1,
   volumes: [{ id: id + 10, index: 0, name: 'part', type: 'model_part', isSplittable: false }],
   instances: [{ id: id + 20, index: 0, printable: true }] });
 const buffer = (id: number, index: number): ModelObjectBuffer => ({ objectId: id, volumeId: id + 10, instanceId: id + 20,

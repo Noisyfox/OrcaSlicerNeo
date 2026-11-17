@@ -14,7 +14,7 @@ vi.mock('./structuralActions', async importOriginal => ({
   assembleObjectsInList: vi.fn(async () => ({ ok: true })),
 }));
 const a: ModelObjectStructure = {
-  id: 1, index: 0, name: 'A', printable: true, instanceCount: 3,
+  id: 1, index: 0, name: 'A', printable: true, isCut: false, instanceCount: 3,
   volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
   instances: [20, 21, 22].map((id, index) => ({ id, index, printable: true })),
 };
@@ -22,8 +22,8 @@ const b: ModelObjectStructure = { ...a, id: 2, index: 1, name: 'B', instanceCoun
   volumes: [{ ...a.volumes[0], id: 11 }], instances: [{ id: 23, index: 0, printable: true }] };
 let root: Root | undefined;
 const runtime = {};
-async function render(target: Parameters<typeof ObjectListContextMenu>[0]['target'], objectIds: number[], instanceIds: number[], volumeIds: number[] = []) {
-  useObjectListStore.setState({ structure: [a, b], projection: {
+async function render(target: Parameters<typeof ObjectListContextMenu>[0]['target'], objectIds: number[], instanceIds: number[], volumeIds: number[] = [], structure: ModelObjectStructure[] = [a, b]) {
+  useObjectListStore.setState({ structure, projection: {
     objectIds: new Set(objectIds), instanceIds: new Set(instanceIds), volumeIds: new Set(volumeIds),
   } });
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
@@ -47,11 +47,34 @@ describe('instance-aware Assemble menu', () => {
     expect(assembleObjectsInList).toHaveBeenCalledWith(runtime,
       [{ objectId: 1, instanceIds: [21] }, { objectId: 2, instanceIds: [23] }], null);
   });
-  it.each(['object', 'instances'] as const)('offers Assemble for multiple instances selected through %s highlighting', async kind => {
-    await render({ kind: 'object', object: a }, kind === 'object' ? [1] : [], kind === 'instances' ? [20, 21, 22] : []);
+  it.each(['object', 'instances', 'partial-instances'] as const)('hides Assemble for one owning object through %s selection', async kind => {
+    await render({ kind: 'object', object: a }, kind === 'object' ? [1] : [], kind === 'instances' ? [20, 21, 22] : kind === 'partial-instances' ? [20, 21] : []);
+    expect(document.querySelector('[data-testid="objectlist-assemble"]')).toBeNull();
+  });
+  it.each(['object', 'instances'] as const)('assembles every selected instance across two owners through %s highlighting', async kind => {
+    await render({ kind: 'object', object: b }, kind === 'object' ? [1, 2] : [2], kind === 'instances' ? [20, 21, 22] : []);
     const item = document.querySelector<HTMLElement>('[data-testid="objectlist-assemble"]');
     expect(item).not.toBeNull(); await act(async () => item!.click());
-    expect(assembleObjectsInList).toHaveBeenCalledWith(runtime, [{ objectId: 1, instanceIds: [20, 21, 22] }], null);
+    expect(assembleObjectsInList).toHaveBeenCalledWith(runtime,
+      [{ objectId: 1, instanceIds: [20, 21, 22] }, { objectId: 2, instanceIds: [23] }], null);
+  });
+  it.each(['object', 'instance', 'list'] as const)('hides Assemble for a selected cut object in the %s menu', async kind => {
+    const cut = { ...a, isCut: true };
+    const target = kind === 'object' ? { kind, object: b } : kind === 'instance'
+      ? { kind, object: cut, instance: cut.instances[1] } : { kind };
+    await render(target, [2], [21], [], [cut, b]);
+    expect(document.querySelector('[data-testid="objectlist-assemble"]')).toBeNull();
+    expect(assembleObjectsInList).not.toHaveBeenCalled();
+  });
+  it('keeps Assemble available when a cut object is not selected', async () => {
+    const cut = { ...a, id: 3, index: 2, isCut: true, volumes: [{ ...a.volumes[0], id: 13 }], instances: [{ id: 24, index: 0, printable: true }], instanceCount: 1 };
+    await render({ kind: 'object', object: b }, [1, 2], [], [], [a, b, cut]);
+    expect(document.querySelector('[data-testid="objectlist-assemble"]')).not.toBeNull();
+  });
+  it('hides Assemble when a complete selected object carries cut metadata', async () => {
+    const cut = { ...a, isCut: true };
+    await render({ kind: 'object', object: cut }, [1, 2], [], [], [cut, b]);
+    expect(document.querySelector('[data-testid="objectlist-assemble"]')).toBeNull();
   });
   it.each([
     { objects: [], instances: [21], parts: [] },

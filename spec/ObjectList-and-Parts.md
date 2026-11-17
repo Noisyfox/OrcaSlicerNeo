@@ -256,10 +256,19 @@ obsolete parallel payload examples.
 
 Assemble resolves the selection to stable instance IDs grouped by their owning
 objects. Selecting an object expands to all its instances; selecting the same
-instances through their group produces the same operation. At least two
-complete instances are required by the menu, including multiple instances of
-one object. Part selections are ineligible. Object and instance context menus
-share this command; no selected instance is silently omitted.
+instances through their group produces the same operation targets. Menu
+eligibility follows Orca's `show_context_menu` routing and
+`can_merge_to_multipart_object` guard: at least two
+distinct owning objects must be selected, all selected entities must be complete
+objects/instances, and none of their owning objects may be a native cut object.
+A single object row, its Instances group, or multiple instances of that one
+object do not offer Assemble. Part selections are ineligible. Object and
+instance context menus share this command for eligible cross-object selections;
+no selected instance is silently omitted. Neo's supported printer scope is FFF;
+Orca additionally excludes SLA. The native cut state is a required boolean in
+both complete model structure snapshots and incremental scene patches, including
+clones and history restoration. Unselected cut objects do not suppress the menu.
+The bridge independently rejects any cut source before mutation.
 
 The native operation follows the instance-aware path of
 [Orca's Assemble](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_ObjectList.cpp):

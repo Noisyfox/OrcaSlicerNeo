@@ -25,7 +25,7 @@ vi.mock('../actions/persistModelTransforms', () => ({
 
 const structure = {
   ok: true as const,
-  objects: [{ id: 1, index: 0, name: 'A', printable: true, instanceCount: 1, volumes: [], instances: [] }],
+  objects: [{ id: 1, index: 0, name: 'A', printable: true, isCut: false, instanceCount: 1, volumes: [], instances: [] }],
 };
 
 function makeRuntime(): SlicerRuntime {
@@ -85,7 +85,7 @@ describe('object list structural actions', () => {
 
   it('captures the current scene selection and gizmo in structural history', async () => {
     const runtime = makeRuntime();
-    useObjectListStore.getState().setStructure([{ id: 1, index: 0, name: 'A', printable: true, instanceCount: 1,
+    useObjectListStore.getState().setStructure([{ id: 1, index: 0, name: 'A', printable: true, isCut: false, instanceCount: 1,
       volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
       instances: [{ id: 20, index: 0, printable: true }] }]);
     const scene = { gizmo: 'move', selectionMode: 'instance', selectedVolumes: () => [{ buffer: {

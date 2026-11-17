@@ -1742,9 +1742,10 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     await expect(rows.nth(0).locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
-    // A whole mock object includes two instances: both can be assembled.
+    // Orca offers Assemble for cross-object selections only, even when a
+    // selected whole object contains multiple instances.
     await objectRow().click({ button: 'right' });
-    await expect(page.getByTestId('objectlist-assemble')).toBeVisible();
+    await expect(page.getByTestId('objectlist-assemble')).toBeHidden();
     // Base UI context menus are modal while open; dismiss the menu before
     // beginning the next pointer-driven selection sequence.
     await page.keyboard.press('Escape');

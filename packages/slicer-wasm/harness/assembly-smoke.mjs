@@ -239,3 +239,38 @@ for (const targets of [
   assert.deepEqual(call('orc_get_plate_session_snapshot'), unchangedPlates);
 }
 console.log('PASS malformed, legacy, duplicate, stale and wrong-owner targets leave model, configuration and plates unchanged');
+
+// Import actual native cut metadata: the same flag must reach full reads,
+// incremental patches and clone/history restores, not just a menu fixture.
+const cutProject = writeStoredZip([...readZipEntries(fixture(painted, false)), {
+  name: 'Metadata/cut_information.xml', content: encoder.encode(
+    '<objects><object id="1"><cut_id id="1000000" check_sum="1" connectors_cnt="0"/></object></objects>'),
+}]);
+load(cutProject);
+ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Uncut']));
+const cutStructure = structure();
+assert.deepEqual(cutStructure.map(o => o.isCut), [true, false]);
+const patch = ok(command('orc_get_model_scene_patch', {
+  object_ids: cutStructure.map(o => o.id), known_volume_ids: [], known_paint_keys: [],
+}));
+try { assert.deepEqual(patch.objects.map(o => o.isCut), [true, false]); }
+finally {
+  for (const geometry of [...patch.geometries, ...patch.paint_geometries]) {
+    module._free(geometry.vertex_ptr); module._free(geometry.index_ptr);
+  }
+}
+const cutConfig = config(), cutPlates = call('orc_get_plate_session_snapshot');
+const rejected = call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(cutStructure.map(o => ({
+  objectId: o.id, instanceIds: o.instances.map(i => i.id),
+}))), 'Cut rejected']);
+assert.equal(rejected.error, 'cut objects cannot be assembled');
+assert.deepEqual(structure(), cutStructure); assert.deepEqual(config(), cutConfig);
+assert.deepEqual(call('orc_get_plate_session_snapshot'), cutPlates);
+command('orc_history_reset', context);
+const cutTransaction = ok(call('orc_history_begin', ['string', 'string', 'string', 'string'], ['Clone cut', 'project', JSON.stringify(context), '']));
+const clone = ok(call('orc_clone_objects', ['string'], [JSON.stringify([cutStructure[0].id])]));
+call('orc_history_commit', ['string', 'string'], [cutTransaction.transactionId, JSON.stringify(context)]);
+assert.equal(structure().find(o => o.id === clone.newObjectIds[0]).isCut, true);
+ok(call('orc_history_undo')); assert.deepEqual(structure(), cutStructure);
+ok(call('orc_history_redo')); assert.equal(structure().find(o => o.id === clone.newObjectIds[0]).isCut, true);
+console.log('PASS imported cut flag in complete/patch/clone/history reads; cut Assemble rejects without mutation');
