@@ -14,6 +14,7 @@ import type * as D from '@orca/platform-contract';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { sliceModel } from '../actions/sliceActions';
+import { runProjectMutationOperation } from '../actions/historyMutation';
 import { SettingsPanel } from './SettingsPanel';
 import * as paintingCommands from '../viewport/gizmo/painting/projectCommands';
 
@@ -629,12 +630,11 @@ describe('SettingsPanel preset transitions', () => {
     expect(useSlicerStore.getState().error).toContain('stale captured revision');
   });
 
-  it.each(['serial', 'loading', 'mutation', 'painting'])('guards flow commands during %s', async guard => {
+  it.each(['serial', 'loading', 'painting'])('guards flow commands during %s', async guard => {
     resetStores(); useSettingsStore.getState().hydrateProfileSnapshot(flowSnapshot());
     const { platform, runtime } = makePlatform(async () => initialSnapshot);
     if (guard === 'serial') useSlicerStore.setState({ status: 'slicing' });
     if (guard === 'loading') useProjectStore.getState().setOperation({ phase: 'loading' });
-    if (guard === 'mutation') useProjectStore.getState().beginProjectMutation();
     if (guard === 'painting') vi.spyOn(paintingCommands, 'paintingCommandAllowed').mockReturnValue(false);
     const { container, root } = await render(platform); roots.push(root);
     if (guard === 'painting') await chooseFlow(container, 'nozzle-flow-select', 'High Flow');
@@ -744,7 +744,54 @@ describe('SettingsPanel preset transitions', () => {
     expect(useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type).toBe('High Temp Plate');
   });
 
-  it('disables transitions during slice, history publication, and project replacement', async () => {
+  it.each(['bed', 'flow'] as const)('keeps sidebar controls visually enabled during model publication and queues %s selection', async kind => {
+    resetStores();
+    const bedType = useSettingsStore.getState().bedType!;
+    useSettingsStore.getState().hydrateProfileSnapshot({ ...flowSnapshot(), bedType });
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    useHistoryNavigationStore.getState().setStatus({ ...flowReceipt(flowSnapshot()).historyStatus, revision: 0 });
+    runtime.setProjectFlow.mockResolvedValue(flowReceipt({ ...flowSnapshot([1]), bedType }));
+    const { container, root } = await render(platform); roots.push(root);
+    const controls = ['preset-select', 'process-preset-select', 'global-bed-type-select',
+      'nozzle-variant-select', 'nozzle-flow-select'].map(id => {
+      const node = container.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`);
+      expect(node).not.toBeNull();
+      expect(node!.disabled).toBe(false);
+      return node!;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let publication!: Promise<void>;
+    const reads = runtime.getPrintConfigEditor.mock.calls.length;
+    try {
+      await act(async () => { publication = runProjectMutationOperation(() => gate); });
+      expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
+      expect(container.querySelector('[data-testid="preset-transition-region"]')?.getAttribute('aria-busy')).toBe('false');
+      for (const node of controls) {
+        expect(container.querySelector(`[data-testid="${node.dataset.testid}"]`)).toBe(node);
+        expect(node.disabled).toBe(false);
+      }
+      expect(runtime.getPrintConfigEditor).toHaveBeenCalledTimes(reads);
+      if (kind === 'bed') await chooseBed(container, 'Smooth PEI Plate');
+      else await chooseFlow(container, 'nozzle-flow-select', 'High Flow');
+      expect(runtime.mutateNativeScopedConfig).not.toHaveBeenCalled();
+      expect(runtime.setProjectFlow).not.toHaveBeenCalled();
+      // This panel's queued command owns its pending presentation immediately.
+      for (const node of controls) expect(node.disabled).toBe(true);
+      await act(async () => { release(); await publication; });
+      if (kind === 'bed') {
+        expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledOnce();
+        expect(useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type).toBe('High Temp Plate');
+      } else {
+        expect(runtime.setProjectFlow).toHaveBeenCalledExactlyOnceWith(0, 1, 0, expect.any(Object));
+        expect(useSettingsStore.getState().values.nozzle_volume_type).toBe('High Flow');
+      }
+      for (const node of controls) expect(node.disabled).toBe(false);
+      expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+    } finally { await act(async () => { release(); await publication; }); }
+  });
+
+  it('disables transitions during serial slicing and project replacement', async () => {
     resetStores();
     const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
     const { container, root } = await render(platform); roots.push(root);
@@ -753,8 +800,7 @@ describe('SettingsPanel preset transitions', () => {
     runtime.getRuntimeExecutionState.mockReturnValue({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' });
     await act(async () => useSlicerStore.setState({ status: 'idle' }));
     await act(async () => useSlicerStore.setState({ status: 'slicing' })); expect(disabled()).toBe(false);
-    await act(async () => { useSlicerStore.setState({ status: 'idle' }); useProjectStore.getState().beginProjectMutation(); }); expect(disabled()).toBe(true);
-    await act(async () => { useProjectStore.getState().endProjectMutation(); useProjectStore.getState().setOperation({ phase: 'loading' }); }); expect(disabled()).toBe(true);
+    await act(async () => { useSlicerStore.setState({ status: 'idle' }); useProjectStore.getState().setOperation({ phase: 'loading' }); }); expect(disabled()).toBe(true);
     await act(async () => useProjectStore.getState().setOperation({ phase: 'completed' })); expect(disabled()).toBe(false);
   });
 

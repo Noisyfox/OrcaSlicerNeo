@@ -68,7 +68,6 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const bedType = useSettingsStore((s) => s.bedType);
   const globalBed = useSettingsStore((s) => s.nativeScopedConfig.project.curr_bed_type);
-  const mutationPending = useProjectStore((s) => s.projectMutationPendingCount > 0);
   const projectOperation = useProjectStore((s) => s.operation.phase);
   const slicing = useSlicerStore((s) => s.status === 'slicing');
   const connectedPrinter = useConnectedPrinterMatch(platform, selectedPrinter, slicing && platform.runtime.getRuntimeExecutionState().threaded === false);
@@ -95,7 +94,10 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   });
   const selectProcess = useCommittedCallback((name: string) => { void handleSelectPreset('print', name); });
   const editPrinter = useCommittedCallback(() => { onEditPrinter?.(selectedPrinter); });
-  const controlsDisabled = presetTransitionPending || mutationPending ||
+  // As in FilamentRack, the shared mutation fence orders commands rather than
+  // driving their presentation. Only this panel's own transition is pending;
+  // model/history publication must not dim unrelated sidebar controls.
+  const controlsDisabled = presetTransitionPending ||
     (slicing && platform.runtime.getRuntimeExecutionState().threaded === false) ||
     ['loading', 'saving', 'model-import', 'waiting-for-dirty-decision'].includes(projectOperation);
   const bedVisible = bedType?.supportsSelection && bedType.choices.length > 0;
