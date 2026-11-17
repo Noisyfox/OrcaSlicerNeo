@@ -1,5 +1,6 @@
 import type { ProfileActivation, SetupWizardMethods } from './setupWizard';
 import type { PaintingApi } from './painting';
+import type { MeasureApi } from './measure';
 import type { UserPresetMethods } from './userPresets';
 import type { NozzleMappingMethods } from './nozzleMapping';
 // packages/slicer-wasm/src/client/types.ts
@@ -913,6 +914,11 @@ export type SplitObjectPreview =
   | { ok: true; autoDrop: boolean; floating: boolean; revision: number }
   | { ok: false; error: string };
 export interface SplitObjectOptions { readonly disableAutoDrop: boolean; readonly revision: number }
+/** Complete selected instances, grouped by their current owning object. */
+export interface AssemblyTarget {
+  objectId: number;
+  instanceIds: number[];
+}
 export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
 /** Both UI entries operate on one shared object's native, object-local geometry. */
 export type MeshBooleanRequest = {
@@ -986,6 +992,8 @@ export interface ModelObjectStructure {
   id: number;
   index: number;
   name: string;
+  /** Native cut identity; cut objects cannot participate in Assemble. */
+  isCut: boolean;
   /** Object-level flag; distinct from per-instance `printable`. */
   printable: boolean;
   /** Automatic bed placement is shared by every instance of the object. */
@@ -1744,7 +1752,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPresetMethods, NozzleMappingMethods {
+export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethods, UserPresetMethods, NozzleMappingMethods {
   getBuildInfo(): Promise<BuildInfo>;
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(activation: ProfileActivation | null): Promise<InitResult>;
@@ -1815,7 +1823,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   addPlate(): Promise<PlateSessionMutationResult>;
   reorderPlates(plateIds: string[]): Promise<PlateSessionMutationResult>;
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
-  recomputePlateMembership(): Promise<PlateSessionMutationResult>;
+  recomputePlateMembership(): Promise<ModelPlateSessionMutation | PlateSessionSnapshotError>;
   /** Advance every existing plate for a committed shared configuration edit. */
   markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
   /** Read a disposable projection of native project/object/part/plate config. */
@@ -1858,7 +1866,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
     transactionId: import('./history').HistoryTransactionId,
     transforms: readonly ModelTransformMutation[],
     operation: ModelTransformOperation,
-  ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
+  ): Promise<ModelMutationResult>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Materialize only objects touched by a native history SceneDelta. */
   getModelScenePatch(objectIds: readonly number[], knownGeometryKeys: readonly string[],
@@ -1882,7 +1890,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Split an object into one object per connected shell at the previewed revision. */
   splitObjectToObjects(objectId: number, options: SplitObjectOptions): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
-  mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult>;
+  mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult>;
   meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;
   /** Separate selected instances into their own objects; returns the new object IDs. */
   separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult>;

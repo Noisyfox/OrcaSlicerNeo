@@ -55,7 +55,7 @@ export function installScopedConfigurationGate(platform: PlatformCapabilities, c
       archive: await platform.runtime.getNativeHistoryDiagnostics?.() }),
     resetHistory: () => resetProjectHistory(platform.runtime, historyContextForStructure()),
     configure: (request: NativeScopedConfigMutationRequest) => commitScopedConfigurationMutation(platform, request),
-    delete: (objectId: number) => deleteObjectsInList(platform.runtime, [objectId]),
+    delete: (objectId: number) => deleteObjectsInList(platform.runtime, [objectId], null),
     move: async () => {
       const volume = glVolumeCollection.volumes[0];
       if (!volume) throw new Error('no model volume');

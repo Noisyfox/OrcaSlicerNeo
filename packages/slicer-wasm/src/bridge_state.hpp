@@ -25,6 +25,7 @@
 #include "bridge_preset_drafts.hpp"
 #include "history/TimestampedHistory.hpp"
 #include "painting/PaintingSession.hpp"
+#include "measure/MeasureService.hpp"
 #include "history/MeshCaptureCache.hpp"
 #include "history/MutableObjectCaptureCache.hpp"
 #include "plate_runtime_registry.hpp"
@@ -59,6 +60,7 @@ struct BridgeState {
     std::uint64_t preset_draft_revision = 0;
     Model       model;
     Painting::Sessions painting;
+    Measurement::Service measurement;
     std::uint64_t painting_derived_version = 0;
     std::uint64_t painting_settled_version = 0;
     nlohmann::json painting_settlement;

@@ -9,6 +9,7 @@ import {
   ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
 } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
+import { resolveAssemblyTargets } from './projection';
 import {
   addInstanceInList,
   assembleObjectsInList,
@@ -76,15 +77,17 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const structure = useObjectListStore((s) => s.structure);
   const act = (p: Promise<{ ok: boolean; error?: string }>) => { void p; onClose(); };
 
-  // "Assemble" merges the fully-selected objects only (never the whole list).
+  const assemblyTargets = resolveAssemblyTargets(structure, projection);
   const selectedObjectIds = [...projection.objectIds];
-  const canAssemble = selectedObjectIds.length >= 2;
+  // Orca offers Assemble through the cross-object multi-selection menu only.
+  const canAssemble = assemblyTargets.length >= 2 && !structure.some(object =>
+    object.isCut && assemblyTargets.some(target => target.objectId === object.id));
   // Rename targets the row's object/part, which is ambiguous while several
   // full objects are selected (Orca hides the rename item there too).
   const canRename = selectedObjectIds.length < 2;
   const assembleItem = canAssemble ? (
     <MenuItem key="assemble" label="Assemble" testid="objectlist-assemble"
-      onClick={() => act(assembleObjectsInList(runtime, selectedObjectIds))} />
+      onClick={() => act(assembleObjectsInList(runtime, assemblyTargets, sceneInteraction ?? null))} />
   ) : null;
 
   function changeFilamentItems(target: ObjectListCtxTarget): ReactNode[] {
@@ -182,7 +185,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
     }
     items.push(
       <MenuItem key="clone" label="Clone" testid="objectlist-clone"
-        onClick={() => act(cloneObjectsInList(runtime, targetObjectIds))} />,
+        onClick={() => act(cloneObjectsInList(runtime, targetObjectIds, sceneInteraction ?? null))} />,
     );
     if (targetObjectIds.length === 1 && (o.volumes.length > 1 || o.volumes.some(volume => volume.isSplittable))) {
       items.push(<MenuItem key="mesh-boolean" label="Mesh boolean" testid="objectlist-mesh-boolean"
@@ -195,21 +198,21 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
     if (o.volumes.length > 1 || o.volumes.some((vol) => vol.isSplittable)) {
       items.push(
         <MenuItem key="split" label="Split to objects" testid="objectlist-split-objects"
-          onClick={() => act(splitObjectToObjectsInList(runtime, o.id))} />,
+          onClick={() => act(splitObjectToObjectsInList(runtime, o.id, sceneInteraction ?? null))} />,
       );
     }
     items.push(
       <MenuItem key="add-instance" label="Add instance" testid="objectlist-add-instance"
-        onClick={() => act(addInstanceInList(runtime, o.id))} />,
+        onClick={() => act(addInstanceInList(runtime, o.id, sceneInteraction ?? null))} />,
       // Remove the last instance; an object must keep at least one instance.
       <MenuItem key="remove-instance" label="Remove instance" testid="objectlist-remove-instance"
         disabled={o.instanceCount <= 1}
         onClick={() => {
           const last = o.instances[o.instances.length - 1];
-          if (last) void act(removeInstanceInList(runtime, o.id, last.id));
+          if (last) void act(removeInstanceInList(runtime, o.id, last.id, sceneInteraction ?? null));
         }} />,
       <MenuItem key="delete" label="Delete" testid="objectlist-delete" danger
-        onClick={() => act(deleteObjectsInList(runtime, targetObjectIds))} />,
+        onClick={() => act(deleteObjectsInList(runtime, targetObjectIds, sceneInteraction ?? null))} />,
     );
     if (addItems.length > 0) items.push(<ContextMenuSeparator key="before-add" />, ...addItems);
     if (addItems.length > 0) items.push(<ContextMenuSeparator key="after-add" />);
@@ -235,18 +238,19 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
     if (v.isSplittable) {
       items.push(
         <MenuItem key="split" label="Split to parts" testid="objectlist-split-parts"
-          onClick={() => act(splitVolumeToPartsInList(runtime, v.id))} />,
+          onClick={() => act(splitVolumeToPartsInList(runtime, v.id, sceneInteraction ?? null))} />,
       );
     }
     items.push(
       <MenuItem key="delete" label="Delete part" testid="objectlist-delete" danger
-        onClick={() => act(deleteVolumeInList(runtime, v.id))} />,
+        onClick={() => act(deleteVolumeInList(runtime, v.id, sceneInteraction ?? null))} />,
       ...VOLUME_TYPES.filter((t) => t !== v.type).map((t) => (
         <MenuItem key={`type-${t}`} label={`Change type to ${t}`} testid={`objectlist-type-${t}`}
           onClick={() => act(changePartTypeInList(runtime, v.id, t))} />
       )),
     );
   } else if (target.kind === 'instance') {
+    if (assembleItem) items.push(assembleItem);
     const inst = target.instance;
     const selectedInstanceIds = [...projection.instanceIds];
     // "Set as an individual object" is selection-based like the other items: it
@@ -262,7 +266,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
       items.push(
         <MenuItem key="individual" label="Set as an individual object" testid="objectlist-separate"
           onClick={() => act(separateInstancesInList(runtime, target.object.id,
-            objectInstanceIds.length > 0 ? objectInstanceIds : [inst.id]))} />,
+            objectInstanceIds.length > 0 ? objectInstanceIds : [inst.id], sceneInteraction ?? null))} />,
       );
     }
     // Same selection rule as the object row: toggle all selected instances

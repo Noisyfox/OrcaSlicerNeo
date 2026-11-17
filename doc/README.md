@@ -1,6 +1,6 @@
 # Documentation Index
 
-**Updated:** 2026-11-08
+**Updated:** 2026-11-13
 
 Specifications own accepted behavior, required constraints, exclusions and open
 decisions; engineering references own build/debug/verification procedures.
@@ -22,7 +22,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Common service providers, accounts and capability boundaries | [Shared provider/account design](../spec/Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts) (shared contracts and Electron Bambu account execution delivered; six-target packaging/startup accepted, separate real-account/hardware limits recorded) |
 | Chrome, controls, layout and diagnostics | [Application Shell](../spec/Application%20Shell.md), including [persistent workspace notifications](../spec/Application%20Shell.md#persistent-workspace-notifications) (implemented; focused development-host qualification, release matrix remains separate) and [exit handling for all unfinished sends](../spec/Printer%20Console%20and%20Control%20Integration.md#application-exit-with-unfinished-sends) (implemented with focused host acceptance) |
 | Prepare/Preview navigation and lifetime | [Workspace modes](../spec/Workspace%20Prepare%20and%20Preview%20Modes.md) |
-| Picking, transforms, camera and rendering | [Viewport Interaction](../spec/Viewport%20Interaction.md) |
+| Picking, transforms, camera and rendering | [Viewport Interaction](../spec/Viewport%20Interaction.md), including the implemented [Measure gizmo](../spec/Viewport%20Interaction.md#measure-gizmo-design) |
 | Objects, parts, instances and menus | [Object List and Parts](../spec/ObjectList-and-Parts.md), including [Mesh Boolean](../spec/ObjectList-and-Parts.md#10-mesh-boolean-design) (implemented with bounded native, host, variant and scale acceptance) |
 | Model loading | [Model Import](../spec/Model%20Import.md), [DRC](../spec/2026-09-01-drc-import-support.md) |
 | Bed geometry and artwork | [Printer Bed Display](../spec/Printer%20Bed%20Display.md) |

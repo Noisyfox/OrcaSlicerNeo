@@ -7,11 +7,18 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { captureSliceThumbnail } from '../projectThumbnails';
 vi.mock('../projectThumbnails', () => ({ captureSliceThumbnail: vi.fn(async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) })) }));
 
+const noOpRecompute = (currentPlateId: string, inputRevisions: Record<string, number>) => vi.fn(async () => ({
+  ok: true as const, version: 1 as const, currentPlateId, inputRevisions, plates: [], instances: [], instanceTransforms: [],
+  affectedPlateIdsBefore: [], affectedPlateIdsAfter: [], affectedPlateIds: [], dirtyReasons: ['model-transform'],
+  nativeScopedConfig: { version: 1 as const, revision: 0, kind: 'full' as const,
+    snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [] },
+}));
+
 describe('slice result publication', () => {
   it('reports thumbnail capture failure before admitting a native slice', async () => {
     const session = { ok: true, currentPlateId: 'a', inputRevisions: { a: 1 }, instances: [],
       plates: [{ plateId: 'a', origin: [0, 0, 0], instanceIds: [1] }] };
-    const runtime = { getPlateSessionSnapshot: vi.fn(async () => session),
+    const runtime = { getPlateSessionSnapshot: vi.fn(async () => session), recomputePlateMembership: noOpRecompute('a', session.inputRevisions),
       getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 1 })), slicePlate: vi.fn() };
     vi.mocked(captureSliceThumbnail).mockRejectedValueOnce(new Error('Thumbnail graphics context lost'));
     await sliceModel({ runtime } as never);
@@ -27,6 +34,7 @@ describe('slice result publication', () => {
     useSlicerStore.getState().activatePlateResult('a', 1);
     const receipt = { plateId: 'b', inputStamp: 2, resultGeneration: '1', sliceTaskId: '2' };
     const runtime = { getNozzleMapping: vi.fn(async (plateId: string) => ({ ok: true, eligible: false, revision: session.inputRevisions[plateId as 'a' | 'b'] })), getPlateSessionSnapshot: vi.fn(async () => session),
+      recomputePlateMembership: noOpRecompute('a', session.inputRevisions),
       slicePlate: vi.fn(async () => ({ ok: true, unrecognized_keys: [], receipt, summary: { estimatedTimeSeconds: 12 } })) };
     await Promise.all([sliceModel({ runtime } as never, 'b'), sliceModel({ runtime } as never, 'b')]);
     expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'b', inputRevision: 2 }, {}, expect.any(Function), expect.any(Function), expect.objectContaining({ width: 1, height: 1 }));
@@ -48,6 +56,7 @@ describe('slice result publication', () => {
       values: { wipe_tower_x: x, wipe_tower_y: '220', prime_tower_width: '25', modelPath: 'cube.stl' },
     });
     const runtime = {
+      recomputePlateMembership: noOpRecompute('plate-1', { 'plate-1': 7 }),
       getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 7 })),
       getPlateSessionSnapshot: vi.fn(async () => ({
         instances: [], ok: true, currentPlateId: 'plate-1',
@@ -71,6 +80,7 @@ describe('slice result publication', () => {
       resolveSlice = resolve;
     });
     const runtime = {
+      recomputePlateMembership: noOpRecompute('plate-1', { 'plate-1': 7 }),
       getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 7 })),
       getPlateSessionSnapshot: vi.fn(async () => ({
         instances: [],
@@ -95,6 +105,7 @@ describe('slice result publication', () => {
     let resolveSlice!: (result: { ok: false; error: string; cancelled?: boolean }) => void;
     const terminal = new Promise<{ ok: false; error: string }>(resolve => { resolveSlice = resolve; });
     const runtime = {
+      recomputePlateMembership: noOpRecompute('plate-1', { 'plate-1': 7 }),
       getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 7 })),
       getPlateSessionSnapshot: vi.fn(async () => ({
         instances: [], ok: true, currentPlateId: 'plate-1',

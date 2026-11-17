@@ -216,6 +216,9 @@ jobs:
       - name: Bridge smoke — Electron NODEFS temporary files
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/nodefs-bridge-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
+      - name: Assemble — instance ownership, Orca attributes and history
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: node packages/slicer-wasm/harness/assembly-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
       - name: Arrangement — atomic history, cancellation, concurrent slicing
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/orca_slice.js

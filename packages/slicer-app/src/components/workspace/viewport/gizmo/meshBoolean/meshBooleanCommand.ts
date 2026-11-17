@@ -32,6 +32,7 @@ export async function executeMeshBoolean(
 ): Promise<MeshBooleanResult> {
   if (preparing || useMeshBooleanStore.getState().busy) return { ok: false, error: 'mesh_boolean_busy' };
   preparing = true;
+  let publishScene: (() => void) | undefined;
   try {
     if (platform.runtime.getRuntimeExecutionState?.().sliceActive) throw new Error('Finish slicing before using Mesh Boolean');
     const prepared = await prepareObjectListMutation();
@@ -39,6 +40,7 @@ export async function executeMeshBoolean(
     if (!await beforePaintingTopologyChange({ objects: [request.objectId] })) throw new Error('Finish painting before using Mesh Boolean');
     if (!await closePaintingForCommand()) throw new Error('Finish painting before using Mesh Boolean');
     await loadMeshBooleanPreferences(platform.preferences);
+    publishScene = scene?.deferNotifications();
     return await runExclusiveProjectOperation(admission => platform.runtime.runMeshBooleanOperation(async owner => {
       // The scoped transport exposes the same core methods used by history
       // and plate publication; no host/runtime extension is called here.
@@ -95,5 +97,6 @@ export async function executeMeshBoolean(
     // admission owners must have settled before those background reads resume.
     preparing = false;
     useMeshBooleanStore.setState({ busy: false });
+    publishScene?.();
   }
 }

@@ -160,6 +160,9 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   activatePlateResult: (plateId, inputRevision) => {
     let matched = false;
     set((state) => {
+        // The active job owns progress and preview until it finishes or is
+        // invalidated, even if Prepare selects a different plate meanwhile.
+        if (state.status === 'slicing' && state.activeSliceTarget) return state;
         const cached = state.plateResults[plateId];
         if (!cached || cached.target.inputRevision !== inputRevision) {
           const failure = state.plateFailures[plateId];
@@ -202,15 +205,16 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     const plateFailures = Object.fromEntries(Object.entries(state.plateFailures).filter(([id]) => !invalidated.has(id)));
     const activeAffected = state.activeSliceTarget && invalidated.has(state.activeSliceTarget.plateId);
     const currentAffected = state.sliceTarget && invalidated.has(state.sliceTarget.plateId);
-    const slicingAffected = activeAffected || (state.status === 'slicing' && currentAffected);
+    const keepActiveSlice = state.status === 'slicing' && state.activeSliceTarget && !activeAffected;
+    const slicingAffected = activeAffected || (state.status === 'slicing' && currentAffected && !keepActiveSlice);
     return {
       plateResults,
       plateFailures,
       ...(activeAffected ? { activeSliceTarget: null } : {}),
       ...(currentAffected ? {
         sliceTarget: null,
-        status: 'idle' as const,
-        progress: 0,
+        status: keepActiveSlice ? state.status : 'idle' as const,
+        progress: keepActiveSlice ? state.progress : 0,
         error: null,
         resultExported: false,
         layer: 0,

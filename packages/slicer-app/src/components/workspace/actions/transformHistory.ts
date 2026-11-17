@@ -1,8 +1,4 @@
-import type { HistoryContext, HistoryStatus, ModelStructureResult, ModelTransformOperation, SlicerClient } from '@slicer/client';
-import { useObjectListStore } from '../objectList/useObjectListStore';
-import { projectSelection } from '../objectList/projection';
-import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { useSettingsStore } from '@/stores/useSettingsStore';
+import type { HistoryContext, HistoryStatus, ModelMutationResult, ModelStructureResult, ModelTransformOperation, SlicerClient } from '@slicer/client';
 import { useProjectStore } from '@/stores/useProjectStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
@@ -10,38 +6,17 @@ import { applySettledTransformSyncResult } from './persistModelTransforms';
 import {
   captureTransformReservationState,
   executeProjectHistoryTransaction,
+  historyContextForStructure,
   readTransformReservationState,
 } from './historyMutation';
 
 type TransformHistoryRuntime = Pick<SlicerClient,
   'runProjectHistoryTransaction' | 'setModelTransforms' | 'getFilamentSessionSnapshot' |
-  'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'> &
-  Partial<Pick<SlicerClient, 'recomputePlateMembership'>>;
-
-/** Build the Worker-owned context projection without retaining renderer state. */
-export function historyContextForScene(sceneInteraction: SceneInteractionController): HistoryContext {
-  const objectList = useObjectListStore.getState();
-  const selection = projectSelection(
-    objectList.structure,
-    sceneInteraction.selectedVolumes().map((volume) => volume.buffer),
-    objectList.highlightLevel,
-  );
-  return {
-    selection: {
-      mode: sceneInteraction.selectionMode === 'volume' ? 'part' : sceneInteraction.selectionMode,
-      objectIds: [...selection.objectIds].sort((a, b) => a - b),
-      partIds: [...selection.volumeIds].sort((a, b) => a - b),
-      instanceIds: [...selection.instanceIds].sort((a, b) => a - b),
-    },
-    activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
-    gizmo: sceneInteraction.gizmo ? { type: sceneInteraction.gizmo } : null,
-    nativeScopedConfig: useSettingsStore.getState().nativeScopedConfig as unknown as HistoryContext['nativeScopedConfig'],
-  };
-}
+  'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'cancel' | 'getRuntimeExecutionState'>;
 
 type GateCommand = 'commit' | 'abort';
 type TransactionResult = {
-  result: { ok: boolean; error?: string; plateSession?: import('@slicer/client').PlateSessionMutation };
+  result: ModelMutationResult;
   status: HistoryStatus | null;
 };
 
@@ -96,7 +71,7 @@ export class TransformHistoryCoordinator {
     // publication is replacing it. This does not reserve the FIFO: after its
     // short read-only reservation completes, other mutations continue freely.
     if (useProjectStore.getState().projectMutationPendingCount !== 0) return false;
-    const beforeContext = historyContextForScene(this.sceneInteraction);
+    const beforeContext = historyContextForStructure(this.sceneInteraction);
     const startTargets = this.captureCompositeTargets();
     if (startTargets.length === 0) return false;
     const objectIndices = new Set(startTargets.map((target) => target.objectIdx));
@@ -190,12 +165,12 @@ export class TransformHistoryCoordinator {
       async (transactionId) => {
         const result = await syncModelTransformsAtomically(this.runtime, transactionId,
           next.finalTransforms ?? this.captureTransforms(), next.operation);
-        if (!result.ok) throw new Error(result.error ?? 'model transform synchronization failed');
+        if (!result.ok) throw new Error(result.error);
         return result;
       },
-      () => historyContextForScene(this.sceneInteraction),
+      () => historyContextForStructure(this.sceneInteraction),
       (result) => {
-        applySettledTransformSyncResult(result);
+        applySettledTransformSyncResult(result, this.runtime);
         this.sceneInteraction.notifyTransformsChanged();
       },
       undefined,

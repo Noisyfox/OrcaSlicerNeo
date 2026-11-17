@@ -38,8 +38,8 @@ Use the approved thin-bridge approach:
 - Delete an object.
 - Clone an object.
 - Split to Objects.
-- Assemble selected objects into a multipart object (`ObjectList::merge(true)`
-  semantics, upstream menu “Assemble”).
+- Assemble selected complete instances, including whole-object and mixed
+  object/instance selections, into a multipart object (section 8.1).
 - Reorder objects in the list (`orc_reorder_objects`).
 
 ### 3.2 Included part/volume operations
@@ -257,6 +257,73 @@ The current typed operation contract lives in
 implementations. There is one JSON-in/JSON-out ABI; specifications do not retain
 obsolete parallel payload examples.
 
+### 8.1 Assemble
+
+Assemble resolves the selection to stable instance IDs grouped by their owning
+objects. Selecting an object expands to all its instances; selecting the same
+instances through their group produces the same operation targets. Menu
+eligibility follows Orca's `show_context_menu` routing and
+`can_merge_to_multipart_object` guard: at least two
+distinct owning objects must be selected, all selected entities must be complete
+objects/instances, and none of their owning objects may be a native cut object.
+A single object row, its Instances group, or multiple instances of that one
+object do not offer Assemble. Part selections are ineligible. Object and
+instance context menus share this command for eligible cross-object selections;
+no selected instance is silently omitted. Neo's supported printer scope is FFF;
+Orca additionally excludes SLA. The native cut state is a required boolean in
+both complete model structure snapshots and incremental scene patches, including
+clones and history restoration. Unselected cut objects do not suppress the menu.
+The bridge independently rejects any cut source before mutation.
+
+The native operation follows the instance-aware path of
+[Orca's Assemble](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_ObjectList.cpp):
+split the selected instances into single-instance objects, then consume those
+objects into one Assembly. Temporary objects stay inside one Worker operation
+and one project history transaction. Unselected instances retain their object,
+Part and instance identities, transforms, configuration and painting. Their
+unaffected plates retain their input revisions. Every target is resolved before
+mutation; malformed, duplicate, stale and wrong-owner IDs are rejected.
+
+All object-row selections use this instance-aware path as well. Neo does not
+reproduce the upstream object-row shortcut that can consume a multi-instance
+object using only its first instance.
+
+Attribute handling follows the pinned Orca implementation:
+
+- Copy complete native Volumes, preserving their type, Part configuration,
+  material reference, painting channels, textures and geometry. Split copies
+  receive independent recursive IDs, including annotation IDs used by history.
+  Compose each instance transform into its copied Volumes without changing
+  triangle topology or renumbering project filament slots.
+- Fill missing Part filament assignments from the source object. For a
+  single-Part source, Orca's object filament assignment takes precedence even
+  over an explicit Part assignment. Multipart sources retain explicit Part
+  overrides. Effective materials may therefore become explicit overrides in
+  the Assembly instead of retaining their old parent inheritance.
+- Merge explicit object configuration with the first encountered value for
+  each key winning, in Orca's split/merge order. A single Assembly cannot retain
+  conflicting object-level policies for its individual source objects.
+- Any selected instance with its printable flag off makes the Assembly non-printable.
+  Unselected instance flags do not participate. Any source with Auto Drop off
+  disables it for the Assembly; otherwise apply Orca's common bed correction,
+  which may translate the whole result in Z. Recenter its local geometry and
+  initialize its assembly transform as Orca does.
+- Merge height-range entries with first-entry precedence, transform and merge
+  brim points, and do not transfer source variable-layer-height profiles,
+  matching Orca. This preserves imported native data without adding editors
+  for the deferred features.
+
+Assemble creates a shared multipart slicing scope. Negative Volumes and
+modifiers can consequently affect overlapping Parts from other source objects.
+It does not preserve separate per-source printable switches or incompatible
+object-level slicing policies inside the result. Mobile interaction remains
+deferred with the shared application's mobile support.
+
+The [native assembly acceptance harness](../packages/slicer-wasm/harness/assembly-smoke.mjs)
+covers instance ownership, affine placement, attribute rules, affected plates,
+invalid requests and atomic Undo/Redo. Shared menu tests and the Electron
+instance-selection journey cover application admission and publication.
+
 ## 9. Context menus, additions and filament assignment
 
 The object list and viewport share the object/part context menu. Add Part,
@@ -340,8 +407,8 @@ already-disabled source stays disabled and keeps its positions without a
 prompt. Otherwise enabled results are placed on the bed. A changed project
 revision invalidates the preview and rejects the split. Splitting never adjusts
 unrelated objects.
-Assemble requires at least two full objects and uses the selected set only;
-there is no empty-list Assemble menu. If any source has Auto Drop disabled,
+Assemble requires selected instances from at least two distinct objects and
+uses the selected set only; there is no empty-list Assemble menu. If any source has Auto Drop disabled,
 the assembled object inherits the disabled setting and preserves source
 heights. Otherwise it inherits the enabled setting and is placed on the bed
 as one object, preserving the relative part positions. A printable command applies to the

@@ -10,7 +10,7 @@ import { useObjectListStore } from './useObjectListStore';
 import type { FilamentSessionSnapshot, ModelObjectStructure } from '@slicer/client';
 
 const object: ModelObjectStructure = {
-  id: 10, index: 0, name: 'Object', printable: true, autoDrop: true, instanceCount: 2,
+  id: 10, index: 0, name: 'Object', printable: true, autoDrop: true, isCut: false, instanceCount: 2,
   volumes: [{ id: 20, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
   instances: [{ id: 100, index: 0, printable: true }, { id: 101, index: 1, printable: true }],
 };

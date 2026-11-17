@@ -12,7 +12,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 import { syncModelTransforms } from './syncModelTransforms';
-import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
+import { applySettledTransformSyncResult } from './persistModelTransforms';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 import { useNotificationStore, type NotificationAttempt } from '@/stores/useNotificationStore';
 import { captureSliceThumbnail } from '../projectThumbnails';
@@ -117,10 +117,7 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
     setFailure(synced.error ?? 'model synchronization failed');
     return;
   }
-  if (synced.plateSession) {
-    applyPlateResultMutation(synced.plateSession);
-    usePlateSessionStore.getState().setSnapshot(synced.plateSession);
-  }
+  applySettledTransformSyncResult(synced, platform.runtime);
 
   const session = await platform.runtime.getPlateSessionSnapshot();
   if (!session.ok) { setFailure(session.error); return; }

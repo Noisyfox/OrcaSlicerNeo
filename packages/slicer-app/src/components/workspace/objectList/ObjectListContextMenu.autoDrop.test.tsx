@@ -15,7 +15,7 @@ vi.mock('./actions', async (importOriginal) => ({
 }));
 
 const objects: ModelObjectStructure[] = [true, false].map((autoDrop, index) => ({
-  id: index + 1, index, name: `Object ${index}`, printable: true, autoDrop, instanceCount: 1,
+  id: index + 1, index, name: `Object ${index}`, printable: true, autoDrop, isCut: false, instanceCount: 1,
   volumes: [{ id: 10 + index, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
   instances: [{ id: 20 + index, index: 0, printable: true }],
 }));

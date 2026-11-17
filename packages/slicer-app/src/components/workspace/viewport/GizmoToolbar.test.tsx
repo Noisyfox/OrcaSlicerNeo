@@ -8,8 +8,8 @@ import { GizmoToolbar } from './GizmoToolbar';
 
 const mocked = vi.hoisted(() => ({
   phase: 'closed' as PaintingPhase, channel: 'mmu' as 'mmu' | 'seam' | 'fuzzy' | 'support', slotCount: 2,
-  close: vi.fn(), open: vi.fn(),
-  runtime: { getRuntimeExecutionState: () => ({ serialSliceActive: false }) },
+  close: vi.fn(), open: vi.fn(), measureActive: false, serialBusy: false, closeMeasure: vi.fn(),
+  runtime: { getRuntimeExecutionState: () => ({ serialSliceActive: mocked.serialBusy }) },
 }));
 vi.mock('@orca/platform-contract', async (importOriginal) => ({ ...await importOriginal<typeof import('@orca/platform-contract')>(), usePlatform: () => ({ runtime: mocked.runtime }) }));
 vi.mock('../arrangement/ArrangementControls', () => ({ ArrangementButton: () => null }));
@@ -21,6 +21,10 @@ vi.mock('./gizmo/painting/PaintingProvider', () => ({
     close: mocked.close, open: mocked.open,
   }),
   paintingTarget: () => ({ objectId: 1, instanceId: 2 }),
+}));
+vi.mock('./gizmo/measure/projectCommands', () => ({
+  measureSessionActive: () => mocked.measureActive,
+  closeMeasureForCommand: mocked.closeMeasure,
 }));
 vi.mock('@/stores/useSettingsStore', () => ({ useSettingsStore: () => true }));
 vi.mock('@/stores/useFilamentSessionStore', () => ({ useFilamentSessionStore: () => mocked.slotCount }));
@@ -36,9 +40,31 @@ const scene = {
 };
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubGlobal('PointerEvent', MouseEvent);
-  mocked.phase = 'closed'; mocked.channel = 'mmu'; mocked.slotCount = 2; scene.gizmo = null;
+  mocked.phase = 'closed'; mocked.channel = 'mmu'; mocked.slotCount = 2; mocked.measureActive = false; mocked.serialBusy = false; scene.gizmo = null;
   mocked.close.mockImplementation(async () => { mocked.phase = 'closed'; return true; });
+  mocked.closeMeasure.mockResolvedValue(undefined);
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+});
+
+it('toggles Measure and refuses a new serial-slice session while allowing it to close', async () => {
+  await render(); expect(button('measure').disabled).toBe(false);
+  await act(async () => button('measure').click()); await render();
+  expect(button('measure').getAttribute('aria-pressed')).toBe('true');
+  mocked.serialBusy = true; await render(); expect(button('measure').disabled).toBe(false);
+  await act(async () => button('measure').click()); await render();
+  expect(button('measure').disabled).toBe(true);
+});
+
+it('waits for Measure cleanup before painting and abandons an obsolete tool switch', async () => {
+  let finish!: () => void;
+  mocked.closeMeasure.mockReturnValue(new Promise<void>(resolve => { finish = resolve; }));
+  mocked.measureActive = true; scene.gizmo = 'measure'; await render();
+  await act(async () => button('paint').click());
+  expect(scene.closeGizmo).toHaveBeenCalledOnce();
+  expect(mocked.closeMeasure).toHaveBeenCalledOnce(); expect(mocked.open).not.toHaveBeenCalled();
+  scene.gizmo = 'move';
+  await act(async () => { finish(); await Promise.resolve(); });
+  expect(mocked.open).not.toHaveBeenCalled();
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 const arrangementChange = vi.fn();

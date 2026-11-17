@@ -9,6 +9,15 @@ const transform = (offset: [number, number, number]): ModelTransform => ({
   mirror: [1, 1, 1],
 });
 
+const plateMutation = () => ({
+  ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [], instances: [], instanceTransforms: [],
+  inputRevisions: { 'plate-1': 0 }, affectedPlateIdsBefore: [], affectedPlateIdsAfter: [], affectedPlateIds: [],
+  dirtyReasons: ['model-transform'], nativeScopedConfig: {
+    version: 1 as const, revision: 0, kind: 'full' as const,
+    snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+  },
+});
+
 describe('syncModelTransforms', () => {
   it('applies a shared-configuration reflow to members on every plate', () => {
     const volumes = [
@@ -40,6 +49,7 @@ describe('syncModelTransforms', () => {
 
   it('synchronizes every composite, including sibling volumes of each instance', async () => {
     const setModelTransform = vi.fn().mockResolvedValue({ ok: true });
+    const recomputePlateMembership = vi.fn().mockResolvedValue(plateMutation());
     const volumes = [
       { buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
       { buffer: { objectIdx: 0, volumeIdx: 1, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([1, 0, 0]) },
@@ -47,7 +57,7 @@ describe('syncModelTransforms', () => {
       { buffer: { objectIdx: 0, volumeIdx: 1, instanceIdx: 1 }, instanceTransform: transform([50, 0, 0]), volumeTransform: transform([1, 0, 0]) },
     ];
 
-    await expect(syncModelTransforms({ setModelTransform }, volumes)).resolves.toEqual({ ok: true });
+    await expect(syncModelTransforms({ setModelTransform, recomputePlateMembership }, volumes)).resolves.toEqual({ ok: true, plateSession: plateMutation() });
     expect(setModelTransform).toHaveBeenCalledTimes(4);
     expect(setModelTransform.mock.calls.map(([objectIdx, volumeIdx, instanceIdx]) => [objectIdx, volumeIdx, instanceIdx]))
       .toEqual([[0, 0, 0], [0, 1, 0], [0, 0, 1], [0, 1, 1]]);
@@ -58,6 +68,7 @@ describe('syncModelTransforms', () => {
     const setModelTransform = vi.fn().mockImplementation(() => new Promise<{ ok: boolean }>((resolve) => {
       resolveFirstWrite = resolve;
     }));
+    const recomputePlateMembership = vi.fn().mockResolvedValue(plateMutation());
     const volumes = [
       {
         buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },
@@ -66,11 +77,11 @@ describe('syncModelTransforms', () => {
       },
     ];
 
-    const sync = syncModelTransforms({ setModelTransform }, volumes);
+    const sync = syncModelTransforms({ setModelTransform, recomputePlateMembership }, volumes);
     volumes[0].instanceTransform.offset[0] = 99;
     resolveFirstWrite?.({ ok: true });
 
-    await expect(sync).resolves.toEqual({ ok: true });
+    await expect(sync).resolves.toEqual({ ok: true, plateSession: plateMutation() });
     expect(setModelTransform).toHaveBeenCalledWith(
       0,
       0,
@@ -83,6 +94,7 @@ describe('syncModelTransforms', () => {
   it('recomputes membership once after the complete global transform snapshot', async () => {
     const setModelTransform = vi.fn().mockResolvedValue({ ok: true });
     const recomputePlateMembership = vi.fn().mockResolvedValue({
+      ...plateMutation(),
       instances: [],
       ok: true,
       version: 1,

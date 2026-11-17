@@ -32,6 +32,7 @@ set(NLOPT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/nlopt-2.5.0/stage-wasm64-
 set(QHULL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/qhull-8.0.2/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Qhull WASM prefix")
 set(EXPAT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/expat-2.5.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Expat WASM prefix")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
+option(NEO_MEASURE_TEST "Build the standalone Measure geometry tests" OFF)
 set(CGAL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/cgal-6.2.1/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "CGAL and numerical WASM prefix")
 option(NEO_MESH_BOOLEAN_TEST "Build real MeshBoolean backend acceptance tests" OFF)
 option(NEO_MESH_BOOLEAN_COMMAND_TEST "Enable Mesh Boolean command fault injection" OFF)
@@ -401,6 +402,10 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/painting/PaintingSession.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureService.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_measure.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_painting.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_preset_drafts.cpp"
@@ -721,4 +726,31 @@ if(NEO_MESH_BOOLEAN_TEST)
       "-sPTHREAD_POOL_SIZE=Math.max(8,2*(navigator.hardwareConcurrency||1))")
   endif()
   set_target_properties(mesh_boolean_backend_test PROPERTIES SUFFIX ".mjs")
+endif()
+
+if(NEO_MEASURE_TEST)
+  get_target_property(_measure_test_libraries orca_slice LINK_LIBRARIES)
+  add_executable(measure_geometry_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.test.cpp")
+  add_executable(measure_session_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.test.cpp")
+  add_executable(measure_service_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureService.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureService.test.cpp")
+  foreach(_measure_test measure_geometry_test measure_session_test measure_service_test)
+    target_link_libraries(${_measure_test} PRIVATE ${_measure_test_libraries})
+    target_compile_options(${_measure_test} PRIVATE -fexceptions)
+    target_link_options(${_measure_test} PRIVATE -m64 -O2 -fexceptions
+      -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=1 -sASSERTIONS=1
+      -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
+    if(WASM_THREADING)
+      target_link_options(${_measure_test} PRIVATE -pthread -sPTHREAD_POOL_SIZE=8)
+    endif()
+    set_target_properties(${_measure_test} PROPERTIES SUFFIX ".cjs")
+  endforeach()
 endif()

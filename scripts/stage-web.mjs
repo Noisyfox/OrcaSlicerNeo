@@ -16,6 +16,13 @@ const dst = new URL('apps/web/.generated/public/', root);
 await rm(dst, { recursive: true, force: true });
 await mkdir(dst, { recursive: true });
 await cp(new URL('apps/desktop/src/renderer/public/', root), dst, { recursive: true });
+// Older desktop stages left a single root-level WASM artifact here. Current
+// hosts select variant directories, and copying that stale artifact without
+// its build metadata breaks Web's loader rewrite. Remove only the generated
+// Web copies; leave the source public directory untouched.
+for (const file of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data', 'build-info.json']) {
+  await rm(new URL(`wasm/${file}`, dst), { force: true });
+}
 for (const variant of ['serial', 'wasm32/threaded', 'wasm32/serial']) {
   const src = new URL(`packages/slicer-wasm/out/${variant}/`, root);
   const files = ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data', 'build-info.json'];

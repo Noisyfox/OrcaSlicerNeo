@@ -82,7 +82,7 @@ describe('Worker-owned project history protocol', () => {
     expect((await client.setModelTransforms(tx, raised, 'direct')).ok).toBe(true);
     await client.commitHistory(tx, context());
     const merged = await client.runProjectHistoryTransaction('Assemble', 'project', context(),
-      () => client.mergeObjectsToMultipart(sources.map((object) => object.id), 'Assembly'), context());
+      () => client.mergeObjectsToMultipart(sources.map((object) => ({ objectId: object.id, instanceIds: object.instances.map(instance => instance.id) })), 'Assembly'), context());
     expect(merged.result.ok).toBe(true);
     const assembled = (await client.getModelStructure()).objects[0];
     expect(assembled.autoDrop).toBe(allEnabled);
@@ -395,7 +395,10 @@ describe('Worker-owned project history protocol', () => {
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(10), volumeTransform: transform(0) },
       { objectIdx: 1, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(20), volumeTransform: transform(0) },
     ], 'direct');
-    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({ ok: true, plateSession: {
+      affectedPlateIdsBefore: ['plate-session-1-plate-1'], affectedPlateIdsAfter: ['plate-session-1-plate-1'],
+      affectedPlateIds: ['plate-session-1-plate-1'], dirtyReasons: ['model-transform'],
+    } });
     const { status: committed } = await client.commitHistory(transaction, before);
     expect(committed.undoEntries).toHaveLength(1);
     expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([10, 20]);
@@ -403,6 +406,35 @@ describe('Worker-owned project history protocol', () => {
     expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([0, 0]);
     expect((await client.redoHistory()).ok).toBe(true);
     expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([10, 20]);
+  });
+
+  it.each(['orc_set_model_transforms', 'orc_recompute_plate_membership'])(
+    'rejects a transform receipt without its affected plates from %s', async operation => {
+    const module = createMockModule();
+    const client = createClient(async () => module);
+    await client.addShape('Cube');
+    const transaction = await client.beginHistory('Move', 'project', context());
+    const call = module.ccall.bind(module);
+    module.ccall = ((name, ret, argTypes, args) => {
+      const pointer = call(name, ret, argTypes, args);
+      if (name !== operation) return pointer;
+      const receipt = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      delete receipt.affected_plate_ids;
+      const bytes = new TextEncoder().encode(JSON.stringify(receipt) + '\0');
+      const replaced = Number(module._malloc(bytes.length));
+      module.HEAPU8.set(bytes, replaced);
+      return replaced;
+    }) as typeof module.ccall;
+    const identity = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number],
+      scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    const result = operation === 'orc_set_model_transforms'
+      ? await client.setModelTransforms(transaction, [{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0,
+        instanceTransform: { ...identity, offset: [10, 0, 0] }, volumeTransform: identity }], 'direct')
+      : await client.recomputePlateMembership();
+    expect(result).toEqual({ ok: false, error: 'incomplete model plate mutation response' });
+    await client.abortHistory(transaction);
+    expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset).toEqual([0, 0, 0]);
   });
 
   it('rejects an invalid or stale batch without partially changing the Worker model or revision', async () => {

@@ -20,6 +20,11 @@ test.skip(!REAL || !PROJECT_PATH || !existsSync(PROJECT_PATH),
 // explicit 600 s slice completion boundary so Playwright cannot mask it.
 test.setTimeout(900_000);
 
+// The full-project Preview uses software WebGL on Linux CI. Its queued frames
+// can delay the renderer's save acknowledgement even after the host file has
+// changed. This is a functional completion budget, not an export latency test.
+const EXPORT_COMPLETION_TIMEOUT = 120_000;
+
 async function expectFilamentRackReady(page: Page): Promise<void> {
   await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
   const heading = page.getByTestId('filament-rack').getByRole('heading');
@@ -49,8 +54,8 @@ async function exportCompletedGcode(page: Page, exportPath: string): Promise<str
   // again only after the awaited Electron write has settled.
   await expect.poll(() => existsSync(exportPath) &&
     (previousMtime === null || statSync(exportPath).mtimeMs > previousMtime),
-  { timeout: 30_000 }).toBe(true);
-  await expect(button).toBeEnabled({ timeout: 30_000 });
+  { timeout: EXPORT_COMPLETION_TIMEOUT }).toBe(true);
+  await expect(button).toBeEnabled({ timeout: EXPORT_COMPLETION_TIMEOUT });
   await expect(page.getByTestId('slicer-error')).toHaveCount(0);
   return readFileSync(exportPath, 'utf8');
 }

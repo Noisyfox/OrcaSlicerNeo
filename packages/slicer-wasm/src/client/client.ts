@@ -5,6 +5,7 @@ import { installUserPresets, validateUserPresetPath } from './userPresets';
 import type { UserPresetStorage, UserPresetKind, UserPresetRequest, UserPresetMutation } from './userPresets';
 import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
+import { createMeasureApi } from './measureClient';
 import { decodeModelGeometry } from './modelGeometry';
 import type { DeviceMaterialContext, NozzleMappingMutationResult, NozzleMappingRequest } from './nozzleMapping';
 import { decodeNozzleMapping } from './nozzleMapping';
@@ -37,7 +38,7 @@ import type {
   ExportProjectRequest, ExportProjectResult, RgbaThumbnail, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, ModelObjectStructure, MutationResult, SplitVolumeResult, SplitObjectResult,
-  MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
+  AssemblyTarget, MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
@@ -1644,7 +1645,7 @@ function modelIds(value: unknown): value is number[] {
 function modelStructure(value: unknown): boolean {
   return Array.isArray(value) && value.every(object => isRecord(object) &&
     modelCounts(object, 'id', 'index', 'instanceCount') && object.id !== 0 && typeof object.name === 'string' &&
-    typeof object.printable === 'boolean' && typeof object.autoDrop === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
+    typeof object.printable === 'boolean' && typeof object.autoDrop === 'boolean' && typeof object.isCut === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
       isRecord(volume) && modelCounts(volume, 'id', 'index') && volume.id !== 0 && typeof volume.name === 'string' &&
       ['model_part', 'negative_volume', 'parameter_modifier', 'support_blocker', 'support_enforcer'].includes(volume.type as string) &&
       typeof volume.isSplittable === 'boolean') &&
@@ -2267,6 +2268,7 @@ export function createClient(
       return value;
     },
     ...createPaintingApi(module, normalizeHistoryStatus),
+    ...createMeasureApi(module),
     async init(activation: ProfileActivation | null): Promise<InitResult> {
       if (activation === undefined) throw new Error('explicit nullable activation is required');
       await client.getBuildInfo();
@@ -2576,9 +2578,9 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_delete_plate', ['string'], [plateId]));
     },
 
-    async recomputePlateMembership(): Promise<PlateSessionMutationResult> {
+    async recomputePlateMembership() {
       const m = await module();
-      return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
+      return normalizeModelPlateMutation(callJson(m, 'orc_recompute_plate_membership', [], []));
     },
 
     async markSharedConfigurationMutation(): Promise<PlateSessionMutationResult> {
@@ -3059,7 +3061,7 @@ export function createClient(
       if (!raw || typeof raw !== 'object' || (raw as Record<string, unknown>).ok !== true)
         return { ok: false, error: typeof (raw as Record<string, unknown> | null)?.error === 'string'
           ? (raw as Record<string, unknown>).error as string : 'atomic model transform failed' };
-      const plateSession = normalizePlateMutationResult(raw);
+      const plateSession = normalizeModelPlateMutation(raw);
       return plateSession.ok ? { ok: true, plateSession } : { ok: false, error: plateSession.error };
     },
 
@@ -3085,8 +3087,10 @@ export function createClient(
       const raw = callJson(m, 'orc_get_model_scene_patch', ['string'],
         [JSON.stringify({ object_ids: objectIds, known_volume_ids: knownVolumeIds,
           known_paint_keys: nativeKnownPaintKeys })]);
-      const decoded = decodeModelGeometry(m, raw, geometrySession, knownGeometryKeys, knownPaintGeometryKeys);
       const patch = raw as { object_order: number[]; objects: ModelStructureResult['objects'] };
+      // Decode first so native geometry allocations are released even when the
+      // accompanying structure metadata is invalid.
+      const decoded = decodeModelGeometry(m, raw, geometrySession, knownGeometryKeys, knownPaintGeometryKeys);
       if (!Array.isArray(patch.object_order) || !modelStructure(patch.objects))
         throw new Error('invalid model scene patch');
       return { ok: true, objectOrder: patch.object_order, objects: patch.objects, ...decoded };
@@ -3094,11 +3098,10 @@ export function createClient(
 
     async getModelStructure(): Promise<ModelStructureResult> {
       const m = await module();
-      const raw = callJson(m, 'orc_get_model_structure', [], []);
-      if (!isRecord(raw) || raw.ok !== true)
-        return { ok: false, objects: [], error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'model structure read failed' };
-      if (!modelStructure(raw.objects)) return { ok: false, objects: [], error: 'invalid model structure' };
-      return { ok: true, objects: raw.objects as ModelObjectStructure[] };
+      const result = callJson(m, 'orc_get_model_structure', [], []);
+      if (!isRecord(result) || result.ok !== true || !modelStructure(result.objects))
+        return { ok: false, objects: [], error: isRecord(result) && typeof result.error === 'string' ? result.error : 'invalid model structure' };
+      return result as unknown as ModelStructureResult;
     },
 
     async deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult> {
@@ -3156,10 +3159,10 @@ export function createClient(
                       [objectId, options.disableAutoDrop ? 1 : 0, options.revision]), value => modelIds(value.newObjectIds) && modelCounts(value, 'objects'));
     },
 
-    async mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult> {
+    async mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult> {
       const m = await module();
       return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
-                      [JSON.stringify(objectIds), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
+                      [JSON.stringify(targets), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
     },
 
     async meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult> {

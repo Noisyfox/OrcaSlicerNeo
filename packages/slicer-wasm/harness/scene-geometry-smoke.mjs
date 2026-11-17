@@ -255,7 +255,7 @@ for (const allEnabled of [false, true]) {
   const oldHeights = worldHeights(before.filter((body) => ids.includes(body.object_id)));
   const otherZ = before.find((body) => body.object_id === unrelated).instance_transform.offset[2];
   const merged = edit('Assemble Auto Drop', () => call('orc_merge_objects_to_multipart', ['string', 'string'],
-    [JSON.stringify(ids), 'Assembly'])).result;
+    [JSON.stringify(ids.map(id => ({ objectId: id, instanceIds: call('orc_get_model_structure').objects.find(object => object.id === id).instances.map(instance => instance.id) }))), 'Assembly'])).result;
   assert.equal(call('orc_get_model_structure').objects.find((object) => object.id === merged.objectId).autoDrop, allEnabled);
   const after = fullModel().renderables;
   const heights = worldHeights(after.filter((body) => body.object_id === merged.objectId));

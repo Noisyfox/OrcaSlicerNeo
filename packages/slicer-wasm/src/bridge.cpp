@@ -119,6 +119,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         Slic3r::Neo::Bridge::PlateSession::reset_plate_session_state();
         Slic3r::Neo::Bridge::PrimeTower::invalidate_projection_cache();
         state().painting.reset();
+        state().measurement.reset();
         state().history.clear();
         state().mesh_capture_cache.clear();
         state().mutable_object_capture_cache.clear();

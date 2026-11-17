@@ -22,7 +22,7 @@ import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { GizmoPivotProbe, InstanceIsolationProbe, SceneE2eProbe } from '@/e2e/SceneProbe';
 import { paintingTarget, usePaintingState } from './gizmo/painting/PaintingProvider';
-import { visibleInstanceVolumes } from './InstanceHider';
+import { hidesWipeTowers, visibleToolVolumes } from './InstanceHider';
 import { FuzzyPaintingGizmo } from './gizmo/painting/FuzzyPaintingGizmo';
 import { SeamPaintingGizmo } from './gizmo/painting/SeamPaintingGizmo';
 import { SupportPaintingGizmo } from './gizmo/painting/SupportPaintingGizmo';
@@ -188,13 +188,13 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, s
   selectionRevision: number;
   bodyDragEnabled: boolean;
 }) {
-  const isolatedInstance = useSyncExternalStore(controller.instanceHider.subscribe, controller.instanceHider.getSnapshot);
+  const isolation = useSyncExternalStore(controller.instanceHider.subscribe, controller.instanceHider.getSnapshot);
   // Unmount hidden meshes so their invisible painted pick surfaces also leave
   // the raycast tree. The loader retains every source geometry and list row.
-  const visibleVolumes = useMemo(() => visibleInstanceVolumes(glVolumes, preview ? null : isolatedInstance), [glVolumes, preview, isolatedInstance]);
+  const visibleVolumes = useMemo(() => visibleToolVolumes(glVolumes, preview ? null : isolation), [glVolumes, preview, isolation]);
   return (
     <>
-      {!preview && !isolatedInstance && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} interactive={interactive}
+      {!preview && !hidesWipeTowers(isolation) && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} interactive={interactive}
         selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />}
       {visibleVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession}

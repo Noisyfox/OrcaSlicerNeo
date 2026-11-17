@@ -53,7 +53,7 @@ export type {
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelRenderable, ModelGeometry, ModelPaintDrawGroup, ModelPaintGeometry, NativeModelObjectBuffer, ModelTransform, ModelTransformMutation, ModelTransformOperation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult, SplitObjectPreview, SplitObjectOptions,
-  MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
+  AssemblyTarget, MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   AddVolumeRequest, AddVolumeResult, ModelInstanceStructure, VolumeType,
   SliceResultStatus, SliceDiagnostic, SliceDiagnosticEvent, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
@@ -86,6 +86,7 @@ export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSes
   PaintingSessionResult, PaintingSessionCloseResult } from './painting';
 
 export type * from './painting';
+export type * from './measure';
 
 export * from './setupWizard';
 export * from './userPresets';

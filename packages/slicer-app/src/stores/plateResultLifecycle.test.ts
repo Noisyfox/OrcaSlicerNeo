@@ -27,6 +27,19 @@ describe('per-plate result lifecycle', () => {
     expect(store.activatePlateResult('b', 1)).toBe(true);
   });
 
+  it('keeps the active slice and progress while another plate is selected or invalidated', () => {
+    const store = useSlicerStore.getState();
+    store.setPlateResult(receipt('b', 1), [], {});
+    const active = { plateId: 'a', inputRevision: 1 };
+    useSlicerStore.setState({ status: 'slicing', activeSliceTarget: active,
+      sliceTarget: { plateId: 'b', inputRevision: 1 }, progress: 37 });
+    expect(store.activatePlateResult('b', 1)).toBe(false);
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'slicing', activeSliceTarget: active, progress: 37 });
+    store.invalidatePlateResults(['b']);
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'slicing', activeSliceTarget: active, sliceTarget: null, progress: 37 });
+    expect(useSlicerStore.getState().plateResults).not.toHaveProperty('b');
+  });
+
   it('preserves surviving results across reflow and drops deleted identities', () => {
     const store = useSlicerStore.getState();
     store.setPlateResult(receipt('a', 1), [], {});

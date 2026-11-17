@@ -182,7 +182,7 @@ load(sliceFixture);ok(call('orc_add_shape',['string','string'],['Cube','Fuzzy mo
 const mesh=ok(call('orc_get_model_mesh'));
 try { const added=mesh.renderables.find(r=>r.object_idx===1);const transform={...added.instance_transform,offset:[100,100,10]};delete transform.matrix;ok(call('orc_set_model_transform',['number','number','number','string','string'],[1,0,0,JSON.stringify(transform),JSON.stringify(added.volume_transform)])); }
 finally {for(const g of [...mesh.geometries,...mesh.paint_geometries]){if(g.vertex_ptr)Module._free(g.vertex_ptr);if(g.index_ptr)Module._free(g.index_ptr);}}
-const ids=ok(call('orc_get_model_structure')).objects.map(o=>o.id);ok(call('orc_merge_objects_to_multipart',['string','string'],[JSON.stringify(ids),'Fuzzy multipart modifier']));
+const ids=ok(call('orc_get_model_structure')).objects.map(o=>({objectId:o.id,instanceIds:o.instances.map(i=>i.id)}));ok(call('orc_merge_objects_to_multipart',['string','string'],[JSON.stringify(ids),'Fuzzy multipart modifier']));
 const multipart=ok(call('orc_get_model_structure')).objects[0];const modifier=multipart.volumes[1];ok(call('orc_set_volume_type',['number','string'],[modifier.id,'parameter_modifier']));
 command('orc_history_reset',context);open();configure('object','none');
 stroke('orc_painting_stroke_begin',{tool:'sphere',settings:{state:1,radius:50},event:event(100,100)});commit();

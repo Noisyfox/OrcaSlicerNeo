@@ -917,7 +917,7 @@ check('slice error surfaces the real message, not the bare category',
   check('assemble fixture has two objects', l1.ok === true && l2.ok === true && l2.objects === 2, JSON.stringify(l2));
 
   const s = callJson('orc_get_model_structure', [], []);
-  const ids = s.objects.map((o) => o.id);
+  const ids = s.objects.map(o => ({ objectId: o.id, instanceIds: o.instances.map(i => i.id) }));
   const merged = callJson('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(ids), 'Assembly']);
   check('assemble produces a single multipart object',
         merged.ok === true && merged.objectId > 0 && merged.objects === 1, JSON.stringify(merged));
