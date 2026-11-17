@@ -1057,65 +1057,99 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
     }
 }
 
-// Assemble objects into a single multipart object (upstream ObjectList::merge
-// "Assemble"). Each source object's volumes are copied into a new object, with
-// the source's first-instance transform composed into each volume transform; the
-// new object carries one instance. Returns the new object's stable ID.
+// Match ObjectList::merge(true)'s instance path: split copies first, then
+// consume only those single-instance objects. Publication/history remain one
+// operation; no temporary object is exposed to the renderer.
 EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* object_ids_json, const char* name_cstr) {
     try {
-        const json j = json::parse(object_ids_json ? object_ids_json : "");
-        const auto ids = parse_positive_id_array(j);
+        const auto ids = parse_positive_id_array(json::parse(object_ids_json ? object_ids_json : ""));
         if (!ids) return error_json("no object ids");
-        std::vector<ModelObject*> sources;
         for (const std::size_t id : *ids) {
-            ModelObject* obj = find_object_by_id(id);
-            if (obj == nullptr) return error_json("object not found");
-            sources.push_back(obj);
+            const ModelObject* object = find_object_by_id(id);
+            if (!object) return error_json("object not found");
+            if (object->instances.empty() || object->volumes.empty())
+                return error_json("assembly source must have volumes and instances");
         }
+        auto& model = state().model;
+        std::vector<ModelObject*> sources;
+        // Orca visits source objects in model order, regardless of click order.
+        for (ModelObject* object : model.objects)
+            if (std::find(ids->begin(), ids->end(), object->id().id) != ids->end())
+                sources.push_back(object);
         std::set<std::size_t> affected_instances;
-        for (const ModelObject* source : sources)
-            append_instance_ids(*source, affected_instances);
+        for (const ModelObject* source : sources) append_instance_ids(*source, affected_instances);
         const auto affected_before = member_plate_ids_for_instances(affected_instances);
 
-        auto& model = state().model;
-        ModelObject* new_obj = model.add_object();
-        new_obj->name = (name_cstr && *name_cstr) ? name_cstr : "Assembly";
-
-        bool first_instance = true;
-        for (ModelObject* src : sources) {
-            if (first_instance) {
-                // A single instance whose (identity) transform is combined into
-                // each volume's matrix below.
-                new_obj->add_instance();
-                first_instance = false;
-            }
-            const Transform3d src_matrix =
-                src->instances.empty() ? Transform3d::Identity()
-                                       : src->instances[0]->get_transformation().get_matrix();
-            for (const ModelVolume* vol : src->volumes) {
-                ModelVolume* new_vol = new_obj->add_volume(*vol);
-                new_vol->set_transformation(src_matrix * new_vol->get_matrix());
+        const std::size_t original_count = model.objects.size();
+        for (ModelObject* source : sources) {
+            // Like instances_to_separated_objects(): keep the first instance
+            // on the source, append the remaining copies in reverse order.
+            for (std::size_t i = source->instances.size(); i-- > 1;) {
+                ModelObject* copy = model.add_object(*source);
+                for (std::size_t j = copy->instances.size(); j-- > 0;)
+                    if (j != i) copy->delete_instance(j);
+                source->delete_instance(i);
+                append_instance_ids(*copy, affected_instances);
             }
         }
-        if (first_instance) {
-            // No source volume/instance path executed (all sources had no volumes);
-            // give the assembly a single default instance so it is renderable.
-            new_obj->add_instance();
-        }
-        new_obj->sort_volumes(true);
-        append_instance_ids(*new_obj, affected_instances);
+        for (std::size_t i = original_count; i < model.objects.size(); ++i)
+            sources.push_back(model.objects[i]);
 
-        // Remove the source objects from the live model.
-        std::sort(sources.begin(), sources.end());
-        sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
-        for (ModelObject* src : sources)
-            model.delete_object(src);
+        ModelObject* result = model.add_object();
+        result->name = name_cstr && *name_cstr ? name_cstr : "Assembly";
+        result->add_instance();
+        for (const ModelObject* source : sources) {
+            const Transform3d matrix = source->instances.front()->get_matrix();
+            for (const ModelVolume* volume : source->volumes) {
+                // Full native copy retains every annotation channel, texture,
+                // material reference, type and Part configuration. Each split
+                // object already owns fresh recursive IDs.
+                ModelVolume* part = result->add_volume(*volume);
+                part->set_transformation(matrix * part->get_matrix());
+                if (!part->config.option("extruder"))
+                    if (const ConfigOption* extruder = source->config.option("extruder"))
+                        part->config.set_key_value("extruder", new ConfigOptionInt(extruder->getInt()));
+            }
+            result->sort_volumes(true);
+            for (const std::string& key : source->config.keys())
+                if (!result->config.has(key))
+                    result->config.set_key_value(key, source->config.option(key)->clone());
+            // Preserve Orca's single-Part object assignment rule, including its
+            // precedence over an explicit Part assignment.
+            if (source->volumes.size() == 1)
+                if (const ConfigOption* extruder = source->config.option("extruder"))
+                    result->volumes.back()->config.set_key_value("extruder", extruder->clone());
+            if (!source->instances.front()->printable) {
+                result->printable = false;
+                result->instances.front()->printable = false;
+            }
+            if (!source->auto_drop) result->auto_drop = false;
+            for (const auto& range : source->layer_config_ranges)
+                result->layer_config_ranges.emplace(range);
+            for (auto point : source->brim_points) {
+                point.set_transform(matrix);
+                result->brim_points.push_back(point);
+            }
+        }
+        // Match Orca's common bed correction, local recentering and assembly
+        // matrix initialization. The per-source variable-height profile is not
+        // copied by ObjectList::merge(true).
+        result->ensure_on_bed();
+        result->center_around_origin();
+        result->translate_instances(-result->origin_translation);
+        result->origin_translation = Vec3d::Zero();
+        const auto transformation = result->instances.front()->get_transformation();
+        result->instances.front()->set_assemble_transformation(transformation);
+        const Transform3d inverse = transformation.get_matrix().inverse();
+        for (auto& point : result->brim_points) point.set_transform(inverse);
+        append_instance_ids(*result, affected_instances);
+        for (ModelObject* source : sources) model.delete_object(source);
 
         rebuild_plate_membership(true);
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
-                             {"objectId", new_obj->id().id},
+                             {"objectId", result->id().id},
                              {"objects", model.objects.size()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());

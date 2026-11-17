@@ -2780,6 +2780,27 @@ describe('SlicerClient bridge contract', () => {
       expect(after.objects.map((o) => o.id)).not.toContain(b.id);
     });
 
+    it('includes every instance and retains Orca object settings and printable precedence', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 3 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects: [a, b] } = await c.getModelStructure();
+      await c.setNativeScopedConfig({ scope: 'object', id: String(a.id) }, 'layer_height', '0.12');
+      await c.setNativeScopedConfig({ scope: 'object', id: String(b.id) }, 'layer_height', '0.2');
+      await c.setInstancePrintable(a.instances[2].id, false);
+      const result = await c.mergeObjectsToMultipart([b.id, a.id], 'Instances');
+      expect(result.ok).toBe(true);
+      const { objects: [assembly] } = await c.getModelStructure();
+      expect(assembly.volumes).toHaveLength(6);
+      expect(new Set(assembly.volumes.map(v => v.id)).size).toBe(6);
+      expect(assembly.instances).toHaveLength(1);
+      expect(assembly.printable).toBe(false);
+      expect(assembly.instances[0].printable).toBe(false);
+      expect(await c.getNativeScopedConfig()).toMatchObject({ nativeScopedConfig: { snapshot: {
+        objects: { [assembly.id]: { layer_height: '0.12' } },
+      } } });
+    });
+
     it('rejects an unknown object ID', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');

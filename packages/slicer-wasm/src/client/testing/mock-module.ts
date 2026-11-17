@@ -3683,25 +3683,42 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (oi < 0) return { error: 'object not found' };
         if (!srcIdxs.includes(oi)) srcIdxs.push(oi);
       }
+      srcIdxs.sort((a, b) => a - b);
       const affectedBefore = srcIdxs.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       const newObjectId = nextObjectId++;
       const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
-      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }> = [];
-      const newVolTransforms: Array<ReturnType<typeof identityTransform>> = [];
-      for (const oi of srcIdxs) {
+      const newVolumes: typeof volumeMeta[number] = [];
+      const newVolTransforms: typeof objectVolumeTransforms[number] = [];
+      const mergedConfig: Record<string, string> = {};
+      let printable = true;
+      // Orca merges the retained first instances before the appended splits.
+      const sources = srcIdxs.map((oi) => ({ oi, ii: 0 }));
+      for (const oi of srcIdxs)
+        for (let ii = instanceMeta[oi].length - 1; ii > 0; ii--) sources.push({ oi, ii });
+      for (const { oi, ii } of sources) {
+        const config = { extruder: '1', ...nativeScopedConfig.objects[String(objectMeta[oi].id)] };
+        for (const [key, value] of Object.entries(config))
+          if (!Object.hasOwn(mergedConfig, key)) mergedConfig[key] = value;
+        printable &&= instanceMeta[oi][ii].printable;
         for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
           const newVolumeId = nextVolumeId++;
-          newVolumes.push({ id: newVolumeId, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
-          const values = nativeScopedConfig.parts[String(volumeMeta[oi][vi].id)];
-          if (values) nativeScopedConfig.parts[String(newVolumeId)] = clone(values);
-          newVolTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][vi])) as ReturnType<typeof identityTransform>);
+          newVolumes.push({ ...clone(volumeMeta[oi][vi]), id: newVolumeId });
+          const values = { ...nativeScopedConfig.parts[String(volumeMeta[oi][vi].id)] };
+          if (!Object.hasOwn(values, 'extruder') || volumeMeta[oi].length === 1) values.extruder = config.extruder;
+          nativeScopedConfig.parts[String(newVolumeId)] = values;
+          const transform = clone(objectVolumeTransforms[oi][vi]);
+          // The synthetic mock scene uses translated primitives; affine and
+          // annotation fidelity is qualified by the real-WASM assembly harness.
+          transform.offset = transform.offset.map((value, axis) => value + objectTransforms[oi][ii].offset[axis]);
+          newVolTransforms.push(transform);
         }
       }
-      objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[srcIdxs[0]][0]))]);
+      nativeScopedConfig.objects[String(newObjectId)] = mergedConfig;
+      objectTransforms.push([identityTransform()]);
       objectVolumeTransforms.push(newVolTransforms);
-      objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable });
+      objectMeta.push({ id: newObjectId, name: newName, printable });
       volumeMeta.push(newVolumes);
-      instanceMeta.push([{ id: nextInstanceId++, printable: instanceMeta[srcIdxs[0]][0].printable }]);
+      instanceMeta.push([{ id: nextInstanceId++, printable }]);
       objectPlateIds.push(objectPlateIds[srcIdxs[0]] ?? currentPlateId);
       srcIdxs.sort((a, b) => b - a);
       for (const oi of srcIdxs) {
