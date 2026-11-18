@@ -2375,6 +2375,9 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
     );
     if (!center) throw new Error('cube-center projection unavailable');
     const historyBefore = await page.getByTestId('history-undo').getAttribute('aria-label');
+    const arrange = page.getByTestId('arrange-menu');
+    await expect(arrange).toBeEnabled();
+    await expect(arrange).toHaveCSS('opacity', '1');
 
     // Send both native events inside one main-process task. Unlike parallel
     // Playwright calls, this leaves no renderer turn in which React can first
@@ -2392,6 +2395,8 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
         (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.(),
       ))
       .toBe('body');
+    await expect(arrange).toBeEnabled();
+    await expect(arrange).toHaveCSS('opacity', '1');
     // DragControls can use the threshold-crossing move to claim ownership
     // before publishing a translation. Continue the same held pointer gesture
     // so the position assertion does not depend on an extra synthetic frame.
@@ -2420,6 +2425,8 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
       .not.toBe(historyBefore);
     const undo = page.getByTestId('history-undo');
     await expect(undo).toHaveAttribute('aria-label', 'Undo Move');
+    await expect(arrange).toBeEnabled();
+    await expect(arrange).toHaveCSS('opacity', '1');
     await undo.hover();
     await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Undo Move');
   } finally {

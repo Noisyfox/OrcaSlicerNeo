@@ -29,7 +29,13 @@ vi.mock('../viewport/gizmo/painting/PaintingProvider', () => ({
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let container: HTMLDivElement;
 let root: Root;
-const scene = { owner: 'none', subscribe: () => () => {}, closeGizmo: vi.fn() } as unknown as SceneInteractionController;
+let owner: SceneInteractionController['owner'] = 'none';
+const sceneListeners = new Set<() => void>();
+const scene = {
+  get owner() { return owner; },
+  subscribe: (listener: () => void) => { sceneListeners.add(listener); return () => { sceneListeners.delete(listener); }; },
+  closeGizmo: vi.fn(),
+} as unknown as SceneInteractionController;
 function ArrangementHarness() {
   const [open, setOpen] = useState(false);
   return <>
@@ -45,6 +51,7 @@ const plateSnapshot = (locked = false): PlateSessionSnapshot => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  owner = 'none';
   vi.stubGlobal('PointerEvent', MouseEvent);
   mocked.unfinished = false; mocked.activePainting = false; mocked.closePainting.mockResolvedValue(true);
   mocked.platform = {
@@ -62,6 +69,26 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
 describe('arrangement controls', () => {
+  it.each(['body', 'gizmo'] as const)('keeps the Arrange opener enabled during %s dragging while execution controls stay disabled', async dragOwner => {
+    await act(async () => root.render(<><ArrangementHarness /><ArrangeCurrentPlateButton sceneInteraction={scene} /></>));
+    const opener = button('arrange-menu');
+    expect(opener.disabled).toBe(false);
+    for (const next of [dragOwner, 'none', dragOwner] as const) {
+      await act(async () => { owner = next; for (const listener of sceneListeners) listener(); });
+      expect(button('arrange-menu')).toBe(opener);
+      expect(opener.disabled).toBe(false);
+      expect(button('arrange-current-plate').disabled).toBe(next !== 'none');
+    }
+    await act(async () => opener.click());
+    expect(scene.closeGizmo).toHaveBeenCalledOnce();
+    expect(button('arrange-all').disabled).toBe(true);
+    expect(document.querySelector<HTMLInputElement>('[data-testid="arrange-distance"]')!.disabled).toBe(true);
+    expect(mocked.arrange).not.toHaveBeenCalled();
+    await act(async () => { owner = 'none'; for (const listener of sceneListeners) listener(); });
+    expect(button('arrange-all').disabled).toBe(false);
+    expect(button('arrange-current-plate').disabled).toBe(false);
+  });
+
   it('keeps current-plate arrangement separate and refuses locks, unfinished painting, empty models and serial slicing', async () => {
     const render = () => act(async () => root.render(<ArrangeCurrentPlateButton sceneInteraction={scene} />));
     await render();
