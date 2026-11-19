@@ -910,6 +910,10 @@ export type SplitVolumeResult = ModelMutationResult<{
   parts: number; newVolumeIds: number[]; objects: ModelObjectStructure[];
 }>;
 export type SplitObjectResult = ModelMutationResult<{ newObjectIds: number[]; objects: number }>;
+export type SplitObjectPreview =
+  | { ok: true; autoDrop: boolean; floating: boolean; revision: number }
+  | { ok: false; error: string };
+export interface SplitObjectOptions { readonly disableAutoDrop: boolean; readonly revision: number }
 /** Complete selected instances, grouped by their current owning object. */
 export interface AssemblyTarget {
   objectId: number;
@@ -992,6 +996,8 @@ export interface ModelObjectStructure {
   isCut: boolean;
   /** Object-level flag; distinct from per-instance `printable`. */
   printable: boolean;
+  /** Automatic bed placement is shared by every instance of the object. */
+  autoDrop: boolean;
   instanceCount: number;
   volumes: ModelVolumeStructure[];
   instances: ModelInstanceStructure[];
@@ -1042,6 +1048,8 @@ export type SliceResultStatus = SliceResultFields & (
 );
 
 /** One renderer CompositeID transform in an atomic Worker transform command. */
+export type ModelTransformOperation = 'direct' | 'move' | 'rotate' | 'scale';
+
 export interface ModelTransformMutation {
   readonly objectIdx: number;
   readonly volumeIdx: number;
@@ -1857,6 +1865,7 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   setModelTransforms(
     transactionId: import('./history').HistoryTransactionId,
     transforms: readonly ModelTransformMutation[],
+    operation: ModelTransformOperation,
   ): Promise<ModelMutationResult>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Materialize only objects touched by a native history SceneDelta. */
@@ -1876,8 +1885,10 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult>;
   /** Split a volume into its disconnected parts; returns the generated volume IDs. */
   splitVolumeToParts(volumeId: number, maxExtruders?: number, remapPaint?: boolean): Promise<SplitVolumeResult>;
-  /** Split an object into one object per connected shell; returns the generated object IDs. */
-  splitObjectToObjects(objectId: number, autoDrop?: boolean): Promise<SplitObjectResult>;
+  /** Inspect split outputs without modifying the live model; revision guards the later choice. */
+  previewSplitObject(objectId: number): Promise<SplitObjectPreview>;
+  /** Split an object into one object per connected shell at the previewed revision. */
+  splitObjectToObjects(objectId: number, options: SplitObjectOptions): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
   mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult>;
   meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;
@@ -1895,6 +1906,8 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   setVolumeType(volumeId: number, type: VolumeType): Promise<ModelMutationResult>;
   /** Toggle the object-level printable gate and every one of its instances. */
   setObjectPrintable(objectId: number, printable: boolean): Promise<ModelMutationResult>;
+  /** Set Auto Drop on the selected objects; enabling also places them on the bed. */
+  setObjectsAutoDrop(objectIds: number[], enabled: boolean): Promise<ModelMutationResult>;
   /** Toggle a single instance's printable state by its stable ObjectID. */
   setInstancePrintable(instanceId: number, printable: boolean): Promise<ModelMutationResult>;
   /** Select a printer or process profile and return the final atomic

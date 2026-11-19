@@ -8,6 +8,7 @@ import {
   changePartTypeInList,
   renameObjectInList,
   setObjectPrintableInList,
+  setObjectsAutoDropInList,
 } from './actions';
 
 vi.mock('../actions/persistModelTransforms', () => ({
@@ -17,7 +18,7 @@ vi.mock('../actions/persistModelTransforms', () => ({
 const structure = {
   ok: true as const,
   objects: [{
-    id: 1, index: 0, name: 'Cube', printable: true, isCut: false, instanceCount: 1,
+    id: 1, index: 0, name: 'Cube', printable: true, autoDrop: true, isCut: false, instanceCount: 1,
     volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part' as const, isSplittable: false }],
     instances: [{ id: 20, index: 0, printable: true }],
   }],
@@ -76,7 +77,7 @@ describe('object list action helpers', () => {
   it('renameObjectInList leaves part names alone for multi-volume objects', async () => {
     useObjectListStore.setState({
       structure: [{
-        id: 1, index: 0, name: 'Cube', printable: true, isCut: false, instanceCount: 1,
+        id: 1, index: 0, name: 'Cube', printable: true, autoDrop: true, isCut: false, instanceCount: 1,
         volumes: [
           { id: 10, index: 0, name: 'A', type: 'model_part' as const, isSplittable: false },
           { id: 11, index: 1, name: 'B', type: 'model_part' as const, isSplittable: false },
@@ -91,7 +92,7 @@ describe('object list action helpers', () => {
   });
 
   it('waits for pending transforms before invoking the metadata bridge', async () => {
-    let release!: (result: { ok: boolean }) => void;
+    let release!: (result: { ok: true }) => void;
     vi.mocked(waitForSettledModelTransforms).mockReturnValueOnce(new Promise((resolve) => {
       release = resolve;
     }));
@@ -121,6 +122,16 @@ describe('object list action helpers', () => {
     expect(runtime.setObjectPrintable).toHaveBeenCalledWith(1, false);
     expect(runtime.setObjectPrintable).toHaveBeenCalledWith(2, false);
     expect(useSlicerStore.getState().status).toBe('idle');
+  });
+
+  it('keeps a valid slice when changing Auto Drop without moving geometry', async () => {
+    const setObjectsAutoDrop = vi.fn(async () => ({ ok: true, plateSession: { affectedPlateIds: [] } }));
+    const runtime = makeRuntime({ setObjectsAutoDrop: setObjectsAutoDrop as never });
+    const result = await setObjectsAutoDropInList(runtime, [1, 2], false);
+    expect(result).toEqual({ ok: true });
+    expect(setObjectsAutoDrop).toHaveBeenCalledWith([1, 2], false);
+    expect(useSlicerStore.getState().status).toBe('done');
+    expect(useSlicerStore.getState().resultExported).toBe(true);
   });
 
   it('propagates a bridge error without refreshing', async () => {

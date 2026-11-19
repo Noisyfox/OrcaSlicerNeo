@@ -3,6 +3,7 @@ import type { ModelObjectBuffer } from '@slicer/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { GLVolume, glVolumeCollection } from '../viewport/GLVolume';
+import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { TransformHistoryCoordinator } from './transformHistory';
 import { historyContextForStructure, runProjectMutationOperation } from './historyMutation';
 import { useObjectListStore } from '../objectList/useObjectListStore';
@@ -47,14 +48,15 @@ const emptyProjection = {
 
 function structureFor(volumes: readonly GLVolume[]) {
   const objects = new Map<number, {
-    id: number; index: number; name: string; printable: boolean; isCut: boolean; instanceCount: number;
+    id: number; index: number; name: string; printable: boolean; autoDrop: boolean; isCut: boolean; instanceCount: number;
     volumes: { id: number; index: number; name: string; type: 'model_part'; isSplittable: boolean }[];
     instances: { id: number; index: number; printable: boolean }[];
   }>();
   for (const volume of volumes) {
     const object = objects.get(volume.buffer.objectIdx) ?? {
       id: 100 + volume.buffer.objectIdx, index: volume.buffer.objectIdx, name: 'Object', printable: true,
-      isCut: false, instanceCount: 0, volumes: [], instances: [],
+      autoDrop: true, isCut: false,
+      instanceCount: 0, volumes: [], instances: [],
     };
     if (!objects.has(volume.buffer.objectIdx)) objects.set(volume.buffer.objectIdx, object);
     if (!object.volumes.some((entry) => entry.index === volume.buffer.volumeIdx))
@@ -138,7 +140,7 @@ describe('TransformHistoryCoordinator', () => {
     for (const plateId of ['a', 'b']) store.setPlateResult({ plateId, inputStamp: 1, resultGeneration: '1', sliceTaskId: plateId }, [], {});
     const target = { plateId: activePlate, inputRevision: 1 };
     useSlicerStore.setState({ status: 'slicing', sliceTarget: target, activeSliceTarget: target, progress: 37 });
-    expect(history.begin(label)).toBe(true);
+    expect(history.begin(label, gizmo === 'measure' ? 'scale' : gizmo)).toBe(true);
     volume.instanceTransform = { ...volume.instanceTransform, offset: [2, 0, 0] };
     const committed = history.commit(); await mutationEntered;
     expect(cancel).not.toHaveBeenCalled(); expect(useSlicerStore.getState().status).toBe('slicing');
@@ -169,7 +171,7 @@ describe('TransformHistoryCoordinator', () => {
     };
     const history = new TransformHistoryCoordinator(runtime as never, scene, () => {});
     useSlicerStore.setState({ status: 'slicing', activeSliceTarget: { plateId: 'a', inputRevision: 1 }, progress: 37 });
-    expect(history.begin(label)).toBe(true);
+    expect(history.begin(label, gizmo === 'measure' ? 'scale' : gizmo)).toBe(true);
     volume.instanceTransform = { ...volume.instanceTransform, offset: [2, 0, 0] };
     expect(await history.commit()).toEqual({ outcome: 'failed', error: 'commit failed' });
     expect(cancel).not.toHaveBeenCalled();
@@ -184,7 +186,7 @@ describe('TransformHistoryCoordinator', () => {
     const store = useSlicerStore.getState();
     store.setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'a' }, [], {});
     store.activatePlateResult('a', 1);
-    expect(history.begin('Move')).toBe(true);
+    expect(history.begin('Move', 'move')).toBe(true);
     expect(await history.commit()).toEqual({ outcome: 'committed' });
     expect(useSlicerStore.getState()).toMatchObject({ status: 'done', sliceTarget: { plateId: 'a', inputRevision: 1 } });
     expect(useSlicerStore.getState().plateResults).toHaveProperty('a');
@@ -228,14 +230,22 @@ describe('TransformHistoryCoordinator', () => {
     glVolumeCollection.replace([volume]);
     const controller = selectedController([volume]);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
-    expect(history.begin('Move')).toBe(true);
+    expect(history.begin('Move', 'move')).toBe(true);
     expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
     expect(runtime.setModelTransforms).not.toHaveBeenCalled();
+    expect(waitForSettledModelTransforms()).toBeNull();
     const commit = history.commit();
+    const settled = waitForSettledModelTransforms();
+    expect(settled).toBeInstanceOf(Promise);
+    const published = vi.fn();
+    void settled!.then(published);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledTimes(1);
+    expect(published).not.toHaveBeenCalled();
     releaseMutation();
     await commit;
+    await expect(settled).resolves.toEqual({ ok: true });
+    expect(waitForSettledModelTransforms()).toBeNull();
     expect(runtime.setModelTransforms).toHaveBeenCalledTimes(1);
   });
 
@@ -257,12 +267,12 @@ describe('TransformHistoryCoordinator', () => {
     glVolumeCollection.replace([volume]);
     const controller = selectedController([volume]);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
-    history.begin('Rotate');
+    history.begin('Rotate', 'rotate');
     await history.abort();
     expect(runtime.setModelTransforms).not.toHaveBeenCalled();
   });
 
-  it('serializes rapid discrete commands until each Worker transaction settles', async () => {
+  it('serializes rapid commands for different objects until each Worker transaction settles', async () => {
     const started: string[] = [];
     const runtime = {
       setModelTransforms: vi.fn(async () => transformReceipt()),
@@ -281,14 +291,15 @@ describe('TransformHistoryCoordinator', () => {
         return { result, status: {} as never };
       }),
     };
-    const volume = makeVolume(0, 0, 0);
-    glVolumeCollection.replace([volume]);
-    const controller = selectedController([volume]);
+    const volumes = [makeVolume(0, 0, 0), makeVolume(1, 0, 0)];
+    glVolumeCollection.replace(volumes);
+    const controller = selectedController(volumes);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
 
-    history.begin('Move');
+    history.begin('Move', 'move');
     const firstCommit = history.commit();
-    history.begin('Rotate');
+    controller.selectFromHit(volumes[1], false);
+    history.begin('Rotate', 'rotate');
     const secondCommit = history.commit();
 
     // Each released command enters the same FIFO and has its own final batch.
@@ -299,7 +310,7 @@ describe('TransformHistoryCoordinator', () => {
     expect(started).toEqual(['Move', 'Rotate']);
   });
 
-  it('captures a later rapid command only after the prior release advances the native revision', async () => {
+  it('rejects a same-object draft until the prior commit publishes, then captures its new revision', async () => {
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);
     let revision = 1;
@@ -321,14 +332,15 @@ describe('TransformHistoryCoordinator', () => {
     };
     const history = new TransformHistoryCoordinator(runtime as never, selectedController([volume]));
 
-    history.begin('Move');
+    history.begin('Move', 'move');
     volume.instanceTransform = { ...volume.instanceTransform, offset: [4, 0, 0] };
     const first = history.commit();
-    history.begin('Rotate');
+    expect(history.begin('Rotate', 'rotate')).toBe(false);
+    await expect(first).resolves.toEqual({ outcome: 'committed' });
+    expect(history.begin('Rotate', 'rotate')).toBe(true);
     volume.instanceTransform = { ...volume.instanceTransform, offset: [8, 0, 0] };
     const second = history.commit();
 
-    await expect(first).resolves.toEqual({ outcome: 'committed' });
     await expect(second).resolves.toEqual({ outcome: 'committed' });
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledTimes(2);
     expect(runtime.setModelTransforms.mock.calls.map((call) =>
@@ -337,6 +349,40 @@ describe('TransformHistoryCoordinator', () => {
       // the complete snapshot payload.
       (Array.from(call)[1] as unknown as { instanceTransform: { offset: number[] } }[])[0]?.instanceTransform.offset,
     )).toEqual([[4, 0, 0], [8, 0, 0]]);
+  });
+
+  it('publishes a Worker correction only after commit and blocks a newer same-object draft', async () => {
+    const volume = makeVolume(0, 0, 0);
+    glVolumeCollection.replace([volume]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const corrected = { ...volume.instanceTransform, offset: [0, 0, 0] };
+    const runtime = {
+      ...historyRuntime(),
+      setModelTransforms: vi.fn(async () => ({ ok: true, plateSession: {
+        ok: true, version: 1, currentPlateId: 'plate-1', plates: [], instances: [], affectedPlateIds: [],
+        instanceTransforms: [{ objectId: 100, instanceId: 300, worldTransform: corrected }],
+      } })),
+      runProjectHistoryTransaction: vi.fn(async (_label: string, _category: string, _before: unknown,
+        mutation: (tx: string) => Promise<unknown>) => {
+        const result = await mutation('tx');
+        await gate;
+        return { result, status: { revision: 1 } as never };
+      }),
+    };
+    const controller = selectedController([volume]);
+    const history = new TransformHistoryCoordinator(runtime as never, controller);
+    expect(history.begin('Move', 'move')).toBe(true);
+    volume.instanceTransform = { ...volume.instanceTransform, offset: [0, 0, 5] };
+    const committed = history.commit();
+    await vi.waitFor(() => expect(runtime.setModelTransforms).toHaveBeenCalledOnce());
+    expect(volume.instanceTransform.offset[2]).toBe(5);
+    expect(history.begin('Move', 'move')).toBe(false);
+    release();
+    await expect(committed).resolves.toEqual({ outcome: 'committed' });
+    expect(volume.instanceTransform.offset[2]).toBe(0);
+    expect(history.begin('Move', 'move')).toBe(true);
+    await history.abort();
   });
 
   it('writes final transforms only for the selected CompositeIDs on commit', async () => {
@@ -361,6 +407,54 @@ describe('TransformHistoryCoordinator', () => {
       objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx,
       instanceTransform: volume.instanceTransform, volumeTransform: volume.volumeTransform,
     })));
+    expect(runtime.setModelTransforms.mock.calls[0]?.[2]).toBe('move');
+  });
+
+  it('keeps the explicit Drop to Bed command independent of automatic settling', async () => {
+    const volume = makeVolume(0, 0, 0);
+    glVolumeCollection.replace([volume]);
+    const runtime = historyRuntime();
+    const controller = selectedController([volume]);
+    controller.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, controller));
+    expect(controller.dropSelectionToBed()).toBe(true);
+    await vi.waitFor(() => expect(runtime.setModelTransforms).toHaveBeenCalledOnce());
+    expect(runtime.setModelTransforms.mock.calls[0]?.[2]).toBe('direct');
+  });
+
+  it('commits synchronized sibling instances without uploading unrelated objects or redundant parts', async () => {
+    const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0),
+      makeVolume(0, 0, 1), makeVolume(0, 1, 1), makeVolume(1, 0, 0)];
+    glVolumeCollection.replace(volumes);
+    const runtime = historyRuntime();
+    const controller = new SceneInteractionController(() => volumes);
+    controller.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, controller));
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.moveSelectionBy(new THREE.Vector3(0, 0, 5))).toBe(true);
+    await vi.waitFor(() => expect(runtime.setModelTransforms).toHaveBeenCalledOnce());
+    const sent = runtime.setModelTransforms.mock.calls[0]?.[1] as Array<{
+      objectIdx: number; volumeIdx: number; instanceIdx: number; instanceTransform: { offset: number[] };
+    }>;
+    expect(sent.map(item => [item.objectIdx, item.volumeIdx, item.instanceIdx])).toEqual([
+      [0, 0, 0], [0, 1, 0], [0, 0, 1],
+    ]);
+    expect(sent.map(item => item.instanceTransform.offset[2])).toEqual([5, 5, 5]);
+  });
+
+  it('reserves sibling instances when a shared part is transformed', async () => {
+    const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0),
+      makeVolume(0, 0, 1), makeVolume(0, 1, 1)];
+    glVolumeCollection.replace(volumes);
+    const runtime = historyRuntime();
+    const controller = new SceneInteractionController(() => volumes);
+    controller.setTransformHistoryPort(new TransformHistoryCoordinator(runtime as never, controller));
+    controller.selectComposite(0, 1);
+    expect(controller.moveSelectionBy(new THREE.Vector3(2, 0, 0))).toBe(true);
+    await vi.waitFor(() => expect(runtime.setModelTransforms).toHaveBeenCalledOnce());
+    const sent = runtime.setModelTransforms.mock.calls[0]?.[1] as Array<{
+      volumeIdx: number; instanceIdx: number; volumeTransform: { offset: number[] };
+    }>;
+    expect(sent.map(item => [item.volumeIdx, item.instanceIdx])).toEqual([[1, 0], [0, 1]]);
+    expect(sent[0]?.volumeTransform.offset[0]).toBe(2);
   });
 
   it('aborts a no-op drag without any Worker transform writes', async () => {
@@ -370,7 +464,7 @@ describe('TransformHistoryCoordinator', () => {
     const controller = new SceneInteractionController(() => volumes);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
     const port = {
-      begin: vi.fn((label: string) => history.begin(label)),
+      begin: vi.fn((label: string, operation: import('@slicer/client').ModelTransformOperation) => history.begin(label, operation)),
       commit: vi.fn(() => history.commit()),
       abort: vi.fn(() => history.abort()),
     };
@@ -418,7 +512,7 @@ describe('TransformHistoryCoordinator', () => {
     glVolumeCollection.replace([volume]);
     const history = new TransformHistoryCoordinator(runtime as never, selectedController([volume]));
 
-    history.begin('Move');
+    history.begin('Move', 'move');
     await history.commit();
 
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledOnce();
@@ -466,7 +560,7 @@ describe('TransformHistoryCoordinator', () => {
       status: { state: 'ready', error: null },
     } as never });
 
-    history.begin('Move');
+    history.begin('Move', 'move');
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
     await history.commit();
 
@@ -486,18 +580,18 @@ describe('TransformHistoryCoordinator', () => {
     const history = new TransformHistoryCoordinator(runtime as never,
       selectedController([volume]), onError, reconcile);
 
-    history.begin('Move');
+    history.begin('Move', 'move');
     await history.commit();
     expect(reconcile).toHaveBeenCalledOnce();
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
 
-    history.begin('Move');
+    history.begin('Move', 'move');
     await history.abort();
     expect(reconcile).toHaveBeenCalledTimes(1);
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
 
     runtime.setModelTransforms.mockRejectedValueOnce(new Error('worker timeout'));
-    history.begin('Move');
+    history.begin('Move', 'move');
     await history.commit();
     expect(reconcile).toHaveBeenCalledTimes(2);
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
@@ -519,7 +613,7 @@ describe('TransformHistoryCoordinator', () => {
     const history = new TransformHistoryCoordinator(runtime as never,
       selectedController([volume]), undefined, reconcile);
 
-    expect(history.begin('Move')).toBe(true);
+    expect(history.begin('Move', 'move')).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     for (const name of ['filament', 'Prime Tower', 'ordinary project mutation']) {
       await runProjectMutationOperation(async () => {
@@ -556,7 +650,7 @@ describe('TransformHistoryCoordinator', () => {
     const history = new TransformHistoryCoordinator(runtime as never,
       selectedController([volume]), undefined, reconcile);
 
-    history.begin('Move');
+    history.begin('Move', 'move');
     await new Promise((resolve) => setTimeout(resolve, 0));
     staleIdentity = true;
     volume.instanceTransform = { ...volume.instanceTransform, offset: [6, 0, 0] };
@@ -571,7 +665,7 @@ describe('TransformHistoryCoordinator', () => {
     const controller = new SceneInteractionController(() => { throw new Error('scene projection failed'); });
     const history = new TransformHistoryCoordinator(historyRuntime() as never, controller);
 
-    expect(() => history.begin('Move')).toThrow('scene projection failed');
+    expect(() => history.begin('Move', 'move')).toThrow('scene projection failed');
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   });
 
@@ -588,7 +682,7 @@ describe('TransformHistoryCoordinator', () => {
     glVolumeCollection.replace([volume]);
     const history = new TransformHistoryCoordinator(runtime as never, selectedController([volume]), onError);
 
-    history.begin('Move');
+    history.begin('Move', 'move');
     await history.commit();
 
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'history unavailable' }));

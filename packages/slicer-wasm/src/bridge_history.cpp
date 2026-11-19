@@ -396,6 +396,7 @@ void validate_filament_history_candidate(
 bool renderer_object_unchanged(const ModelObject& before, const ModelObject& after)
 {
     if (before.id() != after.id() || before.name != after.name || before.printable != after.printable ||
+        before.auto_drop != after.auto_drop ||
         before.volumes.size() != after.volumes.size() || before.instances.size() != after.instances.size())
         return false;
     for (std::size_t i = 0; i < before.volumes.size(); ++i) {

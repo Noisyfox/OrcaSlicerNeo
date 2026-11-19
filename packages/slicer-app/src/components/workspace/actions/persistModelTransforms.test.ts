@@ -2,13 +2,12 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
-import { persistSettledModelTransforms } from './persistModelTransforms';
+import type { TransformGestureResult } from './transformHistory';
+import { applySettledTransformSyncResult, trackReleasedTransform, waitForSettledModelTransforms } from './persistModelTransforms';
 
-const syncModelTransforms = vi.hoisted(() => vi.fn());
 const applyPlateSessionTransforms = vi.hoisted(() => vi.fn());
 
 vi.mock('./syncModelTransforms', () => ({
-  syncModelTransforms,
   applyPlateSessionTransforms,
 }));
 
@@ -21,19 +20,16 @@ const plateMutation = {
   },
 };
 
-describe('persistSettledModelTransforms', () => {
+describe('applySettledTransformSyncResult', () => {
   beforeEach(() => {
     useSlicerStore.setState({
       status: 'done', progress: 100, maxLayer: 79, error: null, resultExported: true,
     });
-    syncModelTransforms.mockReset();
     useProjectStore.getState().reset();
   });
 
   it('invalidates the slicer result after a successful transform sync', async () => {
-    syncModelTransforms.mockResolvedValue({ ok: true, plateSession: plateMutation });
-    const result = await persistSettledModelTransforms({} as never);
-    expect(result).toEqual({ ok: true, plateSession: plateMutation });
+    applySettledTransformSyncResult({ ok: true, plateSession: plateMutation }, {} as never);
     const slicer = useSlicerStore.getState();
     expect(slicer.status).toBe('idle');
     expect(slicer.resultExported).toBe(false);
@@ -42,9 +38,7 @@ describe('persistSettledModelTransforms', () => {
   });
 
   it('keeps a completed result when the transform sync fails', async () => {
-    syncModelTransforms.mockResolvedValue({ ok: false, error: 'transform failed' });
-    const result = await persistSettledModelTransforms({} as never);
-    expect(result).toEqual({ ok: false, error: 'transform failed' });
+    applySettledTransformSyncResult({ ok: false, error: 'transform failed' }, {} as never);
     expect(useSlicerStore.getState().status).toBe('done');
   });
 
@@ -55,11 +49,6 @@ describe('persistSettledModelTransforms', () => {
       slicer.setPlateResult({ plateId, inputStamp: 1, resultGeneration: '1', sliceTaskId: plateId }, [], {});
     useSlicerStore.setState({ status: 'slicing', activeSliceTarget: { plateId: 'a', inputRevision: 1 },
       sliceTarget: { plateId: 'b', inputRevision: 1 }, progress: 37 });
-    syncModelTransforms.mockResolvedValue({ ok: true, plateSession: {
-      ...plateMutation, currentPlateId: 'b', inputRevisions: { a: 2, b: 1 },
-      affectedPlateIdsBefore: ['a'], affectedPlateIdsAfter: ['a'], affectedPlateIds: ['a'],
-      plates: ['a', 'b'].map((plateId, displayIndex) => ({ plateId, displayIndex, name: plateId, origin: [0, 0, 0] })),
-    } });
     const cancel = vi.fn(async () => ({ ok: true }));
     const runtime = { cancel, getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true,
       serialSliceActive: false, serialTerminalEpoch: '0' }) };
@@ -68,7 +57,11 @@ describe('persistSettledModelTransforms', () => {
       if (state.plateResults !== previous.plateResults) publications.push(Object.keys(state.plateResults));
     });
     try {
-      await persistSettledModelTransforms(runtime as never);
+      applySettledTransformSyncResult({ ok: true, plateSession: {
+        ...plateMutation, currentPlateId: 'b', inputRevisions: { a: 2, b: 1 },
+        affectedPlateIdsBefore: ['a'], affectedPlateIdsAfter: ['a'], affectedPlateIds: ['a'],
+        plates: ['a', 'b'].map((plateId, displayIndex) => ({ plateId, displayIndex, name: plateId, origin: [0, 0, 0] })),
+      } }, runtime as never);
       expect(publications).toEqual([['b']]);
       expect(cancel).toHaveBeenCalledOnce();
       expect(useSlicerStore.getState()).toMatchObject({ status: 'done', activeSliceTarget: null,
@@ -77,7 +70,7 @@ describe('persistSettledModelTransforms', () => {
   });
 
   it('projects native plate revisions without changing the history checkpoint', async () => {
-    syncModelTransforms.mockResolvedValue({
+    applySettledTransformSyncResult({
       ok: true,
       plateSession: {
         ...plateMutation,
@@ -86,11 +79,26 @@ describe('persistSettledModelTransforms', () => {
         dirtyReasons: ['model-transform'],
         instanceTransforms: [],
       },
-    });
-    await persistSettledModelTransforms({} as never);
+    }, {} as never);
     expect(useProjectStore.getState()).toMatchObject({
       dirty: false,
     });
     expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 4, 'plate-2': 1 });
   });
+});
+
+it('waits for the releases seen by a command and reports an earlier failure once', async () => {
+  let finishFirst!: (result: TransformGestureResult) => void;
+  let finishSecond!: (result: TransformGestureResult) => void;
+  trackReleasedTransform(new Promise(resolve => { finishFirst = resolve; }));
+  const first = waitForSettledModelTransforms();
+  trackReleasedTransform(new Promise(resolve => { finishSecond = resolve; }));
+  const both = waitForSettledModelTransforms();
+  finishFirst({ outcome: 'stale', error: 'target changed' });
+  await expect(first).resolves.toEqual({ ok: false, error: 'target changed' });
+  const remaining = waitForSettledModelTransforms();
+  finishSecond({ outcome: 'committed' });
+  await expect(both).resolves.toEqual({ ok: false, error: 'target changed' });
+  await expect(remaining).resolves.toEqual({ ok: true });
+  expect(waitForSettledModelTransforms()).toBeNull();
 });

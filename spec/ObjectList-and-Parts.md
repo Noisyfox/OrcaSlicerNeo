@@ -188,8 +188,13 @@ as its object row, whereas Orca's `update_selections()` would otherwise list its
 instance rows).
 
 Instance rows show a printable toggle. Object rows show an aggregate printable
-state that toggles every instance of that object. `auto_drop` is not exposed in
-the first version.
+state that toggles every instance of that object. Object and instance context
+menus expose object-level Auto Drop; the list's `D` shortcut toggles the
+selected owning objects. A mixed selection enables all of them. Enabling the
+setting immediately places the object on the bed and affects its instances
+together; disabling it does not move the object. A metadata-only toggle retains
+valid slice results, and the setting and any resulting movement are one history
+edit.
 
 Selection restoration must follow stable native identities and the operation
 target. Non-destructive operations (rename, change type, reorder, printable
@@ -393,9 +398,20 @@ renaming a multipart object preserves part names. While an inline editor is
 active, neither its row nor its ancestors may start a drag. Multiple full
 objects do not expose Rename.
 
-Split eligibility follows native disconnected-shell / multipart rules.
-Assemble requires at least two full objects and uses the selected set only;
-there is no empty-list Assemble menu. A printable command applies to the
+Split eligibility follows native disconnected-shell / multipart rules. Before
+splitting, the Worker inspects a temporary copy at the current project revision.
+If Auto Drop is enabled and any resulting object floats at least 0.05 mm above
+the bed, the user can preserve the Z positions by disabling Auto Drop on all
+results, place each result on the bed with Auto Drop enabled, or cancel. An
+already-disabled source stays disabled and keeps its positions without a
+prompt. Otherwise enabled results are placed on the bed. A changed project
+revision invalidates the preview and rejects the split. Splitting never adjusts
+unrelated objects.
+Assemble requires selected instances from at least two distinct objects and
+uses the selected set only; there is no empty-list Assemble menu. If any source has Auto Drop disabled,
+the assembled object inherits the disabled setting and preserves source
+heights. Otherwise it inherits the enabled setting and is placed on the bed
+as one object, preserving the relative part positions. A printable command applies to the
 complete applicable selection, with its label derived from the clicked target.
 Row context events stop propagation; hovering preserves the current selected-row
 highlighting. Part-set preservation follows the projected-row rule above,

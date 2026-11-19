@@ -162,7 +162,7 @@ json model_structure_json_filtered(const std::set<std::size_t>* object_ids) {
             instances.push_back(json{{"id", instance->id().id}, {"index", ii}, {"printable", instance->printable}});
         }
         objects.push_back(json{{"id", object->id().id}, {"index", oi}, {"name", object->name},
-            {"printable", object->printable}, {"isCut", object->is_cut()}, {"instanceCount", object->instances.size()},
+            {"printable", object->printable}, {"autoDrop", object->auto_drop}, {"isCut", object->is_cut()}, {"instanceCount", object->instances.size()},
             {"volumes", std::move(volumes)}, {"instances", std::move(instances)}});
     }
     return objects;
@@ -1005,15 +1005,45 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
     }
 }
 
-// Split an object into one object per disconnected shell (upstream
-// ObjectList::split_to_objects). ModelObject::split adds the new objects to the
-// live model and fills new_objects; the bridge then removes the source object.
-// Returns the freshly generated object IDs plus the current structure so the
-// renderer can restore selection to the new objects. autoDrop is accepted for
-// signature parity (the spec exposes it) but the auto_drop bed-drop has no
-// first-version UI and is left to the host callers.
-EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, double auto_drop) {
+// Inspect an isolated clone: native split creates objects and can change the
+// source's metadata, so this must never run against the live project.
+EMSCRIPTEN_KEEPALIVE const char* orc_preview_split_object(double object_id) {
     try {
+        if (state().active_history_transaction)
+            return error_json("finish the active history transaction before previewing a split");
+        const auto id = to_object_id(object_id);
+        if (!id) return error_json("object id must be a positive integer");
+        const ModelObject* source = find_object_by_id(*id);
+        if (!source) return error_json("object not found");
+        if (source->volumes.size() <= 1 && (source->volumes.empty() || !source->volumes[0]->is_splittable()))
+            return error_json("object is not splittable");
+        if (source->instances.empty()) return error_json("object has no instances");
+        Model preview;
+        ModelObject* copy = preview.add_object(*source);
+        ModelObjectPtrs outputs;
+        copy->split(&outputs, /*remap_paint=*/false);
+        if (outputs.size() < 2) return error_json("object is not splittable");
+        bool floating = false;
+        for (const ModelObject* object : outputs)
+            for (std::size_t i = 0; i < object->instances.size(); ++i)
+                floating = floating || object->get_instance_min_z(i) >= SINKING_MIN_Z_THRESHOLD;
+        return dup_json(json{{"ok", true}, {"autoDrop", source->auto_drop}, {"floating", floating},
+                             {"revision", state().history_revision}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Apply only against the revision that was previewed. A preserved split turns
+// Auto Drop off for its outputs; otherwise enabled outputs settle separately.
+EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, double disable_auto_drop, double expected_revision) {
+    try {
+        constexpr double max_safe_integer = 9007199254740991.0;
+        if (!std::isfinite(expected_revision) || expected_revision < 0 || expected_revision > max_safe_integer ||
+            std::floor(expected_revision) != expected_revision || expected_revision != double(state().history_revision))
+            return error_json("split preview is stale");
         const auto id = to_object_id(object_id);
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
@@ -1025,12 +1055,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
         std::set<std::size_t> affected_instances;
         append_instance_ids(*obj, affected_instances);
         const auto affected_before = member_plate_ids_for_instances(affected_instances);
-        ModelObjectPtrs new_objects;
-        obj->split(&new_objects, /*remap_paint=*/false);
+        Model split_model;
+        ModelObject* source_copy = split_model.add_object(*obj);
+        ModelObjectPtrs prepared_objects;
+        source_copy->split(&prepared_objects, /*remap_paint=*/false);
+        if (prepared_objects.size() < 2) return error_json("object is not splittable");
         // Since Orca 2.5 this belongs to the object rather than its copied
         // instances. Native split constructs fresh objects with the default.
-        for (ModelObject* split_object : new_objects)
-            split_object->auto_drop = obj->auto_drop;
+        ModelObjectPtrs new_objects;
+        for (ModelObject* split_object : prepared_objects) {
+            split_object->auto_drop = obj->auto_drop && disable_auto_drop == 0.0;
+            if (split_object->auto_drop && !split_object->instances.empty())
+                split_object->ensure_on_bed();
+            new_objects.push_back(state().model.add_object(*split_object));
+        }
         // Remove the source; the split objects now own the geometry.
         state().model.delete_object(ObjectID(*id));
 
@@ -1040,9 +1078,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
             new_object_ids.push_back(o->id().id);
             append_instance_ids(*o, affected_instances);
         }
-
-        if (auto_drop != 0.0)
-            state().model.adjust_min_z();
 
         rebuild_plate_membership(true);
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
@@ -1129,7 +1164,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* targ
             sources.push_back(model.objects[i]);
             append_instance_ids(*model.objects[i], affected_instances);
         }
-
         ModelObject* result = model.add_object();
         result->name = name_cstr && *name_cstr ? name_cstr : "Assembly";
         result->add_instance();
@@ -1463,7 +1497,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
 // request and the transaction revision first, then publish all transforms and
 // one plate-session receipt, or leave the live model untouched.
 EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
-    const char* transaction_id_cstr, const char* transforms_json)
+    const char* transaction_id_cstr, const char* transforms_json, const char* operation_cstr)
 {
     struct StagedTransform {
         ModelObject* object;
@@ -1474,6 +1508,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         Slic3r::Geometry::Transformation previous_instance;
         Slic3r::Geometry::Transformation previous_volume;
     };
+    struct SavedInstance {
+        ModelObject* object;
+        ModelInstance* instance;
+        std::size_t index;
+        Slic3r::Geometry::Transformation previous;
+        double min_z;
+        bool has_geometry;
+    };
     try {
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const std::string transaction_id = transaction_id_cstr ? transaction_id_cstr : "";
@@ -1482,6 +1524,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             return error_json("history transaction is stale or belongs to another writer");
         if (active->base_history_revision != state().history_revision)
             return error_json("history transaction revision is stale");
+        const std::string operation = operation_cstr ? operation_cstr : "";
+        if (operation != "direct" && operation != "move" && operation != "rotate" && operation != "scale")
+            return error_json("invalid transform operation");
 
         const double input_decode_started_at = Neo::Bridge::Performance::now_ms();
         const json requests = json::parse(transforms_json ? transforms_json : "");
@@ -1493,6 +1538,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         std::vector<StagedTransform> staged;
         staged.reserve(requests.size());
         std::set<std::tuple<int, int, int>> identities;
+        std::map<ModelInstance*, Slic3r::Geometry::Transformation> instance_updates;
+        std::map<ModelVolume*, Slic3r::Geometry::Transformation> volume_updates;
         for (const auto& request : requests) {
             if (!request.is_object()) return error_json("transform request must be an object");
             const int object_idx = request.at("objectIdx").get<int>();
@@ -1512,28 +1559,51 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             auto next_volume = object->volumes[static_cast<size_t>(volume_idx)]->get_transformation();
             set_transform(next_instance, request.at("instanceTransform"));
             set_transform(next_volume, request.at("volumeTransform"));
-            staged.push_back({object, object->instances[static_cast<size_t>(instance_idx)],
-                object->volumes[static_cast<size_t>(volume_idx)], next_instance, next_volume,
+            auto* instance = object->instances[static_cast<size_t>(instance_idx)];
+            auto* volume = object->volumes[static_cast<size_t>(volume_idx)];
+            const auto [instance_it, new_instance] = instance_updates.emplace(instance, next_instance);
+            const auto [volume_it, new_volume] = volume_updates.emplace(volume, next_volume);
+            if ((!new_instance && instance_it->second != next_instance) ||
+                (!new_volume && volume_it->second != next_volume))
+                return error_json("transform request contains conflicting shared transforms");
+            staged.push_back({object, instance, volume, next_instance, next_volume,
                 object->instances[static_cast<size_t>(instance_idx)]->get_transformation(),
                 object->volumes[static_cast<size_t>(volume_idx)]->get_transformation()});
         }
         std::set<std::size_t> affected_instances;
+        std::set<ModelObject*> changed_volume_objects;
         for (const auto& item : staged) {
             if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
                 affected_instances.insert(item.instance->id().id);
+            if (item.next_volume != item.previous_volume)
+                changed_volume_objects.insert(item.object);
+        }
+        // A volume is shared by every instance of its object, even if only one
+        // renderer composite carried that part in this gesture.
+        for (const auto* object : changed_volume_objects) append_instance_ids(*object, affected_instances);
+        std::set<ModelObject*> touched_objects;
+        for (const auto& item : staged) touched_objects.insert(item.object);
+        std::vector<SavedInstance> saved_instances;
+        for (auto* object : touched_objects) {
+            const bool has_geometry = std::any_of(object->volumes.begin(), object->volumes.end(),
+                [](const ModelVolume* volume) { return volume->is_model_part() && !volume->mesh().its.indices.empty(); });
+            for (std::size_t i = 0; i < object->instances.size(); ++i) {
+                auto* instance = object->instances[i];
+                if (!affected_instances.count(instance->id().id)) continue;
+                const double min_z = operation != "direct" && object->auto_drop && has_geometry
+                    ? object->get_instance_min_z(i) : 0.0;
+                saved_instances.push_back({object, instance, i, instance->get_transformation(), min_z, has_geometry});
+            }
         }
         const double validation_finished_at = Neo::Bridge::Performance::now_ms();
 
         const double membership_lookup_started_at = Neo::Bridge::Performance::now_ms();
         const auto before_revisions = state().plate_input_revisions;
+        const auto before_members = state().instance_plate_ids;
+        const auto before_outside = state().plate_out_of_bounds_ids;
+        const auto before_parked = state().parked_instance_ids;
+        const auto before_pending = state().pending_membership_instance_ids;
         const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
-        const auto affected_before = affected_instances.empty()
-            ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
-        const bool projection_geometry_changed = std::any_of(staged.begin(), staged.end(),
-            [](const StagedTransform& item) {
-                return transform_geometry_changed(item.previous_instance, item.next_instance) ||
-                    transform_geometry_changed(item.previous_volume, item.next_volume);
-            });
         const double membership_lookup_finished_at = Neo::Bridge::Performance::now_ms();
         const double mutation_started_at = Neo::Bridge::Performance::now_ms();
         try {
@@ -1542,13 +1612,39 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.volume->set_transformation(item.next_volume);
                 item.object->invalidate_bounding_box();
             }
+            std::map<std::size_t, Vec3d> corrected;
+            if (operation != "direct") {
+                for (const auto& entry : saved_instances) {
+                    if (!entry.object->auto_drop || !entry.has_geometry) continue;
+                    const double min_z = entry.object->get_instance_min_z(entry.index);
+                    const bool snap = operation == "move" ? min_z > SINKING_Z_THRESHOLD
+                        : entry.min_z >= SINKING_Z_THRESHOLD || min_z > SINKING_Z_THRESHOLD;
+                    if (!std::isfinite(min_z) || !snap || min_z == 0.0) continue;
+                    entry.object->translate_instance(entry.index, Vec3d(0, 0, -min_z));
+                    corrected.emplace(entry.instance->id().id, Vec3d::Zero());
+                }
+            }
+            std::set<std::size_t> final_affected;
+            bool projection_geometry_changed = false;
+            for (const auto& entry : saved_instances) {
+                const auto& current = entry.instance->get_transformation();
+                if (current != entry.previous) final_affected.insert(entry.instance->id().id);
+                projection_geometry_changed = projection_geometry_changed || transform_geometry_changed(entry.previous, current);
+            }
+            for (const auto& item : staged) {
+                if (item.volume->get_transformation() != item.previous_volume)
+                    append_instance_ids(*item.object, final_affected);
+                projection_geometry_changed = projection_geometry_changed ||
+                    transform_geometry_changed(item.previous_volume, item.volume->get_transformation());
+            }
+            const auto affected_before = member_plate_ids_for_instances(final_affected);
             if (projection_geometry_changed)
                 Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
             const double mutation_finished_at = Neo::Bridge::Performance::now_ms();
             const double membership_reflow_started_at = Neo::Bridge::Performance::now_ms();
-            rebuild_plate_membership(true);
+            if (!final_affected.empty()) rebuild_plate_membership(true, &final_affected);
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
-                                                           json::array(), &affected_instances);
+                                                           reflow_instance_transforms(corrected), &final_affected);
             const double membership_reflow_finished_at = Neo::Bridge::Performance::now_ms();
             const double response_started_at = Neo::Bridge::Performance::now_ms();
             const std::string response = mutation.dump();
@@ -1566,11 +1662,18 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             return result;
         } catch (...) {
             for (const auto& item : staged) {
-                item.instance->set_transformation(item.previous_instance);
                 item.volume->set_transformation(item.previous_volume);
                 item.object->invalidate_bounding_box();
             }
+            for (const auto& entry : saved_instances) {
+                entry.instance->set_transformation(entry.previous);
+                entry.object->invalidate_bounding_box();
+            }
             state().plate_input_revisions = before_revisions;
+            state().instance_plate_ids = before_members;
+            state().plate_out_of_bounds_ids = before_outside;
+            state().parked_instance_ids = before_parked;
+            state().pending_membership_instance_ids = before_pending;
             state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
             throw;
         }
@@ -1664,6 +1767,80 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Auto Drop belongs to the object, including all of its instances. Resolve the
+// entire selection before changing it; enabling follows Orca's object-list
+// action and drops the object's instances together using its first instance.
+EMSCRIPTEN_KEEPALIVE const char* orc_set_objects_auto_drop(const char* object_ids_json, double enabled) {
+    struct SavedObject {
+        ModelObject* object;
+        bool auto_drop;
+        std::vector<Slic3r::Geometry::Transformation> instances;
+    };
+    try {
+        const auto ids = parse_positive_id_array(json::parse(object_ids_json ? object_ids_json : ""));
+        if (!ids) return error_json("no object ids");
+        std::vector<SavedObject> saved;
+        saved.reserve(ids->size());
+        for (const auto id : *ids) {
+            ModelObject* object = find_object_by_id(id);
+            if (!object) return error_json("object not found");
+            SavedObject entry{object, object->auto_drop, {}};
+            for (const auto* instance : object->instances)
+                entry.instances.push_back(instance->get_transformation());
+            saved.push_back(std::move(entry));
+        }
+        auto& live = state();
+        const auto old_members = live.instance_plate_ids;
+        const auto old_outside = live.plate_out_of_bounds_ids;
+        const auto old_parked = live.parked_instance_ids;
+        const auto old_revisions = live.plate_input_revisions;
+        const auto old_pending = live.pending_membership_instance_ids;
+        const auto old_lifecycle = live.plate_runtime_registry.capture_lifecycle();
+        try {
+            std::set<std::size_t> moved;
+            std::map<std::size_t, Vec3d> changed;
+            for (auto& entry : saved) {
+                auto* object = entry.object;
+                object->auto_drop = enabled != 0.0;
+                const bool has_mesh = std::any_of(object->volumes.begin(), object->volumes.end(),
+                    [](const ModelVolume* volume) { return volume->is_model_part() && !volume->mesh().empty(); });
+                if (object->auto_drop && has_mesh && !object->instances.empty())
+                    object->ensure_on_bed();
+                for (std::size_t i = 0; i < object->instances.size(); ++i) {
+                    auto* instance = object->instances[i];
+                    if (instance->get_transformation() != entry.instances[i]) {
+                        moved.insert(instance->id().id);
+                        changed.emplace(instance->id().id, Vec3d::Zero());
+                    }
+                }
+            }
+            const auto before = member_plate_ids_for_instances(moved);
+            if (!moved.empty()) rebuild_plate_membership(true, &moved);
+            const auto mutation = plate_mutation_snapshot(before, {"model-transform"},
+                reflow_instance_transforms(changed), &moved);
+            return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
+        } catch (...) {
+            for (const auto& entry : saved) {
+                entry.object->auto_drop = entry.auto_drop;
+                for (std::size_t i = 0; i < entry.instances.size(); ++i)
+                    entry.object->instances[i]->set_transformation(entry.instances[i]);
+                entry.object->invalidate_bounding_box();
+            }
+            live.instance_plate_ids = old_members;
+            live.plate_out_of_bounds_ids = old_outside;
+            live.parked_instance_ids = old_parked;
+            live.plate_input_revisions = old_revisions;
+            live.pending_membership_instance_ids = old_pending;
+            live.plate_runtime_registry.restore_lifecycle(old_lifecycle);
+            throw;
+        }
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

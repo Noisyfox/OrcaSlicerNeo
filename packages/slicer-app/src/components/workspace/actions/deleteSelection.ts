@@ -53,7 +53,7 @@ export async function deleteSelection(
   if (selected.length === 0 || objectIndices.length === 0) return { ok: true };
   try {
     const synced = await waitForSettledModelTransforms();
-    if (!synced.ok) return synced;
+    if (synced && !synced.ok) return synced;
     const structure = await runtime.getModelStructure();
     if (!structure.ok || !structure.objects) {
       const msg = structure.error ?? 'structure unavailable';

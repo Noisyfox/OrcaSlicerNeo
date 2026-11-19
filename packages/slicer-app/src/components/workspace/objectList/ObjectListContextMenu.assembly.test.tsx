@@ -14,7 +14,7 @@ vi.mock('./structuralActions', async importOriginal => ({
   assembleObjectsInList: vi.fn(async () => ({ ok: true })),
 }));
 const a: ModelObjectStructure = {
-  id: 1, index: 0, name: 'A', printable: true, isCut: false, instanceCount: 3,
+  id: 1, index: 0, name: 'A', printable: true, autoDrop: true, isCut: false, instanceCount: 3,
   volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
   instances: [20, 21, 22].map((id, index) => ({ id, index, printable: true })),
 };

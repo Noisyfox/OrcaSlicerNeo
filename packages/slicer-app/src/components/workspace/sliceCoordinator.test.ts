@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { trackReleasedTransform } from './actions/persistModelTransforms';
 import { createWorkspaceSliceCoordinator } from './sliceCoordinator';
 import { registerMeasureCommands } from './viewport/gizmo/measure/projectCommands';
 import type { MeasureController } from './viewport/gizmo/measure/MeasureController';
@@ -73,6 +74,25 @@ describe('Workspace slice coordinator', () => {
     await coordinator.requestPreviewSlice();
 
     expect(events).toEqual(['preview', 'slice']);
+    expect(slice).toHaveBeenCalledOnce();
+  });
+
+  it('opens Preview while a released transform is pending and rechecks the cached slice after publication', async () => {
+    const gate = deferred();
+    let status: 'done' | 'idle' = 'done';
+    trackReleasedTransform(gate.promise.then(() => {
+      status = 'idle';
+      return { outcome: 'committed' };
+    }));
+    const requestPreview = vi.fn();
+    const slice = vi.fn(async () => undefined);
+    const coordinator = createWorkspaceSliceCoordinator({ isModelLoaded: () => true, getStatus: () => status,
+      slice, requestPreview });
+    const task = coordinator.requestPreviewSlice();
+    await vi.waitFor(() => expect(requestPreview).toHaveBeenCalledOnce());
+    expect(slice).not.toHaveBeenCalled();
+    gate.resolve();
+    await task;
     expect(slice).toHaveBeenCalledOnce();
   });
 

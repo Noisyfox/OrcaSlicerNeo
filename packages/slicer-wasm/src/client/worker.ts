@@ -81,9 +81,9 @@ const restrictedWhileSerialSlicing = new Set([
   'prepareMaterialImport', 'getDeviceFilamentOptions', 'getDeviceMaterialCatalogue', 'matchFilamentPresets', 'getPrinterDeviceMatch', 'loadProject', 'importProjectGeometry', 'addShape', 'addVolume', 'clearModel',
   'setInstanceOffset', 'setModelTransform', 'setModelTransforms', 'deleteObjects',
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
-  'splitVolumeToParts', 'splitObjectToObjects', 'mergeObjectsToMultipart', 'meshBoolean',
+  'splitVolumeToParts', 'previewSplitObject', 'splitObjectToObjects', 'mergeObjectsToMultipart', 'meshBoolean',
   'separateInstances', 'addInstance', 'removeInstance', 'renameObject',
-  'renameVolume', 'setVolumeType', 'setObjectPrintable', 'setInstancePrintable',
+  'renameVolume', 'setVolumeType', 'setObjectPrintable', 'setObjectsAutoDrop', 'setInstancePrintable',
   'slice', 'slicePlate', 'exportGcodePlate', 'describePrintPlate', 'exportPrintPlate', 'exportProject', 'cancel',
 ]);
 
@@ -424,6 +424,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     if (arrangementActive && restrictedWhileSerialSlicing.has(op)) return Promise.reject(new Error('arrangement_busy'));
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
       if (op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession' || setupWizardOperations.has(op)) return Promise.reject(new Error('slice_busy'));
+      if (op === 'previewSplitObject') return Promise.resolve({ ok: false, error: 'slice_busy' });
       if (op === 'setProjectFlow' || op === 'configureProjectFlowMemory' || op === 'configureNozzleCapacityMemory' || op === 'mutateNozzleMapping') return Promise.resolve({ ok: false, error: 'slice_busy', errorCode: 'slice_busy' });
       return Promise.resolve({ error: 'slice_busy' });
     }

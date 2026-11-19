@@ -41,6 +41,7 @@ export function RotatePanel({ sceneInteraction }: { sceneInteraction: SceneInter
     const delta = [0, 0, 0] as Vec3;
     delta[axis] = parsed - current[axis];
     sceneInteraction.rotateSelectionBy(degreesToRadians(delta));
+    setDraft(null);
   };
 
   return (

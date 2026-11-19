@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HistoryContext, HistoryStatus, RestoreResult } from '@slicer/client';
+import { trackReleasedTransform } from '../components/workspace/actions/persistModelTransforms';
 import { createHistoryRestoreCoordinator } from './restoreCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
@@ -53,6 +54,23 @@ describe('history restore coordinator', () => {
     useSlicerStore.getState().invalidateSliceResult();
     useProjectStore.getState().reset();
     useHistoryDiagnosticsStore.getState().reset();
+  });
+
+  it('preserves the preceding history entry when a just-released Move fails', async () => {
+    let fail!: () => void;
+    trackReleasedTransform(new Promise(resolve => { fail = () => resolve({ outcome: 'failed', error: 'Move failed' }); }));
+    const undoHistory = vi.fn(async () => success());
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(),
+        getFilamentSessionSnapshot: vi.fn(), getHistoryStatus: vi.fn(async () => status) },
+      sceneInteraction: fakeScene(), refreshModel: vi.fn(),
+    });
+    const undo = coordinator.restore('undo');
+    expect(useHistoryRestoreStore.getState().phase).toBe('idle');
+    fail();
+    await expect(undo).resolves.toBe(false);
+    expect(undoHistory).not.toHaveBeenCalled();
+    expect(useHistoryRestoreStore.getState().error).toBe('Move failed');
   });
 
   it('does not reread an unchanged filament projection after a committed native restore', async () => {

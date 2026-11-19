@@ -584,6 +584,20 @@ async function selectStableRealPrinter(page: Page): Promise<void> {
   await selectFixturePrinter(page, PRINTER_PROFILE);
 }
 
+/** Model bounds reflect the local draft until the Worker publishes the settled transform. */
+async function commitTransform(page: Page, action: () => Promise<unknown>): Promise<void> {
+  const historyRevision = () => page.evaluate(() => {
+    const status = (window as unknown as {
+      __orcaE2e?: { historyNativeStatus?: () => { revision: number } | null };
+    }).__orcaE2e?.historyNativeStatus?.();
+    if (!status) throw new Error('native history status unavailable');
+    return status.revision;
+  });
+  const beforeRevision = await historyRevision();
+  await action();
+  await expect.poll(historyRevision).toBeGreaterThan(beforeRevision);
+}
+
 /** Select a mock instance once the model's mock volumes are live (the Slice
  *  button enables on modelLoaded, which can precede the async mesh fetch, so a
  *  bare selectMockInstance can race the GL volume collection. It also waits
@@ -1515,6 +1529,196 @@ test('real STEP flow: Add Model → renders named solid → slice → export G-c
   } finally {
     await app.close();
   }
+});
+
+test('object list Auto Drop supports menu, shortcut, undo and redo', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const row = page.getByTestId('object-list').locator('div[data-testid^="object-"]').first();
+    const checkbox = page.getByTestId('objectlist-auto-drop');
+    const open = async () => { await row.click({ button: 'right', position: { x: 40, y: 4 } }); };
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+    await checkbox.click();
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Disable Auto Drop');
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+    const button = row.locator(':scope > div > button.object-list-row');
+    await button.click({ position: { x: 40, y: 10 } });
+    await button.press('d');
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Enable Auto Drop');
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('history-undo').click();
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('history-redo').click();
+    await open();
+    await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+  } finally { await app.close(); }
+});
+
+test('Auto Drop settles moves and enabling it restores bed contact', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const row = page.getByTestId('object-list').locator('div[data-testid^="object-"]:not([data-testid="object-list"])').first();
+    await row.locator(':scope > div > button.object-list-row').click({ position: { x: 40, y: 10 } });
+    await page.getByTestId('gizmo-btn-move').click();
+    const z = page.getByTestId('move-z');
+    const initial = Number(await z.inputValue());
+    const initialText = initial.toFixed(3);
+    const raisedText = (initial + 10).toFixed(3);
+    const previousUndo = await page.getByTestId('history-undo').getAttribute('aria-label');
+    await z.fill(raisedText); await z.press('Enter');
+    await expect(z).toHaveValue(initialText);
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', previousUndo!);
+    const toggle = async () => {
+      await row.click({ button: 'right', position: { x: 40, y: 4 } });
+      await page.getByTestId('objectlist-auto-drop').click();
+    };
+    await toggle();
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Disable Auto Drop');
+    await z.fill(raisedText); await z.press('Enter');
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
+    await expect(z).toHaveValue(raisedText);
+    await toggle();
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Enable Auto Drop');
+    await expect(z).toHaveValue(initialText);
+    await page.getByTestId('history-undo').click();
+    await expect(z).toHaveValue(raisedText);
+    await page.getByTestId('history-redo').click();
+    await expect(z).toHaveValue(initialText);
+
+    // Click Slice directly from the dirty field. Its first full-model sync
+    // must see the bed correction, even when pointer blur just released Move.
+    await z.fill(raisedText);
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('btn-send-and-print')).toBeEnabled({ timeout: SLICE_RESULT_TIMEOUT });
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Enable Auto Drop');
+  } finally { await app.close(); }
+});
+
+test('blurred Move precedes a toolbar Undo and a printable change', async () => {
+  const projectSavePath = REAL ? join(mkdtempSync(join(tmpdir(), 'orca-blur-')), 'blur.3mf') : undefined;
+  const { app } = await launchApp({ projectSavePath });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const list = page.getByTestId('object-list');
+    const row = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])').first();
+    await row.locator('button.object-list-row').first().click({ position: { x: 40, y: 10 } });
+    await page.getByTestId('gizmo-btn-move').click();
+    const x = page.getByTestId('move-x');
+    const start = await x.inputValue();
+    const moved = (Number(start) + 3).toFixed(3);
+    const undo = page.getByTestId('history-undo');
+    const redo = page.getByTestId('history-redo');
+    await x.fill(moved);
+    await undo.click();
+    await expect(redo).toHaveAttribute('aria-label', 'Redo Move');
+    await expect(x).toHaveValue(start);
+
+    const printable = list.getByRole('checkbox', { name: /^Object .* printable$/ }).first();
+    await x.fill(moved);
+    await printable.click();
+    await expect(undo).toHaveAttribute('aria-label', 'Undo Change Printable');
+    await undo.click();
+    await expect(undo).toHaveAttribute('aria-label', 'Undo Move');
+    await expect(printable).toBeChecked();
+    await undo.click();
+    await expect(x).toHaveValue(start);
+    await redo.click();
+    await expect(redo).toHaveAttribute('aria-label', 'Redo Change Printable');
+    // The following printable command owns the context of this predecessor frame.
+    if (!await x.isVisible()) {
+      await row.locator('button.object-list-row').first().click({ position: { x: 40, y: 10 } });
+      await page.getByTestId('gizmo-btn-move').click();
+    }
+    await expect(x).toHaveValue(moved);
+
+    if (projectSavePath) {
+      const savedX = (Number(start) + 7).toFixed(3);
+      await x.fill(savedX);
+      const save = page.getByTestId('titlebar-save-project');
+      await save.click();
+      await expect(page.getByTestId('titlebar-project-name')).toHaveText('blur');
+      await expect(save).toBeDisabled();
+      await app.evaluate((_, path) => { process.env.ORCA_E2E_MODEL = path; }, projectSavePath);
+      await openProjectMenu(page, app);
+      await waitForProjectLoad(page);
+      await expect(undo).toBeDisabled();
+      await page.getByTestId('config-mode-scoped').click();
+      await row.locator('button.object-list-row').first().click({ position: { x: 40, y: 10 } });
+      await page.getByTestId('gizmo-btn-move').click();
+      await expect(x).toHaveValue(savedX);
+    }
+  } finally { await app.close(); }
+});
+
+test('split floating parts offers preserving positions or placing on bed', async () => {
+  test.skip(REAL, 'uses the deterministic multi-part mock fixture');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const list = page.getByTestId('object-list');
+    const rows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    await list.locator('[data-testid^="part-"]').nth(1).locator('button.object-list-row').click({ position: { x: 40, y: 10 } });
+    await page.getByTestId('gizmo-btn-move').click();
+    await page.getByTestId('move-z').fill('25');
+    await page.getByTestId('move-z').press('Enter');
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
+    await page.getByTestId('gizmo-btn-move').click();
+    const split = async () => {
+      await rows.first().click({ button: 'right', position: { x: 40, y: 4 } });
+      await page.getByTestId('objectlist-split-objects').click();
+      await expect(page.getByTestId('split-auto-drop-confirmation')).toBeVisible();
+    };
+    await split();
+    await page.getByTestId('split-auto-drop-confirmation').getByRole('button', { name: 'Cancel' }).click();
+    await expect(rows).toHaveCount(1);
+    await split();
+    await page.getByTestId('split-auto-drop-preserve').click();
+    await expect(rows).toHaveCount(2);
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Split to Objects');
+    await rows.first().click({ button: 'right', position: { x: 40, y: 4 } });
+    await expect(page.getByTestId('objectlist-auto-drop')).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('history-undo').click();
+    await expect(rows).toHaveCount(1);
+    await split();
+    await page.getByTestId('split-auto-drop-place').click();
+    await expect(rows).toHaveCount(2);
+    await rows.first().click({ button: 'right', position: { x: 40, y: 4 } });
+    await expect(page.getByTestId('objectlist-auto-drop')).toHaveAttribute('aria-checked', 'true');
+  } finally { await app.close(); }
 });
 
 // Ctrl+clicking an object then a part of another object must not create a
@@ -2484,22 +2688,6 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
           )
           .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
 
-      // Transform fields reflect a local draft before its Worker history
-      // transaction is published. Finish each commit before starting the
-      // next gesture, which is rejected during project publication.
-      const historyRevision = () => page.evaluate(() => {
-        const status = (window as unknown as {
-          __orcaE2e?: { historyNativeStatus?: () => { revision: number } | null };
-        }).__orcaE2e?.historyNativeStatus?.();
-        if (!status) throw new Error('native history status unavailable');
-        return status.revision;
-      });
-      const commitTransform = async (action: () => Promise<unknown>) => {
-        const beforeRevision = await historyRevision();
-        await action();
-        await expect.poll(historyRevision).toBeGreaterThan(beforeRevision);
-      };
-
       // The Move toggle can only arm with a non-empty selection: it stays
       // disabled while nothing is selected.
       await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
@@ -2559,13 +2747,13 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         ))
         .toBe('body');
       await page.mouse.move(cubeCenter.x + 40, cubeCenter.y + 20, { steps: 4 });
-      await commitTransform(() => page.mouse.up());
+      await commitTransform(page, () => page.mouse.up());
       await expect
         .poll(async () => Promise.all(['x', 'y', 'z'].map((axis) =>
           page.getByTestId(`move-${axis}`).inputValue(),
         )))
         .not.toEqual(bodyPivotBefore);
-      await commitTransform(() => page.getByTestId('move-reset').click());
+      await commitTransform(page, () => page.getByTestId('move-reset').click());
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
 
       // A plain click on a selected member retains the group. Toggle the
@@ -2607,12 +2795,12 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         ))
         .toBe('gizmo');
       await page.mouse.move(xEnd.x, xEnd.y, { steps: 5 });
-      await commitTransform(() => page.mouse.up());
+      await commitTransform(page, () => page.mouse.up());
       await expect(page.getByTestId('move-x')).toHaveValue('55.000', { timeout: 10_000 });
 
       // Reset restores the source transform, then select the second instance
       // additively. Its union bounds are [0,70], pivot X=35.
-      await commitTransform(() => page.getByTestId('move-reset').click());
+      await commitTransform(page, () => page.getByTestId('move-reset').click());
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
       const secondCenter = await project([60, 10, 10]);
       if (!secondCenter) throw new Error('second cube projection unavailable');
@@ -2621,7 +2809,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
 
       // Numeric edits translate the whole selection by the pivot delta.
       await page.getByTestId('move-x').fill('45');
-      await commitTransform(() => page.getByTestId('move-x').press('Enter'));
+      await commitTransform(page, () => page.getByTestId('move-x').press('Enter'));
       await expect(page.getByTestId('move-x')).toHaveValue('45.000');
 
       // Garbage input is rejected and the aggregate pivot remains intact.
@@ -2629,11 +2817,17 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await page.getByTestId('move-y').press('Enter');
       await expect(page.getByTestId('move-y')).toHaveValue('10.000');
 
-      // Lift with Z, then Drop to bed returns the selection's minimum Z to 0.
+      // Disable automatic placement so this explicit Drop to Bed exercise can
+      // first lift the selection and then return its aggregate minimum to 0.
+      await page.getByTestId('config-mode-scoped').click();
+      await page.getByTestId('object-list').locator('div[data-testid^="object-"]:not([data-testid="object-list"])')
+        .first().click({ button: 'right', position: { x: 40, y: 4 } });
+      await page.getByTestId('objectlist-auto-drop').click();
+      await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Disable Auto Drop');
       await page.getByTestId('move-z').fill('20');
-      await commitTransform(() => page.getByTestId('move-z').press('Enter'));
+      await commitTransform(page, () => page.getByTestId('move-z').press('Enter'));
       await expect(page.getByTestId('move-z')).toHaveValue('20.000');
-      await commitTransform(() => page.getByTestId('move-drop-bed').click());
+      await commitTransform(page, () => page.getByTestId('move-drop-bed').click());
       await expect(page.getByTestId('move-z')).toHaveValue('10.000');
 
       // Slice consumes the committed native transforms.
@@ -2928,11 +3122,11 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
       // store an exact sheared affine matrix: world-X doubles, world-Y/Z stay.
       await page.getByTestId('gizmo-btn-rotate').click();
       await page.getByTestId('rotate-x').fill('-16');
-      await page.getByTestId('rotate-x').press('Enter');
+      await commitTransform(page, () => page.getByTestId('rotate-x').press('Enter'));
       await page.getByTestId('rotate-y').fill('41.8');
-      await page.getByTestId('rotate-y').press('Enter');
+      await commitTransform(page, () => page.getByTestId('rotate-y').press('Enter'));
       await page.getByTestId('rotate-z').fill('163.8');
-      await page.getByTestId('rotate-z').press('Enter');
+      await commitTransform(page, () => page.getByTestId('rotate-z').press('Enter'));
       const rotated = await bounds();
       if (!rotated) throw new Error('selection bounds unavailable');
 
@@ -2940,7 +3134,7 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
       await page.getByTestId('gizmo-btn-scale').click();
       await page.getByTestId('scale-space-world').click();
       await page.getByTestId('scale-factor-x').fill('200');
-      await page.getByTestId('scale-factor-x').press('Enter');
+      await commitTransform(page, () => page.getByTestId('scale-factor-x').press('Enter'));
       const scaled = await bounds();
       if (!scaled) throw new Error('scaled bounds unavailable');
       expect(scaled.size[0]).toBeCloseTo(rotated.size[0] * 2, 5);

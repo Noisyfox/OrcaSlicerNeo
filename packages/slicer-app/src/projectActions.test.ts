@@ -11,7 +11,8 @@ import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
-import { noticesFor, importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, saveProjectAs, sortProjectInputs } from './projectActions';
+import { trackReleasedTransform } from './components/workspace/actions/persistModelTransforms';
+import { projectDirtyStatus, noticesFor, importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, saveProjectAs, sortProjectInputs } from './projectActions';
 import { registerMeasureCommands } from './components/workspace/viewport/gizmo/measure/projectCommands';
 import type { MeasureController } from './components/workspace/viewport/gizmo/measure/MeasureController';
 
@@ -497,6 +498,41 @@ describe('transactional project actions', () => {
     expect(useProjectStore.getState()).toMatchObject({ hasContent: true, dirty: false, projectFileName: 'Robot.3mf' });
     expect((await saveProjectAs(platform)).status).toBe('ok');
     expect(projects.saveAs).toHaveBeenCalled();
+  });
+
+  it('reads the dirty checkpoint and starts Save As only after a released edit publishes', async () => {
+    const { platform, runtime, projects } = platformFor();
+    let commit!: () => void;
+    trackReleasedTransform(new Promise(resolve => { commit = () => {
+      runtime.getHistoryStatus.mockResolvedValue({ ...loadedHistoryStatus, dirty: true, revision: 2 });
+      useProjectStore.setState({ hasContent: true, dirty: true });
+      resolve({ outcome: 'committed' });
+    }; }));
+    const dirty = projectDirtyStatus(platform);
+    const save = saveProjectAs(platform);
+    await Promise.resolve();
+    expect(runtime.getHistoryStatus).not.toHaveBeenCalled();
+    expect(runtime.exportProject).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+    commit();
+    await expect(dirty).resolves.toBe(true);
+    await expect(save).resolves.toEqual({ status: 'ok' });
+    expect(projects.saveAs).toHaveBeenCalledOnce();
+    expect(runtime.markHistorySaved).toHaveBeenCalledOnce();
+  });
+
+  it('avoids replacing or saving a project after a just-released transform fails', async () => {
+    const { platform, runtime, projects } = platformFor();
+    let fail!: () => void;
+    trackReleasedTransform(new Promise(resolve => { fail = () => resolve({ outcome: 'stale', error: 'Move is stale' }); }));
+    const save = saveProject(platform);
+    const replace = newProject(platform);
+    fail();
+    expect((await save).status).toBe('failed');
+    expect((await replace).status).toBe('failed');
+    expect(runtime.closeProject).not.toHaveBeenCalled();
+    expect(projects.save).not.toHaveBeenCalled();
+    expect(runtime.markHistorySaved).not.toHaveBeenCalled();
   });
 
   it('keeps every stage of project saving non-cancellable', async () => {

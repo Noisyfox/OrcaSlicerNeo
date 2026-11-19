@@ -55,6 +55,7 @@ export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneIntera
     const factorDelta = [1, 1, 1] as Vec3;
     factorDelta[axis] = (parsed / 100) / displayedFactor[axis];
     sceneInteraction.scaleSelectionBy(factorDelta);
+    setFactorDraft(null);
   };
 
   const commitSize = (axis: number, text: string) => {
@@ -64,6 +65,7 @@ export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneIntera
       return;
     }
     sceneInteraction.scaleSelectionToSize(axis as 0 | 1 | 2, parsed);
+    setSizeDraft(null);
   };
 
   const factorInput = (axis: 'x' | 'y' | 'z', i: number) => (

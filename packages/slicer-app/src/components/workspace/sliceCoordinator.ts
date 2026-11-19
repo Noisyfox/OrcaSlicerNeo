@@ -1,6 +1,7 @@
 import { paintingCommandAllowed, closePaintingForCommand } from './viewport/gizmo/painting/projectCommands';
 import { closeMeasureForCommand } from './viewport/gizmo/measure/projectCommands';
-import type { SliceStatus } from '@/stores/useSlicerStore';
+import { waitForSettledModelTransforms } from './actions/persistModelTransforms';
+import { useSlicerStore, type SliceStatus } from '@/stores/useSlicerStore';
 
 export interface WorkspaceSliceCoordinator {
   /** Ensure the current model has a slice, joining this coordinator's task. */
@@ -32,18 +33,23 @@ export function createWorkspaceSliceCoordinator({
 }: WorkspaceSliceCoordinatorDeps): WorkspaceSliceCoordinator {
   let inFlight: Promise<void> | null = null;
 
-  const ensureSlice = (): Promise<void> => {
+  const ensureSlice = (pending = waitForSettledModelTransforms()): Promise<void> => {
     if (!paintingCommandAllowed() || !isModelLoaded()) return Promise.resolve();
 
-    const status = getStatus();
-    if (status === 'done' || status === 'slicing') {
-      return inFlight ?? Promise.resolve();
-    }
     if (inFlight) return inFlight;
 
     // Preview can open as soon as Measure closes locally. A new slice must
     // still wait for its queued native resources to finish closing.
     const task = Promise.resolve().then(async () => {
+      if (pending) {
+        const settled = await pending;
+        if (!settled.ok) {
+          useSlicerStore.getState().setError(settled.error, 'slice');
+          return;
+        }
+      }
+      const status = getStatus();
+      if (status === 'done' || status === 'slicing' || !isModelLoaded()) return;
       await closeMeasureForCommand();
       return slice();
     });
@@ -57,11 +63,12 @@ export function createWorkspaceSliceCoordinator({
   return {
     ensureSlice,
     requestPreviewSlice: async () => {
-      if (!paintingCommandAllowed() || !await closePaintingForCommand()) return;
+      if (!paintingCommandAllowed()) return;
+      const pending = waitForSettledModelTransforms();
+      if (!await closePaintingForCommand()) return;
       const measureCleanup = closeMeasureForCommand();
       requestPreview();
-      await measureCleanup;
-      return ensureSlice();
+      await Promise.all([measureCleanup, ensureSlice(pending)]);
     },
   };
 }

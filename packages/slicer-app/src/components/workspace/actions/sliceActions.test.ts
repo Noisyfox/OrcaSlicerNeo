@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { trackReleasedTransform } from './persistModelTransforms';
 import { cancelSlice, sliceModel } from './sliceActions';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
@@ -15,6 +16,18 @@ const noOpRecompute = (currentPlateId: string, inputRevisions: Record<string, nu
 }));
 
 describe('slice result publication', () => {
+  it('aborts before defensive synchronization when the preceding edit fails', async () => {
+    let release!: () => void;
+    trackReleasedTransform(new Promise(resolve => { release = () => resolve({ outcome: 'failed', error: 'Move failed' }); }));
+    const runtime = { recomputePlateMembership: vi.fn(), slicePlate: vi.fn() };
+    const task = sliceModel({ runtime } as never);
+    release();
+    await task;
+    expect(runtime.recomputePlateMembership).not.toHaveBeenCalled();
+    expect(runtime.slicePlate).not.toHaveBeenCalled();
+    expect(useSlicerStore.getState().error).toBe('Move failed');
+  });
+
   it('reports thumbnail capture failure before admitting a native slice', async () => {
     const session = { ok: true, currentPlateId: 'a', inputRevisions: { a: 1 }, instances: [],
       plates: [{ plateId: 'a', origin: [0, 0, 0], instanceIds: [1] }] };

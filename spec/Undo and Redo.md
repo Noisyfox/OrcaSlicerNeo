@@ -378,12 +378,29 @@ reviewed and ported deliberately as separate Neo changes.
 ### 6.2 Transform synchronization boundary
 
 During pointer or gizmo dragging, React/three.js retains temporary transform
-state for responsive rendering. At gesture start, the Worker captures the
-pre-change model version; at successful gesture end, React sends the final
-transform once to the Worker `Model` and commits the history transaction.
+state for responsive rendering. At gesture start, the Worker revision and
+stable target identities are reserved; at successful gesture end, React sends
+the final transform once to the Worker `Model` and commits the history
+transaction. Auto Drop corrections are part of that same transaction and are
+published only after it commits.
 Numeric transforms, Drop to Bed, and Reset use the same capture/sync/commit
 sequence. Cancelling a gesture restores its local pre-gesture transform and
 aborts the Worker transaction.
+
+Release publishes a completion promise synchronously, including for numeric
+field blur. A Save shortcut issued while a transform field still has focus
+saves the last committed value. Enter or ordinary focus loss submits the
+draft. Slice, history navigation, object-list mutations, Save/Save As and
+project dirty checks wait for previously released transforms before entering
+the project FIFO or reading the model. Completion includes the Worker history
+commit and publication of corrected sibling transforms. A failed or stale edit
+stops the dependent command. The transform records its editing context at
+release so later tool or tab changes cannot create a history entry for a move
+cancelled out by Auto Drop.
+
+Pointer motion, selection, and Preview navigation stay local. Preview can
+open immediately and checks whether a cached slice still applies after the
+released edits settle. Each Undo or Redo still submits its own request.
 
 The existing pre-slice full transform synchronization remains a defensive
 consistency check, not the first time a committed transform is written to the

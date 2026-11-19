@@ -12,7 +12,7 @@ import { deleteSelection } from './deleteSelection';
 const structure = {
   ok: true as const,
   objects: [{
-    id: 1, index: 0, name: 'Cube', printable: true, instanceCount: 2,
+    id: 1, index: 0, name: 'Cube', printable: true, autoDrop: true, instanceCount: 2,
     volumes: [
       { id: 10, index: 0, name: 'Part 1', type: 'model_part' as const, isSplittable: false },
       { id: 11, index: 1, name: 'Part 2', type: 'model_part' as const, isSplittable: false },

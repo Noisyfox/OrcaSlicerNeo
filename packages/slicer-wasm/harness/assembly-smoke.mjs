@@ -152,7 +152,14 @@ for (const autoDrop of [false, true]) {
   ok(call('orc_history_redo')); assert.deepEqual(structure(), [assembly]); assert.deepEqual(worldVertices(), afterWorld);
   const redoneArchive = entries(archive());
   for (const name of nativeMetadata) assert.equal(redoneArchive.get(name), afterArchive.get(name), `Redo restores ${name}`);
-  console.log(`PASS native assembly attributes, affine copies, unique IDs, one-step history; auto_drop=${autoDrop}`);
+  load(archive());
+  const reloaded = structure();
+  assert.equal(reloaded.length, 1);
+  assert.equal(reloaded[0].instances.length, 1);
+  assert.equal(reloaded[0].volumes.length, 3, '3MF round trip preserves every assembled copy');
+  assert.equal(reloaded[0].autoDrop, autoDrop);
+  assert.deepEqual(worldVertices(), afterWorld, '3MF round trip preserves assembled world geometry');
+  console.log(`PASS native assembly attributes, affine copies, unique IDs, one-step history and 3MF round trip; auto_drop=${autoDrop}`);
 }
 load(fixture(painted, false));
 let a = structure()[0];

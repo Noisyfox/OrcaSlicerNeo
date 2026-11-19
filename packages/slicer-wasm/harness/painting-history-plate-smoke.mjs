@@ -223,10 +223,10 @@ for (const channel of ['support','seam','fuzzy','mmu']) {
   delete movedTransform.matrix;
   const tx = ok(call('orc_history_begin', ['string','string','string','string'],
     ['Move shared instance', 'project', JSON.stringify(context), '']));
-  ok(call('orc_set_model_transforms', ['string','string'], [tx.transactionId, JSON.stringify([{
+  ok(call('orc_set_model_transforms', ['string','string', 'string'], [tx.transactionId, JSON.stringify([{
     objectIdx: shared.object_idx, volumeIdx: shared.volume_idx, instanceIdx: shared.instance_idx,
     instanceTransform: movedTransform, volumeTransform: shared.volume_transform,
-  }])]));
+  }]), 'direct']));
   const moveCommit = call('orc_history_commit', ['string','string'], [tx.transactionId, JSON.stringify(context)]);
   assert.equal(moveCommit.status.canUndo, true);
   const beforeJump = plates().input_revisions;

@@ -20,13 +20,15 @@ const operations: Operation[] = [
   { name: 'orc_reorder_volumes', fields: ['objects'], invoke: (c, o) => c.reorderVolumes(o[0].id, o[0].volumes[0].id, 0) },
   { name: 'orc_split_volume_to_parts', fields: ['parts', 'newVolumeIds', 'objects'], invoke: (c, o) => c.splitVolumeToParts(o[0].volumes[0].id) },
   { name: 'orc_mesh_boolean', fields: ['changed', 'objectId', 'volumeId', 'objects', 'warning'], invoke: async (c, o) => { const result = await c.meshBoolean({ entry: 'object', objectId: o[0].id, keepPainting: false }); if (result.ok && !result.changed) throw new Error('Expected a changed fixture'); return result; } },
-  { name: 'orc_split_object_to_objects', fields: ['objects', 'newObjectIds'], invoke: (c, o) => c.splitObjectToObjects(o[0].id) },
+  { name: 'orc_split_object_to_objects', fields: ['objects', 'newObjectIds'], invoke: async (c, o) => c.splitObjectToObjects(o[0].id,
+    { disableAutoDrop: false, revision: (await c.getHistoryStatus()).revision }) },
   { name: 'orc_merge_objects_to_multipart', fields: ['objects', 'objectId'], invoke: (c, o) => c.mergeObjectsToMultipart(o.map(object => ({ objectId: object.id, instanceIds: object.instances.map(instance => instance.id) })), 'merged') },
   { name: 'orc_instances_to_separate_objects', fields: ['objects', 'newObjectIds'], invoke: (c, o) => c.separateInstances(o[0].id, [o[0].instances[1].id]) },
   { name: 'orc_add_instance', fields: ['objectId', 'instanceId'], invoke: (c, o) => c.addInstance(o[0].id) },
   { name: 'orc_remove_instance', fields: [], invoke: (c, o) => c.removeInstance(o[0].id, o[0].instances[1].id) },
   { name: 'orc_set_volume_type', fields: [], invoke: (c, o) => c.setVolumeType(o[0].volumes[0].id, 'model_part') },
   { name: 'orc_set_object_printable', fields: [], invoke: (c, o) => c.setObjectPrintable(o[0].id, true) },
+  { name: 'orc_set_objects_auto_drop', fields: [], invoke: (c, o) => c.setObjectsAutoDrop([o[0].id], false) },
   { name: 'orc_set_instance_printable', fields: [], invoke: (c, o) => c.setInstancePrintable(o[0].instances[0].id, true) },
 ];
 

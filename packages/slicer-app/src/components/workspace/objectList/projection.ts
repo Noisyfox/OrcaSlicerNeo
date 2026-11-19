@@ -188,16 +188,20 @@ export function projectSelection(
   const objSelected = new Map<number, number>();
   const instTotal = new Map<string, number>();
   const instSelected = new Map<string, number>();
+  for (const { objectIdx, instanceIdx } of selected) {
+    objSelected.set(objectIdx, (objSelected.get(objectIdx) ?? 0) + 1);
+    const key = `${objectIdx}:${instanceIdx}`;
+    instSelected.set(key, (instSelected.get(key) ?? 0) + 1);
+  }
+
   for (const obj of structure) {
     objIdByIndex.set(obj.index, obj.id);
     obj.volumes.forEach((vol, vi) => volIdByIndex.set(`${obj.index}:${vi}`, vol.id));
     obj.instances.forEach((inst, ii) => instIdByIndex.set(`${obj.index}:${ii}`, inst.id));
     objTotal.set(obj.index, obj.volumes.length * obj.instances.length);
-    objSelected.set(obj.index, selected.filter((s) => s.objectIdx === obj.index).length);
     for (const inst of obj.instances) {
       const key = `${obj.index}:${inst.index}`;
       instTotal.set(key, obj.volumes.length);
-      instSelected.set(key, selected.filter((s) => s.objectIdx === obj.index && s.instanceIdx === inst.index).length);
     }
   }
 

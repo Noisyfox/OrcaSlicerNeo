@@ -300,7 +300,14 @@ function AppContent() {
     }
     if (!paintingCommandAllowed()) { await platform.lifecycle?.respondClose(false); return; }
     let allow = true;
-    if (await projectDirtyStatus(platform)) {
+    let dirty: boolean;
+    try { dirty = await projectDirtyStatus(platform); }
+    catch (error) {
+      reportProjectFailure({ status: 'failed', error });
+      await platform.lifecycle?.respondClose(false);
+      return;
+    }
+    if (dirty) {
       const decision = await decideDirty('close');
       if (decision === 'cancel') allow = false;
       else if (decision === 'save') {

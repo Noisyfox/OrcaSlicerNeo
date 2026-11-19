@@ -883,7 +883,8 @@ check('slice error surfaces the real message, not the bare category',
   const s = callJson('orc_get_model_structure', [], []);
   const obj = s.objects?.[0];
   if (obj) {
-    const split = callJson('orc_split_object_to_objects', ['number', 'number'], [obj.id, 0]);
+    const preview = callJson('orc_preview_split_object', ['number'], [obj.id]);
+    const split = callJson('orc_split_object_to_objects', ['number', 'number', 'number'], [obj.id, 0, preview.revision]);
     check('orc_split_object_to_objects produces one object per shell',
           split.ok === true && Array.isArray(split.newObjectIds)
           && split.newObjectIds.length >= 2 && split.objects === 2,

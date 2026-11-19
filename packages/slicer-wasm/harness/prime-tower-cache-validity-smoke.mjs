@@ -49,9 +49,9 @@ function move(entry, offset) {
     ['Move', 'project', context, '']);
   const transform = { ...entry.instance_transform, offset };
   delete transform.matrix;
-  const mutation = call('orc_set_model_transforms', ['string', 'string'], [transaction.transactionId,
+  const mutation = call('orc_set_model_transforms', ['string', 'string', 'string'], [transaction.transactionId,
     JSON.stringify([{ objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
-      instanceTransform: transform, volumeTransform: entry.volume_transform }])]);
+      instanceTransform: transform, volumeTransform: entry.volume_transform }]), 'direct']);
   call('orc_history_commit', ['string', 'string'], [transaction.transactionId, context]);
   return mutation;
 }

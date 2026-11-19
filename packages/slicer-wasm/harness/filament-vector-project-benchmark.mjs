@@ -497,8 +497,8 @@ async function main() {
     const moveTransaction = callJsonTimed(Module, 'orc_history_begin',
       ['string', 'string', 'string', 'string'], ['Move', 'project', JSON.stringify(historyContext), '']);
     requireOk('begin pure Move transaction', moveTransaction.result);
-    const moveResult = callJsonTimed(Module, 'orc_set_model_transforms', ['string', 'string'],
-      [moveTransaction.result.transactionId, JSON.stringify(moveRequest)]);
+    const moveResult = callJsonTimed(Module, 'orc_set_model_transforms', ['string', 'string', 'string'],
+      [moveTransaction.result.transactionId, JSON.stringify(moveRequest), 'direct']);
     requireOk('apply pure Move', moveResult.result);
     const moveCommit = callJsonTimed(Module, 'orc_history_commit', ['string', 'string'],
       [moveTransaction.result.transactionId, JSON.stringify(historyContext)]);

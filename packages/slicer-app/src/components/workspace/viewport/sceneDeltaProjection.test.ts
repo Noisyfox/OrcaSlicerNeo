@@ -16,7 +16,8 @@ function structure(objectId: number, index: number, volumeId = objectId + 100): 
     index,
     name: `object-${objectId}`,
     printable: true,
-    isCut: false, instanceCount: 1,
+    autoDrop: true, isCut: false,
+    instanceCount: 1,
     volumes: [{ id: volumeId, index: 0, name: 'part', type: 'model_part', isSplittable: false }],
     instances: [{ id: objectId + 200, index: 0, printable: true }],
   };

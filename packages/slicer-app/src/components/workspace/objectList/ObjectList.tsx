@@ -18,7 +18,8 @@ import {
   type ObjectListValidity,
   type SelectableRow,
 } from './projection';
-import { renameObjectInList, renamePartInList, setObjectPrintableInList, setInstancePrintableInList } from './actions';
+import { prepareObjectListMutation, assignFilamentInList, renameObjectInList, renamePartInList, setObjectPrintableInList, setInstancePrintableInList, setObjectsAutoDropInList } from './actions';
+import { selectedAutoDropObjects } from './autoDrop';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -77,7 +78,6 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   }, [plateSessionPlates, plateSessionInstances]);
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const filamentPending = useFilamentSessionStore((s) => s.pendingKind !== null);
-  const runFilament = useFilamentSessionStore((s) => s.run);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
@@ -120,9 +120,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         onClick={(event) => {
           event.stopPropagation();
           setResetPending(true);
-          void commitScopedConfigurationMutation(platform, {
+          void prepareObjectListMutation().then(prepared => prepared.ok ? commitScopedConfigurationMutation(platform, {
             version: 1, operation: 'reset-all', targets: [{ scope, id }],
-          }).then((mutation) => {
+          }) : null).then((mutation) => {
             if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
           }).catch(() => {
             // The shared mutation path publishes the runtime error to the UI.
@@ -134,11 +134,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
     const targets = assignmentTargetsForSelection({ kind, id }, projection, structure);
     if (targets.length === 0) return;
-    void runFilament(platform.runtime, () => {
-      const current = useFilamentSessionStore.getState().snapshot;
-      if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
-      return platform.runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
-    });
+    void assignFilamentInList(platform.runtime, targets, slot);
   }
 
   useEffect(() => {
@@ -388,6 +384,15 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     </div>
   ) : (
     <div data-testid="object-list" className="object-list-tree py-2"
+      onKeyDown={(event) => {
+        if (event.key.toLowerCase() !== 'd' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+        if ((event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
+        const objects = selectedAutoDropObjects(structure, projection);
+        if (objects.length === 0) return;
+        event.preventDefault();
+        void setObjectsAutoDropInList(platform.runtime, objects.map((object) => object.id),
+          !objects.every((object) => object.autoDrop), sceneInteraction);
+      }}
       onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleListDropToEnd}>

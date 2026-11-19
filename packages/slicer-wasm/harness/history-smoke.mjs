@@ -147,9 +147,9 @@ if (!freshBody) throw new Error(`fresh Cube mesh unavailable: ${JSON.stringify(f
 const freshMove = { ...freshBody.instance_transform,
   offset: [freshBody.instance_transform.offset[0] + 10, freshBody.instance_transform.offset[1], freshBody.instance_transform.offset[2]] };
 delete freshMove.matrix;
-historyCheck('fresh-project Cube move succeeds', callJson('orc_set_model_transforms', ['string', 'string'],
+historyCheck('fresh-project Cube move succeeds', callJson('orc_set_model_transforms', ['string', 'string', 'string'],
   [freshMoveTx.transactionId, JSON.stringify([{ objectIdx: freshBody.object_idx, volumeIdx: freshBody.volume_idx,
-    instanceIdx: freshBody.instance_idx, instanceTransform: freshMove, volumeTransform: freshBody.volume_transform }])]).ok === true);
+    instanceIdx: freshBody.instance_idx, instanceTransform: freshMove, volumeTransform: freshBody.volume_transform }]), 'direct']).ok === true);
 const freshScopedConfigMutation = mutateNativeScopedConfig(callJson, 'set', [
   { scope: 'object', id: String(freshStableIds[0].object_id) },
   { scope: 'part', id: String(freshStableIds[0].volume_ids[0]) },
@@ -522,9 +522,9 @@ function commitTransform(label, transform) {
   const started = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
     [label, 'project', JSON.stringify(context), '']);
   if (!started.ok || typeof started.transactionId !== 'string') throw new Error(JSON.stringify(started));
-  const result = callJson('orc_set_model_transforms', ['string', 'string'], [started.transactionId,
+  const result = callJson('orc_set_model_transforms', ['string', 'string', 'string'], [started.transactionId,
     JSON.stringify([{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0,
-      instanceTransform: transform, volumeTransform: modelMesh().volume_transform }])]);
+      instanceTransform: transform, volumeTransform: modelMesh().volume_transform }]), 'direct']);
   if (!result.ok) throw new Error(`${label} transform failed: ${JSON.stringify(result)}`);
   const status = callJson('orc_history_commit', ['string', 'string'],
     [started.transactionId, JSON.stringify(context)]).status;
@@ -619,8 +619,8 @@ const compoundMoves = compoundMoveIndexes.map((objectIdx, index) => {
   return { objectIdx: body.object_idx, volumeIdx: body.volume_idx, instanceIdx: body.instance_idx,
     instanceTransform: transform, volumeTransform: body.volume_transform };
 });
-const compoundMoved = callJson('orc_set_model_transforms', ['string', 'string'],
-  [compoundTx, JSON.stringify(compoundMoves)]);
+const compoundMoved = callJson('orc_set_model_transforms', ['string', 'string', 'string'],
+  [compoundTx, JSON.stringify(compoundMoves), 'direct']);
 historyCheck('compound transaction moves existing and added objects', compoundMoved.ok === true,
   JSON.stringify(compoundMoved));
 const compoundDeleted = callJson('orc_delete_objects', ['string'],
@@ -677,8 +677,8 @@ const atomicTransforms = atomicBefore.renderables.slice(0, 2).map((entry, index)
     volumeTransform: entry.volume_transform,
   };
 });
-const atomicMoved = callJson('orc_set_model_transforms', ['string', 'string'],
-  [atomicTx.transactionId, JSON.stringify(atomicTransforms)]);
+const atomicMoved = callJson('orc_set_model_transforms', ['string', 'string', 'string'],
+  [atomicTx.transactionId, JSON.stringify(atomicTransforms), 'direct']);
 historyCheck('atomic multi-object transform result', atomicMoved.ok === true && Array.isArray(atomicMoved.instance_transforms));
 const atomicAfter = callJson('orc_get_model_mesh', [], []);
 historyCheck('atomic multi-object transform changes both live targets',
@@ -698,8 +698,8 @@ historyCheck('atomic multi-object transform redo', atomicRedo.ok === true);
 const rejectedTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Rejected Atomic Move', 'project', JSON.stringify(context), '']);
 const beforeRejected = callJson('orc_get_model_mesh', [], []);
-const rejected = callJson('orc_set_model_transforms', ['string', 'string'], [rejectedTx.transactionId,
-  JSON.stringify([atomicTransforms[0], { ...atomicTransforms[1], objectIdx: 999 }])]);
+const rejected = callJson('orc_set_model_transforms', ['string', 'string', 'string'], [rejectedTx.transactionId,
+  JSON.stringify([atomicTransforms[0], { ...atomicTransforms[1], objectIdx: 999 }]), 'direct']);
 historyCheck('atomic second target rejection rolls back all targets', rejected.ok === false &&
   JSON.stringify(callJson('orc_get_model_mesh', [], []).renderables.slice(0, 2).map((entry) => entry.instance_transform)) ===
     JSON.stringify(beforeRejected.renderables.slice(0, 2).map((entry) => entry.instance_transform)));
@@ -707,7 +707,7 @@ const rejectedAbort = callJson('orc_history_abort', ['string'], [rejectedTx.tran
 historyCheck('atomic rejected transaction abort is revision-stable', rejectedAbort.ok === true && rejectedAbort.status.revision === atomicRedo.status.revision);
 const staleTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Stale Atomic Move', 'project', JSON.stringify(context), '']);
-const stale = callJson('orc_set_model_transforms', ['string', 'string'], ['tx-stale', JSON.stringify([atomicTransforms[0]])]);
+const stale = callJson('orc_set_model_transforms', ['string', 'string', 'string'], ['tx-stale', JSON.stringify([atomicTransforms[0]]), 'direct']);
 historyCheck('atomic stale transaction is rejected', stale.ok === false);
 callJson('orc_history_abort', ['string'], [staleTx.transactionId]);
 // Branching after undo must truncate the old redo entry and preserve the new
@@ -1283,10 +1283,10 @@ const mixedMoveTransform = cloneTransform(mixedBody.instance_transform);
 mixedMoveTransform.offset[0] += 10;
 delete mixedMoveTransform.matrix;
 const mixedMoveTransaction = beginHistory('Move');
-const mixedMove = callJson('orc_set_model_transforms', ['string', 'string'], [mixedMoveTransaction,
+const mixedMove = callJson('orc_set_model_transforms', ['string', 'string', 'string'], [mixedMoveTransaction,
   JSON.stringify([{ objectIdx: mixedBody.object_idx, volumeIdx: mixedBody.volume_idx,
     instanceIdx: mixedBody.instance_idx, instanceTransform: mixedMoveTransform,
-    volumeTransform: mixedBody.volume_transform }])]);
+    volumeTransform: mixedBody.volume_transform }]), 'direct']);
 historyCheck('mixed jump Move applies', mixedMove.ok === true, JSON.stringify(mixedMove));
 commitHistory('mixed jump Move', mixedMoveTransaction);
 
@@ -1390,9 +1390,9 @@ for (const [key, value, preservesUsage] of [
     const transform = { ...body.instance_transform,
       offset: [body.instance_transform.offset[0] + 2, body.instance_transform.offset[1], body.instance_transform.offset[2]] };
     delete transform.matrix;
-    historyCheck('usage fixture moves instance', callJson('orc_set_model_transforms', ['string', 'string'],
+    historyCheck('usage fixture moves instance', callJson('orc_set_model_transforms', ['string', 'string', 'string'],
       [usageTransaction, JSON.stringify([{ objectIdx: body.object_idx, volumeIdx: body.volume_idx,
-        instanceIdx: body.instance_idx, instanceTransform: transform, volumeTransform: body.volume_transform }])]).ok === true);
+        instanceIdx: body.instance_idx, instanceTransform: transform, volumeTransform: body.volume_transform }]), 'direct']).ok === true);
   } else {
     historyCheck(`usage fixture sets ${key}`, setNativeScopedConfig(callJson,
       'object', usageObjectId, key, value).ok === true);

@@ -231,6 +231,50 @@ function assertSavedAutoDrop(expectedCount, autoDrop) {
   assert.equal(objects.length, expectedCount);
   for (const object of objects) assert.match(object, new RegExp(`\\bauto_drop="${autoDrop}"`));
 }
+
+for (const allEnabled of [false, true]) {
+  loadAutoDropFixture(readZipEntries(buildIndependentReader3mf()));
+  const source = call('orc_get_model_structure').objects[0];
+  const firstClone = edit('Clone first', () => call('orc_clone_objects', ['string'], [JSON.stringify([source.id])])).result.newObjectIds[0];
+  const unrelated = edit('Clone unrelated', () => call('orc_clone_objects', ['string'], [JSON.stringify([source.id])])).result.newObjectIds[0];
+  if (!allEnabled) edit('Disable source Auto Drop', () => call('orc_set_objects_auto_drop', ['string', 'number'],
+    [JSON.stringify([firstClone]), 0]));
+  const ids = [source.id, firstClone];
+  const requests = fullModel().renderables.filter((body) => ids.includes(body.object_id)).map((body, index) => {
+    const transform = structuredClone(body.instance_transform);
+    transform.offset[2] += 5 + index * 5;
+    transform.matrix[14] += 5 + index * 5;
+    return { objectIdx: body.object_idx, volumeIdx: body.volume_idx, instanceIdx: body.instance_idx,
+      instanceTransform: transform, volumeTransform: body.volume_transform };
+  });
+  const tx = begin('Raise assembly sources');
+  assert.equal(call('orc_set_model_transforms', ['string', 'string', 'string'], [tx, JSON.stringify(requests), 'direct']).ok, true);
+  commit(tx);
+  const before = fullModel().renderables;
+  const worldHeights = (items) => items.map((body) => body.instance_transform.matrix[14] + body.volume_transform.matrix[14]).sort((a, b) => a - b);
+  const oldHeights = worldHeights(before.filter((body) => ids.includes(body.object_id)));
+  const otherZ = before.find((body) => body.object_id === unrelated).instance_transform.offset[2];
+  const merged = edit('Assemble Auto Drop', () => call('orc_merge_objects_to_multipart', ['string', 'string'],
+    [JSON.stringify(ids.map(id => ({ objectId: id, instanceIds: call('orc_get_model_structure').objects.find(object => object.id === id).instances.map(instance => instance.id) }))), 'Assembly'])).result;
+  assert.equal(call('orc_get_model_structure').objects.find((object) => object.id === merged.objectId).autoDrop, allEnabled);
+  const after = fullModel().renderables;
+  const heights = worldHeights(after.filter((body) => body.object_id === merged.objectId));
+  const shift = allEnabled ? 10 - oldHeights[0] : 0;
+  assert.ok(heights.every((height, index) => Math.abs(height - oldHeights[index] - shift) < 1e-8));
+  assert.equal(after.find((body) => body.object_id === unrelated).instance_transform.offset[2], otherZ);
+  const exported = call('orc_export_project', ['string'], ['{}']);
+  assert.equal(exported.ok, true);
+  const bytes = module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
+  module._free(Number(exported.bytes_ptr));
+  const settings = readZipEntries(bytes).find((entry) => entry.name === 'Metadata/model_settings.config');
+  const flags = [...new TextDecoder().decode(settings.content).matchAll(/<object\b[^>]*\bauto_drop="([01])"/g)]
+    .map((match) => Number(match[1])).sort();
+  assert.deepEqual(flags, [allEnabled ? 1 : 0, 1]);
+  assert.equal(call('orc_history_undo').ok, true);
+  assert.deepEqual(call('orc_get_model_structure').objects.filter((object) => ids.includes(object.id)).map((object) => object.autoDrop), [true, allEnabled]);
+  assert.equal(call('orc_history_redo').ok, true);
+  assert.equal(call('orc_get_model_structure').objects.find((object) => object.id === merged.objectId).autoDrop, allEnabled);
+}
 function loadAutoDropFixture(entries) {
   // The minimal reader asset omits some per-slot arrays. Like the painted
   // fixture, materialize its two-slot shape before exercising strict history
@@ -261,17 +305,110 @@ for (const legacyValues of [[1, 0], [1, 1], [undefined, undefined]]) {
   const entries = readZipEntries(buildIndependentReader3mf());
   const modelEntry = entries.find(entry => entry.name === '3D/3dmodel.model');
   const items = legacyValues.map((value, index) =>
-    `<item objectid="1" transform="1 0 0 0 1 0 0 0 1 ${100 + 30 * index} 100 10" printable="1"${value === undefined ? '' : ` auto_drop="${value}"`}/>`);
+    `<item objectid="1" transform="1 0 0 0 1 0 0 0 1 ${100 + 30 * index} 100 20" printable="1"${value === undefined ? '' : ` auto_drop="${value}"`}/>`);
   modelEntry.content = encoder.encode(decoder.decode(modelEntry.content)
     .replace(/<build>[\s\S]*?<\/build>/, `<build>${items.join('')}</build>`));
   const settingsEntry = entries.find(entry => entry.name === 'Metadata/model_settings.config');
   settingsEntry.content = encoder.encode(decoder.decode(settingsEntry.content).replace('</model_instance>',
     '</model_instance><model_instance><metadata key="object_id" value="1"/><metadata key="instance_id" value="1"/><metadata key="identify_id" value="2"/></model_instance>'));
   loadAutoDropFixture(entries);
-  assert.equal(call('orc_get_model_structure').objects[0].instances.length, 2,
+  const object = call('orc_get_model_structure').objects[0];
+  assert.equal(object.instances.length, 2,
     'the legacy any-off case must load both build items');
+  assert.equal(object.autoDrop, !legacyValues.includes(0));
   assertSavedAutoDrop(1, legacyValues.includes(0) ? 0 : 1);
+  if (legacyValues.includes(0)) {
+    const before = fullModel().renderables.map(item => item.instance_transform.offset[2]);
+    const rejected = call('orc_set_objects_auto_drop', ['string', 'number'], [JSON.stringify([object.id, 99999999]), 1]);
+    assert.equal(rejected.ok, false);
+    assert.equal(call('orc_get_model_structure').objects[0].autoDrop, false);
+    const enabled = edit('Enable Auto Drop', () => call('orc_set_objects_auto_drop', ['string', 'number'],
+      [JSON.stringify([object.id]), 1]));
+    assert.equal(enabled.result.plate_session.instance_transforms.length, 2);
+    const dropped = fullModel().renderables.map(item => item.instance_transform.offset[2]);
+    assert.notDeepEqual(dropped, before);
+    assert.ok(Math.abs((before[0] - dropped[0]) - (before[1] - dropped[1])) < 1e-8);
+    assertSavedAutoDrop(1, 1);
+    assert.equal(call('orc_history_undo').ok, true);
+    assert.equal(call('orc_get_model_structure').objects[0].autoDrop, false);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), before);
+    assertSavedAutoDrop(1, 0);
+    assert.equal(call('orc_history_redo').ok, true);
+    assert.equal(call('orc_get_model_structure').objects[0].autoDrop, true);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), dropped);
+
+    const copies = fullModel().renderables;
+    const requests = copies.map(item => {
+      const instance = structuredClone(item.instance_transform);
+      instance.offset[2] += 5;
+      instance.matrix[14] += 5;
+      return { objectIdx: item.object_idx, volumeIdx: item.volume_idx, instanceIdx: item.instance_idx,
+        instanceTransform: instance, volumeTransform: structuredClone(item.volume_transform) };
+    });
+    const conflict = structuredClone(requests);
+    conflict[1].volumeTransform.offset[0] += 1;
+    conflict[1].volumeTransform.matrix[12] += 1;
+    const rejectedTx = begin('Conflicting transforms');
+    const rejectedTransform = call('orc_set_model_transforms', ['string', 'string', 'string'],
+      [rejectedTx, JSON.stringify(conflict), 'direct']);
+    assert.equal(rejectedTransform.ok, false);
+    assert.match(rejectedTransform.error, /conflicting/);
+    assert.equal(call('orc_history_abort', ['string'], [rejectedTx]).ok, true);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), dropped);
+    const syncTx = begin('Synchronize instances');
+    assert.equal(call('orc_set_model_transforms', ['string', 'string', 'string'], [syncTx, JSON.stringify(requests), 'direct']).ok, true);
+    commit(syncTx);
+    const raised = fullModel().renderables.map(item => item.instance_transform.offset[2]);
+    assert.deepEqual(raised, dropped.map(z => z + 5));
+    assert.equal(call('orc_history_undo').ok, true);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), dropped);
+    assert.equal(call('orc_history_redo').ok, true);
+    assert.deepEqual(fullModel().renderables.map(item => item.instance_transform.offset[2]), raised);
+  }
 }
+// Exercise settling against native mesh geometry and history, not a mock
+// bounding box. The imported fixture is a 20 mm cube resting at Z = 0.
+{
+  loadAutoDropFixture(readZipEntries(buildIndependentReader3mf()));
+  const baseline = fullModel().renderables[0];
+  const restZ = baseline.instance_transform.offset[2];
+  // A transform must carry the ID of its enclosing history transaction.
+  function setZ(z, operation) {
+    const body = fullModel().renderables[0];
+    const transform = structuredClone(body.instance_transform);
+    transform.matrix[14] += z - transform.offset[2];
+    transform.offset[2] = z;
+    const request = { objectIdx: body.object_idx, volumeIdx: body.volume_idx, instanceIdx: body.instance_idx,
+      instanceTransform: transform, volumeTransform: body.volume_transform };
+    const tx = begin(`Auto Drop ${operation}`);
+    const result = call('orc_set_model_transforms', ['string', 'string', 'string'], [tx, JSON.stringify([request]), operation]);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    const committed = commit(tx);
+    return { result, committed };
+  }
+  const revision = call('orc_history_status').revision;
+  const snapped = setZ(restZ + 5, 'move');
+  assert.equal(snapped.result.instance_transforms.length, 1);
+  assert.deepEqual(snapped.result.affected_plate_ids, []);
+  assert.equal(snapped.committed.status.revision, revision);
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - restZ) < 1e-8);
+  setZ(restZ - 0.0005, 'move');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - restZ) < 1e-8);
+  setZ(restZ - 0.002, 'move');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - (restZ - 0.002)) < 1e-8);
+  setZ(restZ - 3, 'rotate');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - (restZ - 3)) < 1e-8);
+  setZ(restZ + 3, 'scale');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - restZ) < 1e-8);
+  assert.equal(call('orc_history_undo').ok, true);
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - (restZ - 3)) < 1e-8);
+  assert.equal(call('orc_history_redo').ok, true);
+  const object = call('orc_get_model_structure').objects[0];
+  edit('Disable Auto Drop', () => call('orc_set_objects_auto_drop', ['string', 'number'], [JSON.stringify([object.id]), 0]));
+  setZ(restZ + 5, 'move');
+  assert.ok(Math.abs(fullModel().renderables[0].instance_transform.offset[2] - (restZ + 5)) < 1e-8);
+}
+
 for (const autoDrop of [0, 1]) {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -294,6 +431,7 @@ for (const autoDrop of [0, 1]) {
   loadAutoDropFixture(entries);
   assertSavedAutoDrop(1, autoDrop);
   const source = call('orc_get_model_structure').objects[0];
+  assert.equal(source.autoDrop, Boolean(autoDrop));
   assert.equal(source.volumes[0].isSplittable, true);
   const parts = edit('Split parts', () => call('orc_split_volume_to_parts', ['number', 'number', 'number'],
     [source.volumes[0].id, 2, 0]));
@@ -301,7 +439,9 @@ for (const autoDrop of [0, 1]) {
   assertSavedAutoDrop(1, autoDrop);
   const undoParts = call('orc_history_undo');
   assert.equal(undoParts.ok, true, JSON.stringify({ autoDrop, undoParts }));
-  const split = edit('Split objects', () => call('orc_split_object_to_objects', ['number', 'number'], [source.id, 0]));
+  const preview = call('orc_preview_split_object', ['number'], [source.id]);
+  assert.equal(preview.ok, true, JSON.stringify(preview));
+  const split = edit('Split objects', () => call('orc_split_object_to_objects', ['number', 'number', 'number'], [source.id, 0, preview.revision]));
   assert.equal(split.result.newObjectIds.length, 2);
   assertSavedAutoDrop(2, autoDrop);
   const undoSplit = call('orc_history_undo');

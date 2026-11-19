@@ -135,8 +135,18 @@ preserve authoritative matrices. Property resets restore the corresponding
 load-time value and remove a matrix that would otherwise mask that reset.
 Drop to bed computes the aggregate true transformed mesh minimum Z across the
 selected instances and applies the same Z translation to every selected
-instance. Preserve their relative heights; do not drop each instance
-independently or substitute transformed local-box corners for actual vertices.
+instance. Preserve relative heights between different objects; instances of
+the same object share one height. Do not drop each selected instance independently
+or substitute transformed local-box corners for actual vertices.
+
+Objects have an Auto Drop setting shared by their instances. After a Move,
+enabled objects are placed on the bed when their model-part minimum Z is above
+the native sinking threshold. Rotate and Scale also place an object that was
+not intentionally sunk before the edit. Deeper intentional sinking is retained
+unless the edit brings the object back above that threshold. Negative volumes,
+modifiers and support volumes do not determine the minimum. Auto Drop disabled
+is shown by arrows at the selected box's bottom corners. Manual Drop to Bed
+remains independent of this setting and keeps the aggregate selection behavior.
 
 Part-scoped edits solve the volume transform from the world-space delta and
 the unchanged instance transform. A volume belongs to its object, so every
@@ -152,6 +162,12 @@ This synchronization occurs on completion, including before subsequent model
 operations. [Undo and Redo](Undo%20and%20Redo.md) owns transaction and restore
 semantics; [Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md)
 owns affected-result invalidation.
+
+The Worker settles automatic placement in the same transaction as the final
+transform and returns corrected instance positions after commit. A new gesture
+for an affected object is blocked until that correction is published; a gesture
+that snaps completely back to its previous position creates no history entry
+and leaves slice results valid.
 
 ## Measure gizmo design
 

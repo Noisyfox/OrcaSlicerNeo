@@ -16,6 +16,175 @@ class Channel implements WorkerTransport {
 }
 
 describe('Worker-owned project history protocol', () => {
+  it.each([
+    ['preserve', true, true], ['drop', false, true], ['already disabled', false, false],
+  ] as const)('splits floating multi-instance objects using %s', async (_choice, disableAutoDrop, sourceEnabled) => {
+    const client = createClient(async () => createMockModule({ volumeCount: 2, instanceCount: 2 }));
+    await client.runProjectHistoryTransaction('Add object', 'project', context(), () => client.addModel(new Uint8Array(4), 'stl'), context());
+    const source = (await client.getModelStructure()).objects[0];
+    if (!sourceEnabled) await client.runProjectHistoryTransaction('Disable Auto Drop', 'project', context(),
+      () => client.setObjectsAutoDrop([source.id], false), context());
+    const part = (await client.getModelMesh()).objects.find((item) => item.volumeIdx === 1 && item.instanceIdx === 0)!;
+    const tx = await client.beginHistory('Raise part', 'project', context());
+    expect((await client.setModelTransforms(tx, [{ objectIdx: part.objectIdx, volumeIdx: part.volumeIdx,
+      instanceIdx: part.instanceIdx, instanceTransform: part.instanceTransform,
+      volumeTransform: { ...part.volumeTransform, offset: [0, 0, 15] } }], 'direct')).ok).toBe(true);
+    await client.commitHistory(tx, context());
+    const before = await client.getModelMesh();
+    const preview = await client.previewSplitObject(source.id);
+    expect(preview).toMatchObject({ ok: true, autoDrop: sourceEnabled, floating: true });
+    if (!preview.ok) throw new Error(preview.error);
+    expect((await client.getModelMesh()).objects).toEqual(before.objects);
+    const split = await client.runProjectHistoryTransaction('Split', 'project', context(),
+      () => client.splitObjectToObjects(source.id, { disableAutoDrop, revision: preview.revision }), context());
+    expect(split.result.ok).toBe(true);
+    const objects = (await client.getModelStructure()).objects;
+    expect(objects.map((object) => object.autoDrop)).toEqual([sourceEnabled && !disableAutoDrop, sourceEnabled && !disableAutoDrop]);
+    expect(objects.map((object) => object.instanceCount)).toEqual([2, 2]);
+    const parts = (await client.getModelMesh()).objects;
+    const heights = parts.map((part) => part.instanceTransform.offset[2] + part.volumeTransform.offset[2]);
+    expect(heights).toEqual(sourceEnabled && !disableAutoDrop ? [0, 0, 0, 0] : [0, 0, 15, 15]);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(sourceEnabled);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects.map((object) => object.autoDrop)).toEqual(objects.map((object) => object.autoDrop));
+  });
+
+  it('rejects a split if the project changes after preview', async () => {
+    const client = createClient(async () => createMockModule({ volumeCount: 2 }));
+    await client.runProjectHistoryTransaction('Add object', 'project', context(), () => client.addModel(new Uint8Array(4), 'stl'), context());
+    const source = (await client.getModelStructure()).objects[0];
+    const open = await client.beginHistory('Uncommitted edit', 'project', context());
+    expect(await client.previewSplitObject(source.id)).toMatchObject({ ok: false, error: expect.stringContaining('active history') });
+    await client.abortHistory(open);
+    const preview = await client.previewSplitObject(source.id);
+    if (!preview.ok) throw new Error(preview.error);
+    await client.runProjectHistoryTransaction('Rename', 'project', context(), () => client.renameObject(source.id, 'Changed'), context());
+    const rejected = await client.splitObjectToObjects(source.id, { disableAutoDrop: false, revision: preview.revision });
+    expect(rejected).toMatchObject({ ok: false, error: expect.stringContaining('stale') });
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+  });
+
+  it.each([true, false])('assembles with Auto Drop %s and restores source settings through history', async (allEnabled) => {
+    const client = createClient(async () => createMockModule());
+    await client.runProjectHistoryTransaction('Add objects', 'project', context(), async () => {
+      await client.addShape('Cube');
+      return client.addShape('Cube');
+    }, context());
+    const sources = (await client.getModelStructure()).objects;
+    if (!allEnabled) await client.runProjectHistoryTransaction('Disable Auto Drop', 'project', context(),
+      () => client.setObjectsAutoDrop([sources[1].id], false), context());
+    const bodies = (await client.getModelMesh()).objects;
+    const tx = await client.beginHistory('Raise objects', 'project', context());
+    const raised = bodies.map((body, index) => ({ objectIdx: body.objectIdx, volumeIdx: body.volumeIdx,
+      instanceIdx: body.instanceIdx, volumeTransform: body.volumeTransform,
+      instanceTransform: { ...body.instanceTransform, offset: [0, 0, 5 + index * 5] as [number, number, number] } }));
+    expect((await client.setModelTransforms(tx, raised, 'direct')).ok).toBe(true);
+    await client.commitHistory(tx, context());
+    const merged = await client.runProjectHistoryTransaction('Assemble', 'project', context(),
+      () => client.mergeObjectsToMultipart(sources.map((object) => ({ objectId: object.id, instanceIds: object.instances.map(instance => instance.id) })), 'Assembly'), context());
+    expect(merged.result.ok).toBe(true);
+    const assembled = (await client.getModelStructure()).objects[0];
+    expect(assembled.autoDrop).toBe(allEnabled);
+    const parts = (await client.getModelMesh()).objects;
+    const heights = parts.map((part) => part.instanceTransform.offset[2] + (part.volumeTransform.matrix?.[14] ?? part.volumeTransform.offset[2]));
+    expect(heights).toEqual(allEnabled ? [0, 5] : [5, 10]);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects.map((object) => object.autoDrop)).toEqual([true, allEnabled]);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(allEnabled);
+  });
+
+  it('settles automatic moves without creating a history entry for a snapped-back no-op', async () => {
+    const client = createClient(async () => createMockModule());
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const before = (await client.getModelMesh()).objects[0];
+    const revision = (await client.getHistoryStatus()).revision;
+    const selected: HistoryContext = { ...context(), gizmo: { type: 'move' },
+      selection: { ...context().selection, objectIds: [before.objectId] } };
+    const tx = await client.beginHistory('Move', 'project', selected);
+    const result = await client.setModelTransforms(tx, [{ objectIdx: before.objectIdx, volumeIdx: before.volumeIdx,
+      instanceIdx: before.instanceIdx, volumeTransform: before.volumeTransform,
+      instanceTransform: { ...before.instanceTransform, offset: [0, 0, 7] } }], 'move');
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.plateSession?.instanceTransforms[0]?.worldTransform.offset[2]).toBe(0);
+    expect(result.plateSession?.affectedPlateIds).toEqual([]);
+    await client.commitHistory(tx, selected);
+    expect((await client.getHistoryStatus()).revision).toBe(revision);
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(0);
+  });
+
+  it('retains deliberate sinking and respects disabled Auto Drop', async () => {
+    const client = createClient(async () => createMockModule());
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const id = (await client.getModelStructure()).objects[0].id;
+    const setZ = async (z: number, operation: 'move' | 'rotate' | 'scale') => {
+      const item = (await client.getModelMesh()).objects[0];
+      const tx = await client.beginHistory('Transform', 'project', context());
+      const result = await client.setModelTransforms(tx, [{ objectIdx: item.objectIdx, volumeIdx: item.volumeIdx,
+        instanceIdx: item.instanceIdx, volumeTransform: item.volumeTransform,
+        instanceTransform: { ...item.instanceTransform, offset: [0, 0, z] } }], operation);
+      await client.commitHistory(tx, context());
+      return result;
+    };
+    await setZ(-5, 'move');
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(-5);
+    await setZ(-3, 'rotate');
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(-3);
+    await setZ(3, 'scale');
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(0);
+    await client.runProjectHistoryTransaction('Disable Auto Drop', 'project', context(),
+      () => client.setObjectsAutoDrop([id], false), context());
+    await setZ(9, 'move');
+    expect((await client.getModelMesh()).objects[0].instanceTransform.offset[2]).toBe(9);
+  });
+
+  it('commits and restores synchronized sibling instance transforms as one history edit', async () => {
+    const client = createClient(async () => createMockModule({ instanceCount: 2 }));
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const before = (await client.getModelMesh()).objects;
+    const tx = await client.beginHistory('Move', 'project', context());
+    const transforms = before.map(item => ({ objectIdx: item.objectIdx, volumeIdx: item.volumeIdx,
+      instanceIdx: item.instanceIdx, volumeTransform: item.volumeTransform,
+      instanceTransform: { ...item.instanceTransform, offset: [item.instanceTransform.offset[0], item.instanceTransform.offset[1], 5] as [number, number, number] },
+    }));
+    expect((await client.setModelTransforms(tx, transforms, 'direct')).ok).toBe(true);
+    await client.commitHistory(tx, context());
+    expect((await client.getModelMesh()).objects.map(item => item.instanceTransform.offset[2])).toEqual([5, 5]);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelMesh()).objects.map(item => item.instanceTransform.offset[2])).toEqual([0, 0]);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelMesh()).objects.map(item => item.instanceTransform.offset[2])).toEqual([5, 5]);
+  });
+
+  it('rejects conflicting writes to a shared volume before changing either instance', async () => {
+    const client = createClient(async () => createMockModule({ instanceCount: 2 }));
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const before = (await client.getModelMesh()).objects;
+    const tx = await client.beginHistory('Move', 'project', context());
+    const transforms = before.map((item, index) => ({ objectIdx: item.objectIdx, volumeIdx: item.volumeIdx,
+      instanceIdx: item.instanceIdx, instanceTransform: item.instanceTransform,
+      volumeTransform: { ...item.volumeTransform, offset: [index, 0, 0] as [number, number, number] },
+    }));
+    expect(await client.setModelTransforms(tx, transforms, 'direct')).toMatchObject({ ok: false, error: expect.stringContaining('conflicting') });
+    expect((await client.getModelMesh()).objects.map(item => item.volumeTransform.offset)).toEqual([[0, 0, 0], [0, 0, 0]]);
+    await client.abortHistory(tx);
+  });
+
+  it('restores an object Auto Drop change with its instances through Undo and Redo', async () => {
+    const client = createClient(async () => createMockModule({ instanceCount: 2 }));
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(), () => client.addShape('Cube'), context());
+    const id = (await client.getModelStructure()).objects[0].id;
+    await client.runProjectHistoryTransaction('Disable Auto Drop', 'project', context(),
+      () => client.setObjectsAutoDrop([id], false), context());
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(false);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(true);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects[0].autoDrop).toBe(false);
+  });
+
   it.each(['missing', 'version', 'profileSelection'])('rejects an incomplete restore receipt: %s', async (fault) => {
     const module = createMockModule();
     const client = createClient(async () => module);
@@ -100,7 +269,7 @@ describe('Worker-owned project history protocol', () => {
     const transform = { offset: [10, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
     expect((await client.setModelTransforms(move, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform, volumeTransform: { ...transform, offset: [0, 0, 0] } },
-    ])).ok).toBe(true);
+    ], 'direct')).ok).toBe(true);
     await client.commitHistory(move, editingContext);
 
     const addPlate = await client.runProjectHistoryTransaction('Add Plate', 'project', editingContext,
@@ -181,7 +350,7 @@ describe('Worker-owned project history protocol', () => {
     const identity = { ...moved, offset: [0, 0, 0] as [number, number, number] };
     expect((await client.setModelTransforms(move, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
-    ])).ok).toBe(true);
+    ], 'direct')).ok).toBe(true);
     await client.commitHistory(move, editingContext);
 
     expect((await client.undoHistory()).ok).toBe(true);
@@ -225,7 +394,7 @@ describe('Worker-owned project history protocol', () => {
     const result = await client.setModelTransforms(transaction, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(10), volumeTransform: transform(0) },
       { objectIdx: 1, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(20), volumeTransform: transform(0) },
-    ]);
+    ], 'direct');
     expect(result).toMatchObject({ ok: true, plateSession: {
       affectedPlateIdsBefore: ['plate-session-1-plate-1'], affectedPlateIdsAfter: ['plate-session-1-plate-1'],
       affectedPlateIds: ['plate-session-1-plate-1'], dirtyReasons: ['model-transform'],
@@ -261,7 +430,7 @@ describe('Worker-owned project history protocol', () => {
       scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
     const result = operation === 'orc_set_model_transforms'
       ? await client.setModelTransforms(transaction, [{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0,
-        instanceTransform: { ...identity, offset: [10, 0, 0] }, volumeTransform: identity }])
+        instanceTransform: { ...identity, offset: [10, 0, 0] }, volumeTransform: identity }], 'direct')
       : await client.recomputePlateMembership();
     expect(result).toEqual({ ok: false, error: 'incomplete model plate mutation response' });
     await client.abortHistory(transaction);
@@ -280,14 +449,14 @@ describe('Worker-owned project history protocol', () => {
     await expect(client.setModelTransforms(transaction, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
       { objectIdx: 99, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
-    ])).resolves.toMatchObject({ ok: false });
+    ], 'direct')).resolves.toMatchObject({ ok: false });
     expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([0, 0]);
     await client.abortHistory(transaction);
     expect((await client.getHistoryStatus()).revision).toBe(revision);
     const fresh = await client.beginHistory('Move', 'project', before);
     await expect(client.setModelTransforms('tx-stale', [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
-    ])).resolves.toMatchObject({ ok: false });
+    ], 'direct')).resolves.toMatchObject({ ok: false });
     expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset).toEqual([0, 0, 0]);
     await client.abortHistory(fresh);
   });

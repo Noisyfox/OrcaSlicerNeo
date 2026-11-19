@@ -1,8 +1,8 @@
-import type { HistoryContext, HistoryStatus, ModelMutationResult, ModelStructureResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, HistoryStatus, ModelMutationResult, ModelStructureResult, ModelTransformOperation, SlicerClient } from '@slicer/client';
 import { useProjectStore } from '@/stores/useProjectStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
-import { applySettledTransformSyncResult } from './persistModelTransforms';
+import { applySettledTransformSyncResult, trackReleasedTransform } from './persistModelTransforms';
 import {
   captureTransformReservationState,
   executeProjectHistoryTransaction,
@@ -32,7 +32,9 @@ type TransformReservation = { revision: number; targets: readonly StableTarget[]
 
 type PendingTransformTransaction = {
   label: string;
+  operation: ModelTransformOperation;
   beforeContext: HistoryContext;
+  afterContext: HistoryContext;
   startTargets: readonly CompositeTarget[];
   decision: GateCommand | null;
   finalTransforms: Parameters<typeof syncModelTransforms>[1] | null;
@@ -65,18 +67,22 @@ export class TransformHistoryCoordinator {
   /** Installed by Workspace so a stale/failed draft is rebuilt from Worker authority. */
   setReconcile(reconcile: (() => Promise<void>) | null): void { this.reconcile = reconcile; }
 
-  begin(label: string): boolean {
+  begin(label: string, operation: ModelTransformOperation): boolean {
     // A gesture cannot start from a renderer projection while another project
     // publication is replacing it. This does not reserve the FIFO: after its
     // short read-only reservation completes, other mutations continue freely.
     if (useProjectStore.getState().projectMutationPendingCount !== 0) return false;
     const beforeContext = historyContextForStructure(this.sceneInteraction);
-    const startTargets = this.captureCompositeTargets();
+    const startTargets = compositeTargetsFor(this.sceneInteraction.transformCommitVolumes());
     if (startTargets.length === 0) return false;
+    const objectIndices = new Set(startTargets.map((target) => target.objectIdx));
+    // An authoritative bed correction arrives asynchronously. Do not let a
+    // newer draft for the same object be overwritten by that correction.
+    if (this.pending.some((transaction) => transaction.startTargets.some((target) => objectIndices.has(target.objectIdx)))) return false;
     let resolve!: (result: TransformGestureResult) => void;
     const completion = new Promise<TransformGestureResult>((done) => { resolve = done; });
     const pending: PendingTransformTransaction = {
-      label, beforeContext, startTargets, decision: null, finalTransforms: null,
+      label, operation, beforeContext, afterContext: beforeContext, startTargets, decision: null, finalTransforms: null,
       reservation: null, reservationError: null, reservationReady: false, reservationStarted: false, task: null, resolve, completion,
     };
     this.pending.push(pending);
@@ -88,7 +94,9 @@ export class TransformHistoryCoordinator {
     const current = this.latestOpenTransaction();
     if (!current) return { outcome: 'cancelled' };
     current.finalTransforms = this.captureTransforms();
+    current.afterContext = historyContextForStructure(this.sceneInteraction);
     current.decision = 'commit';
+    trackReleasedTransform(current.completion);
     this.pump();
     return current.completion;
   }
@@ -147,9 +155,11 @@ export class TransformHistoryCoordinator {
     if (!next.reservationReady) return;
     if (!next.reservation) {
       const error = next.reservationError?.message ?? 'transform reservation was unavailable';
-      void this.reconcile?.().catch((reconcileError) => this.onError(reconcileError));
+      this.running = next;
       this.onError(new Error(error));
-      this.finish(next, { outcome: 'failed', error });
+      void Promise.resolve().then(() => this.reconcile?.())
+        .catch((reconcileError) => this.onError(reconcileError))
+        .finally(() => this.finish(next, { outcome: 'failed', error }));
       return;
     }
     this.running = next;
@@ -159,12 +169,15 @@ export class TransformHistoryCoordinator {
       next.beforeContext,
       async (transactionId) => {
         const result = await syncModelTransformsAtomically(this.runtime, transactionId,
-          next.finalTransforms ?? this.captureTransforms());
+          next.finalTransforms ?? this.captureTransforms(), next.operation);
         if (!result.ok) throw new Error(result.error);
         return result;
       },
-      () => historyContextForStructure(this.sceneInteraction),
-      result => applySettledTransformSyncResult(result, this.runtime),
+      next.afterContext,
+      (result) => {
+        applySettledTransformSyncResult(result, this.runtime);
+        this.sceneInteraction.notifyTransformsChanged();
+      },
       undefined,
       async () => { await this.reconcile?.(); },
       async () => this.validateReservation(next),
@@ -212,20 +225,14 @@ export class TransformHistoryCoordinator {
   }
 
   private captureTransforms(): Parameters<typeof syncModelTransforms>[1] {
-    // A history gesture owns only the selection it mutates. Sending every
-    // rendered CompositeID made a one-object move scale with the entire
-    // project and duplicated unchanged transforms across JS, Worker JSON and
-    // WASM validation. The stable-ID reservation below still proves that each
-    // selected target is the same native entity at release time.
-    return this.sceneInteraction.selectedVolumes().map((volume) => ({
+    // A gesture may synchronize sibling instances of selected objects. Keep
+    // those in the reservation and final batch, but exclude unrelated objects
+    // and redundant unselected part copies.
+    return this.sceneInteraction.transformCommitVolumes().map((volume) => ({
       buffer: { objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx },
       instanceTransform: structuredClone(volume.instanceTransform),
       volumeTransform: structuredClone(volume.volumeTransform),
     }));
-  }
-
-  private captureCompositeTargets(): readonly CompositeTarget[] {
-    return compositeTargetsFor(this.captureTransforms());
   }
 }
 
@@ -233,8 +240,8 @@ export class TransformReservationStaleError extends Error {
   constructor(message: string) { super(message); }
 }
 
-function compositeTargetsFor(transforms: Parameters<typeof syncModelTransforms>[1]): readonly CompositeTarget[] {
-  const targets = transforms.map(({ buffer }) => ({ objectIdx: buffer.objectIdx, volumeIdx: buffer.volumeIdx, instanceIdx: buffer.instanceIdx }));
+function compositeTargetsFor(volumes: ReadonlyArray<{ buffer: CompositeTarget }>): readonly CompositeTarget[] {
+  const targets = volumes.map(({ buffer }) => ({ objectIdx: buffer.objectIdx, volumeIdx: buffer.volumeIdx, instanceIdx: buffer.instanceIdx }));
   if (new Set(targets.map(compositeTargetKey)).size !== targets.length)
     throw new Error('transform reservation contains duplicate renderer targets');
   return targets.sort(compareCompositeTargets);

@@ -388,6 +388,10 @@ describe('worker protocol', () => {
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.cloneObjects([1]))
       .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.previewSplitObject(1))
+      .resolves.toEqual({ ok: false, error: 'slice_busy' });
+    await expect(workerClient.setObjectsAutoDrop([1], false))
+      .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.undoHistory()).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.redoHistory()).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.jumpHistory('entry-1', 'undo'))

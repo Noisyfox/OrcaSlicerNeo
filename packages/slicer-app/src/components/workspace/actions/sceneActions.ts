@@ -38,7 +38,7 @@ async function commitAddedImpl(
   // A just-finished gesture persists its settled state on release. Wait for
   // that commit before the additive import refreshes the collection.
   const synced = await waitForSettledModelTransforms();
-  if (!synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
+  if (synced && !synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
   // An additive mutation can be requested while the previous model revision
   // is still loading. Serialize the mutation behind that mesh publication so
   // concurrent Worker reads cannot publish an older collection after the
@@ -295,7 +295,9 @@ export async function clearScene(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
 ): Promise<void> {
-  if (!paintingCommandAllowed() || !await closePaintingForCommand()) return;
+  if (!paintingCommandAllowed()) return;
+  const pending = waitForSettledModelTransforms();
+  if (!await closePaintingForCommand()) return;
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();
   if (slicer.status === 'slicing' || !settings.modelLoaded) return;
@@ -303,6 +305,8 @@ export async function clearScene(
   // resulting plate projection. The history helper refreshes the filament
   // snapshot once while this outer fence is held.
   try {
+    const settled = await pending;
+    if (settled && !settled.ok) throw new Error(settled.error);
     const history = await runProjectHistoryMutation(platform.runtime, 'Clear Scene', () => platform.runtime.clearModel(), sceneInteraction, {
       publish: async (r) => {
         if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
