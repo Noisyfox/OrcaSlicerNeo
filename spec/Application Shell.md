@@ -734,7 +734,10 @@ above material slots, with Add/Delete at the right. The sync action is implement
 materials and native SEMM/Bambu capability; fixed-material printers such as
 U1 hide it. Its dialog and automatic-calculation preference are owned by
 [Multi-Filament Support](Multi-Filament%20Support.md#101-flushing-volume-policy).
-Mixes and purge-mode controls remain deferred. Shared buttons use dark hover (`#343437`) and
+The planned [mixed filament interface](Multi-Filament%20Support.md#15-mixed-filaments)
+places **Material** and **Mixes** in the existing heading, with the section
+collapse button at its right. Purge-mode controls remain deferred.
+Shared buttons use dark hover (`#343437`) and
 expanded (`#1B1B1D`)
 backgrounds in place of the light muted surface. Material collapse controls,
 slot dropdown chevrons, and configuration group headings use these shared

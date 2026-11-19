@@ -2094,3 +2094,278 @@ and sparse project fallback maps.
 
 These software checks are separate from real U1 printing and send-time protocol
 boundary validation.
+
+## 15. Mixed filaments
+
+**Design status.** Accepted for implementation on Electron and Web. The
+native slicing behaviour described below was verified during design.
+
+### Configuration entry point
+
+Place **Material** and **Mixes** side by side in the existing filament-section
+heading in the Prepare sidebar on Electron and Web. Keep the section collapse
+button at the right of that row. The selected tab presents its toolbar and
+content below the heading.
+
+Select **Material** when creating or opening a project, including a 3MF that
+already contains mixes. Collapsing and reopening the section within the same
+project preserves the selected tab.
+
+**Mixes** is always selectable. With only one physical material, explain that
+creating a mix requires a second physical material and disable the create
+button. Users can return to **Material** to add that slot.
+
+Count physical and mixed slots together for creation. With 31 total slots,
+a new mix can occupy slot 32. At 32 or more, disable **Create** and explain
+the limit. Existing recipes remain accessible for editing.
+
+### Mixes list and toolbar
+
+Show the one-based project slot number on each recipe's result swatch. For a
+fixed-ratio recipe, show the blended colour and list its component swatches,
+physical slot numbers and percentages. For a gradient, sample the result
+swatch from the saved curve and show the component slots in bottom-to-top
+order with a direction arrow. Clicking the swatch or the recipe opens Edit.
+
+The toolbar provides **Create** and **Delete all**. Put **Edit**, **Merge
+with** and **Delete** in each recipe's menu. To remove one recipe, use its
+row menu. For **Delete all**, ask for confirmation with the number of recipes
+to be removed and apply the direct-deletion rules to those recipes.
+
+### Creating and editing a fixed-ratio mix
+
+Create and Edit open the same modal from **Mixes**. Create starts a draft
+using physical slots 1 and 2 at 50/50. Edit starts from the saved recipe.
+Changing a component or ratio updates the draft colour preview immediately.
+Confirm applies the draft as one project edit. Cancel discards it.
+
+A recipe uses two or three distinct physical slots of the same filament type.
+Keep the slot 1 and 2 defaults even when their types differ. In that case,
+show the type mismatch and disable confirmation until the user picks a valid
+combination manually or selects a recommendation.
+
+Show recommended colour swatches alongside the manual controls. Follow Orca's
+recommendation rules: group physical materials by filament type, skip support
+materials identified by the `-S` name suffix, and offer up to 100 suggestions.
+Use 50/50 for pairs. For triples, offer 50/25/25 with each component in turn
+at 50%. Selecting a swatch fills the draft and refreshes the preview. The
+user can adjust the suggested recipe before confirming.
+
+For two components, provide a ratio slider and editable percentages. For three,
+provide a draggable triangle and direct percentage entry for each component.
+Keep both input methods and the preview in sync. Each component contributes
+at least 10% and the percentages total 100%.
+
+### Generating a recipe from a target colour
+
+Include **Decompose Color** in the context menu for a physical **Material**
+slot. Enable it only when the project has at least two physical slots,
+including when a standard palette could supply missing base colours.
+Use the selected slot's colour as the target. Default the candidate material type to
+the source slot's type and let the user change it. For example, a PETG
+source can supply the target orange for a recipe made from PLA.
+
+Show the target and matched colours alongside the proposed proportions.
+Offer the project-material method when at least two other physical slots
+match the selected type. Exclude the source slot from those candidates.
+For PLA Basic also offer the CMYW (cyan, magenta, yellow, white) and RYBW
+(red, yellow, blue, white) standard palettes. Use Orca's native recipe
+search and standard recipe table. These palettes supply the base colours
+for two- or three-component recipes. When a standard recipe needs missing
+base colours, list the physical slots to be added and seek confirmation.
+Count those slots and the new mix together against the 32-slot creation limit.
+
+On confirmation, create the recipe in **Mixes** and any approved base slots
+in one undoable edit. Retain the source physical slot, its model assignments
+and its facet paint. Users can assign the new recipe separately.
+
+Defer batch colour decomposition and region assignment during textured-model
+import. Opening an Orca 3MF with existing recipes and painted facets restores
+those recipes and assignments regardless of how they were originally created.
+
+### Editing a two-component gradient
+
+Offer a Z gradient for two-component recipes. The curve maps relative print
+height to the percentage of the first component. Start with a straight line
+from 90% at the bottom to 10% at the top. Users can add and adjust control
+points or reverse the direction. Reversing keeps each point at its current
+height and complements its ratio. Open an imported Orca curve with its saved
+points so the user can continue editing it.
+
+Place a per-part gradient checkbox below the curve and save its value with the
+recipe. New recipes start with it off. With it off, the assembly shares one
+height range. With it on, each assigned part spans the curve over its own
+height. Editing an existing recipe shows its saved value.
+
+The recipe editor allows saving a gradient with **Mixed color sublayer** off
+and leaves the Process setting untouched. Show the warning only during slice
+validation when the current print uses a gradient mix and sublayers are off.
+Explain that the gradient will not print and allow slicing to proceed. In
+this mode each layer uses one component for the mix. An unused gradient
+recipe does not trigger this warning.
+
+### Repairing a mix after a physical material changes
+
+Allow a physical slot's filament type to change even when the change makes
+an existing recipe's component types incompatible. Mark each affected recipe
+in **Mixes** and retain its ratios, model assignments and facet paint.
+
+Direct deletion of a physical slot can also leave a recipe needing repair.
+Keep the deleted component's position and ratio. For example, deleting the
+blue component of a 60% red and 40% blue mix leaves an entry shown as
+**Missing filament · 40%**. Renumber surviving component references so they
+still point to the same physical materials. Preserve assignments and paint
+that reference the mix as its own slot number shifts. The user can select
+a replacement in the recipe editor.
+
+Block slicing on each plate that uses an invalid recipe until the user repairs
+the recipe or removes its use on that plate. Other plates remain sliceable.
+An invalid recipe with no assignments can remain in the project for repair.
+
+### Merging slots and deleting a mix
+
+When one physical slot is merged into another, transfer model assignments
+and paint on the source to the destination under the existing merge rules.
+In any recipe that used the source, mark that component as missing and keep
+its ratio for repair. For example, merging blue into white changes directly
+painted blue regions to white. A 60% red and 40% blue recipe keeps its 40%
+entry open for the user to choose a replacement.
+
+If a physical slot is merged into a mix that uses it, ask for confirmation
+and identify both the destination recipe and the component it will lose.
+Cancel leaves the project as it was. Confirm applies the merge and leaves
+the destination recipe available for repair. The same final paint-slot
+limit applies to this merge.
+
+Allow direct deletion of a mix even when the model uses it. Apply the
+existing slot deletion rules: direct object and part assignments fall back
+to slot 1, and painted facets using the deleted mix lose that paint and
+show their underlying material. To preserve those painted regions and
+transfer assignments, users can choose **Merge with** and select a
+surviving slot.
+
+### Material identity and existing behavior
+
+In Orca, a mix is a virtual slot with its own one-based project material number.
+An object, part or painted facet can refer to that number. The recipe refers
+to physical material slots. For example, with physical slots 1 and 2 and a mix
+in slot 3, the model stores 3 while the slicer schedules material from 1 and 2.
+Orca keeps physical slots first. Adding a third physical material in this example
+moves the mix and its model references to slot 4.
+
+Desktop Orca offers fixed ratios with two or three components. Two-component
+recipes also support a Z gradient with direction, a custom curve and a per-part
+option. The Process setting `enable_mixed_color_sublayer` selects whole-layer
+alternation or sublayer splitting and already has an entry in Neo's Print
+settings. A real Neo WASM check with a 60/40 recipe retained the components,
+ratios and model assignment through project save/load. With sublayers enabled
+through the Process setting, 0.20 mm nominal layers produced 0.12 and 0.08 mm
+sublayers. The core implementation and reference tests are in
+[FilamentMixer](../packages/slicer-wasm/cpp/src/libslic3r/FilamentMixer.hpp) and
+[the mixed filament slicing tests](../packages/slicer-wasm/cpp/tests/fff_print/test_mixed_filament.cpp).
+
+Keep Neo's [paint-remap protection](Surface%20Painting%20Architecture.md#31-editing-scope-and-entry-condition).
+The project can hold 64 slots and explicit facet paint can address slots 1–32.
+Every mixed-filament operation that renumbers materials must validate the
+**final** slot of each affected painted facet before publishing the change.
+For example, merging a painted slot 32 into original slot 34 would leave its
+facets in slot 33. Neo rejects the complete operation and preserves the rack,
+paint and history. High-numbered unpainted slots remain valid.
+
+### Painting, Prepare and sliced Preview
+
+Show physical materials and mixes in a single painting palette in project
+slot order, up to slot 32. Each button carries its project slot number and
+shows the blended colour for a fixed recipe or the colour ramp for a gradient.
+Painting with a mix assigns that virtual slot to the facets.
+
+In Prepare, draw a mix with its single representative colour on the model.
+Apply the same rule to an entire assigned part and to individual painted
+regions. The recipe editor and gradient swatches show how the colour changes
+with height.
+
+In sliced Preview's filament view, colour paths by the physical filament
+used for each extrusion. Use the same physical slots in the legend and
+attribute consumption to each component from the slice result. A 60% red
+and 40% blue recipe produces red and blue path segments; selecting a layer
+or sublayer shows which material printed there.
+
+### AMS sync and remembered printer racks
+
+AMS sync updates physical materials. Keep recipes after the physical slots
+and retain their component slot numbers, ratios and gradient settings.
+For example, if slot 2 changes from blue PLA to white PLA, a recipe using
+slot 2 uses the white PLA even when blue PLA now occupies slot 3. Recheck
+the recipe after sync and show it as needing repair if a component slot is
+missing or the component types no longer match.
+
+Include complete recipes in the rack remembered for each Printer preset.
+New projects and explicit Printer changes restore that preset's physical
+materials and recipes together. When opening a 3MF, use the rack and recipes
+stored in the file.
+
+On an explicit Printer change, existing assignments and paint follow their
+project slot numbers when those slots still exist in the restored rack. If
+slot 5 changes from a red-and-blue mix to a red-and-white mix, the region
+assigned to slot 5 uses the restored recipe immediately. A change of recipe
+at a surviving slot does not prompt for confirmation. Existing reference
+handling still applies when a slot disappears.
+
+### Process material choices, nozzle mapping and print order
+
+Offer mixed slots alongside physical slots in Process selectors that Orca
+resolves per layer, including outer wall and infill filament assignments.
+Keep the native defaults in each selector. Support, support interface and
+wipe-tower filament choices expose physical slots only. The **Flushing
+Volumes** editor shows and updates the physical-to-physical submatrix for
+each nozzle and preserves the full project matrix when writing it back.
+
+Every nozzle mapping entry point in Neo lists physical materials only.
+For the current plate, expand each used mix into its physical components
+and show each component once. Project and all-plate entry points keep their
+existing scope and exclude virtual slots. A mix uses its components' nozzle
+assignments.
+
+When the project contains any mixed slot, disable the custom first-layer
+and other-layer filament order controls on every plate. Explain that the
+slicer schedules the physical components of a mixed recipe. This also
+applies when a plate uses only physical materials or the project contains
+an unassigned recipe.
+
+### Print preparation and sending
+
+When sending a sliced plate, map the physical component filaments to device
+trays. Recompute the mixed colours in the send thumbnail from the selected
+tray colours whenever the user changes that mapping. For example, mapping
+the blue component of a red-and-blue recipe to a white tray changes the
+thumbnail to the red-and-white blend. This is a send-dialog preview; the
+saved recipe and project material colours keep their original values.
+
+Defer the single-nozzle notification about frequent filament changes and
+flushing cost. Keep the slice-time warning for a gradient used with
+**Mixed color sublayer** off.
+
+### Implementation sequence and acceptance checks
+
+1. Extend the native filament-session snapshot with physical and mixed slot
+   identity, recipe data and validation results. Implement physical-first
+   insertion and reference remapping as a single undoable mutation. Cover the
+   slot 3 to slot 4 example above for both object assignment and facet paint.
+2. Connect the Mixes tab and recipe editor to native commands through the
+   shared typed runtime. Reuse Orca's recipe serialization, colour blending
+   and layer scheduling. Implement the accepted fixed-ratio and gradient
+   controls and repair flow for missing or incompatible components. Connect
+   target-colour decomposition to the native recipe search and package the
+   standard recipe data for both hosts.
+3. Implement the accepted painting, Prepare and Preview rules. Apply the
+   physical-slot filters for flushing and nozzle mapping, route Process
+   assignments, and update plate order controls when mixes change.
+4. Extend remembered racks, AMS sync and the send preview. Verify that
+   changing the target tray changes the thumbnail while the project still
+   saves the original component references and proportions.
+5. Round-trip Orca and Neo 3MFs in both directions. Include a painted
+   fixed-ratio mix and a per-part gradient with a custom curve. Compare
+   recipe fields, object and facet assignments, and physical tool IDs in
+   the sliced result. Verify Undo/Redo across insertion, deletion and merge,
+   and check rejection at the 32-slot paint boundary. Exercise creation,
+   editing, repair and slicing through both Electron and Web.
