@@ -584,6 +584,20 @@ async function selectStableRealPrinter(page: Page): Promise<void> {
   await selectFixturePrinter(page, PRINTER_PROFILE);
 }
 
+/** Model bounds reflect the local draft until the Worker publishes the settled transform. */
+async function commitTransform(page: Page, action: () => Promise<unknown>): Promise<void> {
+  const historyRevision = () => page.evaluate(() => {
+    const status = (window as unknown as {
+      __orcaE2e?: { historyNativeStatus?: () => { revision: number } | null };
+    }).__orcaE2e?.historyNativeStatus?.();
+    if (!status) throw new Error('native history status unavailable');
+    return status.revision;
+  });
+  const beforeRevision = await historyRevision();
+  await action();
+  await expect.poll(historyRevision).toBeGreaterThan(beforeRevision);
+}
+
 /** Select a mock instance once the model's mock volumes are live (the Slice
  *  button enables on modelLoaded, which can precede the async mesh fetch, so a
  *  bare selectMockInstance can race the GL volume collection. It also waits
@@ -2667,22 +2681,6 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
           )
           .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
 
-      // Transform fields reflect a local draft before its Worker history
-      // transaction is published. Finish each commit before starting the
-      // next gesture, which is rejected during project publication.
-      const historyRevision = () => page.evaluate(() => {
-        const status = (window as unknown as {
-          __orcaE2e?: { historyNativeStatus?: () => { revision: number } | null };
-        }).__orcaE2e?.historyNativeStatus?.();
-        if (!status) throw new Error('native history status unavailable');
-        return status.revision;
-      });
-      const commitTransform = async (action: () => Promise<unknown>) => {
-        const beforeRevision = await historyRevision();
-        await action();
-        await expect.poll(historyRevision).toBeGreaterThan(beforeRevision);
-      };
-
       // The Move toggle can only arm with a non-empty selection: it stays
       // disabled while nothing is selected.
       await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
@@ -2742,13 +2740,13 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         ))
         .toBe('body');
       await page.mouse.move(cubeCenter.x + 40, cubeCenter.y + 20, { steps: 4 });
-      await commitTransform(() => page.mouse.up());
+      await commitTransform(page, () => page.mouse.up());
       await expect
         .poll(async () => Promise.all(['x', 'y', 'z'].map((axis) =>
           page.getByTestId(`move-${axis}`).inputValue(),
         )))
         .not.toEqual(bodyPivotBefore);
-      await commitTransform(() => page.getByTestId('move-reset').click());
+      await commitTransform(page, () => page.getByTestId('move-reset').click());
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
 
       // A plain click on a selected member retains the group. Toggle the
@@ -2790,12 +2788,12 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         ))
         .toBe('gizmo');
       await page.mouse.move(xEnd.x, xEnd.y, { steps: 5 });
-      await commitTransform(() => page.mouse.up());
+      await commitTransform(page, () => page.mouse.up());
       await expect(page.getByTestId('move-x')).toHaveValue('55.000', { timeout: 10_000 });
 
       // Reset restores the source transform, then select the second instance
       // additively. Its union bounds are [0,70], pivot X=35.
-      await commitTransform(() => page.getByTestId('move-reset').click());
+      await commitTransform(page, () => page.getByTestId('move-reset').click());
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
       const secondCenter = await project([60, 10, 10]);
       if (!secondCenter) throw new Error('second cube projection unavailable');
@@ -2804,7 +2802,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
 
       // Numeric edits translate the whole selection by the pivot delta.
       await page.getByTestId('move-x').fill('45');
-      await commitTransform(() => page.getByTestId('move-x').press('Enter'));
+      await commitTransform(page, () => page.getByTestId('move-x').press('Enter'));
       await expect(page.getByTestId('move-x')).toHaveValue('45.000');
 
       // Garbage input is rejected and the aggregate pivot remains intact.
@@ -2820,9 +2818,9 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await page.getByTestId('objectlist-auto-drop').click();
       await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Disable Auto Drop');
       await page.getByTestId('move-z').fill('20');
-      await commitTransform(() => page.getByTestId('move-z').press('Enter'));
+      await commitTransform(page, () => page.getByTestId('move-z').press('Enter'));
       await expect(page.getByTestId('move-z')).toHaveValue('20.000');
-      await commitTransform(() => page.getByTestId('move-drop-bed').click());
+      await commitTransform(page, () => page.getByTestId('move-drop-bed').click());
       await expect(page.getByTestId('move-z')).toHaveValue('10.000');
 
       // Slice consumes the committed native transforms.
@@ -3117,11 +3115,11 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
       // store an exact sheared affine matrix: world-X doubles, world-Y/Z stay.
       await page.getByTestId('gizmo-btn-rotate').click();
       await page.getByTestId('rotate-x').fill('-16');
-      await page.getByTestId('rotate-x').press('Enter');
+      await commitTransform(page, () => page.getByTestId('rotate-x').press('Enter'));
       await page.getByTestId('rotate-y').fill('41.8');
-      await page.getByTestId('rotate-y').press('Enter');
+      await commitTransform(page, () => page.getByTestId('rotate-y').press('Enter'));
       await page.getByTestId('rotate-z').fill('163.8');
-      await page.getByTestId('rotate-z').press('Enter');
+      await commitTransform(page, () => page.getByTestId('rotate-z').press('Enter'));
       const rotated = await bounds();
       if (!rotated) throw new Error('selection bounds unavailable');
 
@@ -3129,7 +3127,7 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
       await page.getByTestId('gizmo-btn-scale').click();
       await page.getByTestId('scale-space-world').click();
       await page.getByTestId('scale-factor-x').fill('200');
-      await page.getByTestId('scale-factor-x').press('Enter');
+      await commitTransform(page, () => page.getByTestId('scale-factor-x').press('Enter'));
       const scaled = await bounds();
       if (!scaled) throw new Error('scaled bounds unavailable');
       expect(scaled.size[0]).toBeCloseTo(rotated.size[0] * 2, 5);
