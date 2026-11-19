@@ -152,12 +152,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   } | null>(null);
   const detachBoxSelectRef = useRef<(() => void) | null>(null);
   const updateRaycastingEnabled = useCallback(() => {
-    sceneStateRef.current?.setEvents({
-      enabled: !useArrangementStore.getState().active && isViewportRaycastingEnabled(
-        cameraGestureActiveRef.current,
-        sceneInteractionRef.current?.owner ?? 'none',
-      ),
-    });
+    const scene = sceneStateRef.current;
+    if (!scene) return;
+    const enabled = !useArrangementStore.getState().active && isViewportRaycastingEnabled(
+      cameraGestureActiveRef.current,
+      sceneInteractionRef.current?.owner ?? 'none',
+    );
+    if (scene.get().events.enabled !== enabled) scene.setEvents({ enabled });
   }, []);
   useEffect(() => useArrangementStore.subscribe(updateRaycastingEnabled), [updateRaycastingEnabled]);
   const projectWorldToViewport = useCallback((world: THREE.Vector3) => {
