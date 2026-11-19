@@ -34,6 +34,7 @@ type PendingTransformTransaction = {
   label: string;
   operation: ModelTransformOperation;
   beforeContext: HistoryContext;
+  afterContext: HistoryContext;
   startTargets: readonly CompositeTarget[];
   decision: GateCommand | null;
   finalTransforms: Parameters<typeof syncModelTransforms>[1] | null;
@@ -81,7 +82,7 @@ export class TransformHistoryCoordinator {
     let resolve!: (result: TransformGestureResult) => void;
     const completion = new Promise<TransformGestureResult>((done) => { resolve = done; });
     const pending: PendingTransformTransaction = {
-      label, operation, beforeContext, startTargets, decision: null, finalTransforms: null,
+      label, operation, beforeContext, afterContext: beforeContext, startTargets, decision: null, finalTransforms: null,
       reservation: null, reservationError: null, reservationReady: false, reservationStarted: false, task: null, resolve, completion,
     };
     this.pending.push(pending);
@@ -93,6 +94,7 @@ export class TransformHistoryCoordinator {
     const current = this.latestOpenTransaction();
     if (!current) return { outcome: 'cancelled' };
     current.finalTransforms = this.captureTransforms();
+    current.afterContext = historyContextForStructure(this.sceneInteraction);
     current.decision = 'commit';
     trackReleasedTransform(current.completion);
     this.pump();
@@ -171,7 +173,7 @@ export class TransformHistoryCoordinator {
         if (!result.ok) throw new Error(result.error);
         return result;
       },
-      () => historyContextForStructure(this.sceneInteraction),
+      next.afterContext,
       (result) => {
         applySettledTransformSyncResult(result, this.runtime);
         this.sceneInteraction.notifyTransformsChanged();

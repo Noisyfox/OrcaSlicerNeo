@@ -1591,6 +1591,13 @@ test('Auto Drop settles moves and enabling it restores bed contact', async () =>
     await expect(z).toHaveValue(raisedText);
     await page.getByTestId('history-redo').click();
     await expect(z).toHaveValue(initialText);
+
+    // Click Slice directly from the dirty field. Its first full-model sync
+    // must see the bed correction, even when pointer blur just released Move.
+    await z.fill(raisedText);
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('btn-send-and-print')).toBeEnabled({ timeout: SLICE_RESULT_TIMEOUT });
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Enable Auto Drop');
   } finally { await app.close(); }
 });
 

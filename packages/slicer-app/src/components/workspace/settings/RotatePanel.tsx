@@ -52,6 +52,7 @@ export function RotatePanel({ sceneInteraction }: { sceneInteraction: SceneInter
           <div key={axis} className="flex items-center gap-2 py-1">
             <Label className="w-10 shrink-0 text-xs text-muted-foreground">{axis.toUpperCase()}</Label>
             <Input
+              data-transform-input
               data-testid={`rotate-${axis}`}
               className="flex-1"
               value={draft?.[i] ?? formatDegrees(current[i])}

@@ -12,7 +12,8 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 import { syncModelTransforms } from './syncModelTransforms';
-import { applySettledTransformSyncResult } from './persistModelTransforms';
+import { commitFocusedTransformInput } from '../settings/commitFocusedTransformInput';
+import { applySettledTransformSyncResult, waitForSettledModelTransforms } from './persistModelTransforms';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 import { useNotificationStore, type NotificationAttempt } from '@/stores/useNotificationStore';
 import { captureSliceThumbnail } from '../projectThumbnails';
@@ -79,6 +80,8 @@ export async function sliceModel(platform: PlatformCapabilities, plateId?: strin
 }
 
 async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlateId?: string): Promise<void> {
+  commitFocusedTransformInput();
+  const pending = waitForSettledModelTransforms();
   let notificationAttempt: NotificationAttempt | null = null;
   if (!await closePaintingForCommand()) return;
   const initialSession = usePlateSessionStore.getState().snapshot;
@@ -107,6 +110,9 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
       if (revision !== undefined) useSlicerStore.getState().activatePlateResult(selected.currentPlateId, revision);
     }
   };
+
+  const settled = await pending;
+  if (settled && !settled.ok) { setFailure(settled.error); return; }
 
   let values: Record<string, string>;
   try { values = sliceSettings(); } catch (error) { setFailure(errorText(error)); return; }
