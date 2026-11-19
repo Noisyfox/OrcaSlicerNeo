@@ -387,6 +387,19 @@ Numeric transforms, Drop to Bed, and Reset use the same capture/sync/commit
 sequence. Cancelling a gesture restores its local pre-gesture transform and
 aborts the Worker transaction.
 
+Release publishes a completion promise synchronously, including for numeric
+field blur. Slice, history navigation, object-list mutations, Save/Save As and
+project dirty checks wait for previously released transforms before entering
+the project FIFO or reading the model. Completion includes the Worker history
+commit and publication of corrected sibling transforms. A failed or stale edit
+stops the dependent command. The transform records its editing context at
+release so later tool or tab changes cannot create a history entry for a move
+cancelled out by Auto Drop.
+
+Pointer motion, selection, and Preview navigation stay local. Preview can
+open immediately and checks whether a cached slice still applies after the
+released edits settle. Each Undo or Redo still submits its own request.
+
 The existing pre-slice full transform synchronization remains a defensive
 consistency check, not the first time a committed transform is written to the
 native model. This makes the Worker model authoritative at every history

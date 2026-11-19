@@ -1,4 +1,6 @@
 import { configurePrinterProjectPreferences } from './preferences';
+import { commitFocusedTransformInput } from './components/workspace/settings/commitFocusedTransformInput';
+import { waitForSettledModelTransforms } from './components/workspace/actions/persistModelTransforms';
 import { captureProjectThumbnails } from './components/workspace/projectThumbnails';
 import { paintingCommandAllowed, closePaintingForCommand, resetPaintingProjectPalette, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
 import { closeMeasureForCommand } from './components/workspace/viewport/gizmo/measure/projectCommands';
@@ -117,6 +119,12 @@ async function rememberProject(platform: PlatformCapabilities, location: Project
 
 /** Read the Worker checkpoint state for lifecycle guards. */
 export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
+  commitFocusedTransformInput();
+  const pending = waitForSettledModelTransforms();
+  if (pending) {
+    const settled = await pending;
+    if (!settled.ok) throw new Error(settled.error);
+  }
   const status = await currentHistoryStatus(runtimeOf(platform));
   return status.dirty;
 }
@@ -141,7 +149,12 @@ async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetS
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
-  if (!await projectDirtyStatus(platform)) return null;
+  try {
+    if (!await projectDirtyStatus(platform)) return null;
+  } catch (error) {
+    setOperation('failed', 0, errorText(error));
+    return errorResult(error);
+  }
   setOperation('waiting-for-dirty-decision');
   const decision = await options.decideDirty?.(operationName, input) ?? 'cancel';
   if (decision === 'cancel') { setOperation('cancelled'); return { status: 'cancelled' }; }
@@ -159,6 +172,15 @@ export function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectAc
 }
 async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean): Promise<ProjectActionResult> {
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
+  commitFocusedTransformInput();
+  const pending = waitForSettledModelTransforms();
+  if (pending) {
+    const settled = await pending;
+    if (!settled.ok) {
+      setOperation('failed', 0, settled.error);
+      return errorResult(settled.error);
+    }
+  }
   return runProjectSaveOperation(runtimeOf(platform), projectedHistoryContext, async (markSaved, readRevision) => {
     const session = useProjectStore.getState();
     if (!session.hasContent && !session.dirty) return errorResult(new Error('there is no project to save'));

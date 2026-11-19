@@ -1,3 +1,4 @@
+import { readZipEntries } from '../../../packages/slicer-wasm/harness/native-3mf-parser.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -48,4 +49,23 @@ test('real Web Worker settles Auto Drop and preserves it through history', async
   await expect(z).toHaveValue(rest);
   await page.getByTestId('history-undo').click(); await expect(z).toHaveValue(raised);
   await page.getByTestId('history-redo').click(); await expect(z).toHaveValue(rest);
+
+  // Save As also works on the clean checkpoint, while X still has keyboard focus.
+  const saveAs = async () => {
+    const download = page.waitForEvent('download');
+    await page.keyboard.press('ControlOrMeta+Shift+s');
+    const file = await download;
+    const entries = readZipEntries(await readFile((await file.path())!));
+    const model = entries.find((entry: { name: string }) => entry.name === '3D/3dmodel.model');
+    const xml = new TextDecoder().decode(model.content);
+    const transform = /<item\b[^>]*\btransform="([^"]+)"/.exec(xml);
+    expect(transform).not.toBeNull();
+    await expect(page.getByTestId('titlebar-save-project')).toBeDisabled();
+    return transform![1].trim().split(/\s+/).map(Number)[9];
+  };
+  const beforeX = await saveAs();
+  const x = page.getByTestId('move-x');
+  await x.fill((Number(await x.inputValue()) + 3).toFixed(3));
+  expect(await saveAs()).toBeCloseTo(beforeX + 3);
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
 });

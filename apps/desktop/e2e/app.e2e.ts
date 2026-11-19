@@ -1602,7 +1602,8 @@ test('Auto Drop settles moves and enabling it restores bed contact', async () =>
 });
 
 test('blurred Move precedes a toolbar Undo and a printable change', async () => {
-  const { app } = await launchApp();
+  const projectSavePath = REAL ? join(mkdtempSync(join(tmpdir(), 'orca-blur-')), 'blur.3mf') : undefined;
+  const { app } = await launchApp({ projectSavePath });
   try {
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -1642,6 +1643,23 @@ test('blurred Move precedes a toolbar Undo and a printable change', async () => 
       await page.getByTestId('gizmo-btn-move').click();
     }
     await expect(x).toHaveValue(moved);
+
+    if (projectSavePath) {
+      const savedX = (Number(start) + 7).toFixed(3);
+      await x.fill(savedX);
+      const save = page.getByTestId('titlebar-save-project');
+      await save.click();
+      await expect(page.getByTestId('titlebar-project-name')).toHaveText('blur');
+      await expect(save).toBeDisabled();
+      await app.evaluate((_, path) => { process.env.ORCA_E2E_MODEL = path; }, projectSavePath);
+      await openProjectMenu(page, app);
+      await waitForProjectLoad(page);
+      await expect(undo).toBeDisabled();
+      await page.getByTestId('config-mode-scoped').click();
+      await row.locator('button.object-list-row').first().click({ position: { x: 40, y: 10 } });
+      await page.getByTestId('gizmo-btn-move').click();
+      await expect(x).toHaveValue(savedX);
+    }
   } finally { await app.close(); }
 });
 
