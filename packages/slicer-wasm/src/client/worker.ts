@@ -72,7 +72,7 @@ const restrictedWhileSerialSlicing = new Set([
   ...measureOperations,
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot', 'editMixedFilament',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
-  'assignFilament', 'setFilamentRouting', 'setFlushingVolumes', 'getFlushingVolumes', 'previewMixedFilament', 'getMixRecommendations', 'setAutoFlushPolicy', 'beginHistory', 'commitHistory',
+  'assignFilament', 'setFilamentRouting', 'setFlushingVolumes', 'getFlushingVolumes', 'previewMixedFilament', 'previewColorDecomposition', 'getMixRecommendations', 'setAutoFlushPolicy', 'beginHistory', 'commitHistory',
   'abortHistory', 'undoHistory', 'redoHistory', 'jumpHistory', 'markHistorySaved',
   'openHistorySession', 'closeHistorySession', 'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',

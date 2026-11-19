@@ -2002,6 +2002,9 @@ void insert_before_mixes(PresetBundle& bundle, Model& model, std::vector<BridgeS
             if (auto* opt = config.opt<ConfigOptionInts>(key)) rotate(opt->values);
     };
     rotate_maps(cfg);
+    if (auto* purge = cfg.opt<ConfigOptionFloats>("flush_volumes_vector"); purge && purge->size() >= 2 * (last + 1))
+        std::rotate(purge->values.begin() + 2 * first, purge->values.begin() + 2 * last,
+                    purge->values.begin() + 2 * (last + 1));
     if (auto* matrix = cfg.opt<ConfigOptionFloats>("flush_volumes_matrix")) {
         auto old = matrix->values;
         const size_t n = bundle.filament_presets.size();
@@ -2202,7 +2205,8 @@ json edit_mix_command(const json& request, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
     const bool remove_all = request.value("operation", "") == "delete-all";
-    return run_filament_slot_mutation(request, remove_all ? "Delete All Mixed Filaments" : "Save Mixed Filament", remove_all,
+    const bool decompose = request.contains("decompose");
+    return run_filament_slot_mutation(request, remove_all ? "Delete All Mixed Filaments" : "Save Mixed Filament", remove_all || decompose,
         [&](PresetBundle& bundle, Model& model, auto& plates, auto& scoped, std::size_t count) {
             if (remove_all) {
                 if (!bundle.num_mixed_filaments()) throw std::invalid_argument("No mixes to remove.");
@@ -2211,6 +2215,25 @@ json edit_mix_command(const json& request, const Runtime& runtime)
                         remove_filament_slot(bundle, model, plates, scoped, i, std::nullopt);
                 return json{{"kind", "delete-mixes"}};
             }
+            json draft;
+            if (decompose) {
+                const auto proposal = Mixes::decompose(bundle, request.at("decompose"));
+                if (!proposal.at("error").get<std::string>().empty())
+                    throw std::invalid_argument(proposal.at("error").get<std::string>());
+                for (const auto& base : proposal.at("additions")) {
+                    const auto first = bundle.num_physical_filaments();
+                    const auto colour = base.at("colour").get<std::string>();
+                    State::resize_slots_preserving_colours(bundle, count + 1, colour);
+                    add_plate_filament_references(plates, bundle, count);
+                    insert_before_mixes(bundle, model, plates, first, count);
+                    apply_slot_preset(bundle, first, base.at("preset").get<std::string>());
+                    apply_slot_colour(bundle, first, {{"kind","solid"},{"color",colour}});
+                    auto_recalculate_filament_flush(bundle, first, true, true);
+                    ++count;
+                }
+                scoped = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
+                draft = proposal.at("recipe");
+            } else draft = request.at("recipe");
             size_t index = count;
             if (request.contains("slot")) {
                 std::string error;
@@ -2219,7 +2242,6 @@ json edit_mix_command(const json& request, const Runtime& runtime)
                 index = *slot;
             } else if (count >= size_t(EnforcerBlockerType::ExtruderMax) || bundle.num_physical_filaments() < 2)
                 throw std::invalid_argument("A mix requires two physical slots and an available painting slot.");
-            const auto& draft = request.at("recipe");
             const auto preview = Mixes::preview(bundle, draft);
             if (index == count) {
                 State::resize_slots_preserving_colours(bundle, count + 1, preview.at("colour").get<std::string>());
@@ -3181,6 +3203,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_preview_mixed_filament(const char* request_
     try {
         const auto request = json::parse(request_json);
         using namespace Slic3r::Neo::Bridge::Filament;
+        if (request.contains("decompose"))
+            return duplicate_json(Mixes::decompose(state().presets, request.at("decompose")).dump());
         if (request.contains("recommendations"))
             return duplicate_json(Mixes::recommendations(state().presets, request.at("recommendations").get<int>()).dump());
         return duplicate_json(Mixes::preview(state().presets, request).dump());

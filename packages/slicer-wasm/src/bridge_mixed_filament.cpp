@@ -1,8 +1,10 @@
 #include "bridge_mixed_filament.hpp"
 
 #include "libslic3r/FilamentMixer.hpp"
+#include "libslic3r/ColorDecomposeRecipe.hpp"
 #include <cmath>
 #include <numeric>
+#include <sstream>
 
 namespace Slic3r::Neo::Bridge::Filament::Mixes {
 
@@ -70,10 +72,30 @@ json recipe(const PresetBundle& bundle, size_t index)
     json points = json::array();
     for (const auto& p : parse_gradient_curve(read<ConfigOptionStrings>(cfg, "filament_mixed_gradient_curve", index)).points)
         points.push_back({{"x", p.x}, {"y", p.y}, {"in", p.m_in}, {"out", p.m_out}});
-    const auto range = parse_mixed_ratios(read<ConfigOptionStrings>(cfg, "filament_mixed_gradient_range", index), 2);
-    json result = {{"components", ids}, {"ratios", ratios}, {"gradient", bool(read<ConfigOptionBools>(cfg, "filament_mixed_gradient", index))},
-        {"reverse", range.front() < range.back()}, {"perPart", bool(read<ConfigOptionBools>(cfg, "filament_mixed_gradient_per_part", index))},
+    const bool gradient = read<ConfigOptionBools>(cfg, "filament_mixed_gradient", index);
+    const auto range = read<ConfigOptionStrings>(cfg, "filament_mixed_gradient_range", index);
+    double bottom = .10, top = .90;
+    if (!range.empty()) {
+        std::istringstream stream(range);
+        stream.imbue(std::locale::classic());
+        char separator;
+        double start, end;
+        if (stream >> start >> separator >> end && separator == ',') {
+            bottom = start;
+            top = end;
+        }
+    }
+    // Older 3MFs may carry only a linear range. Expose its actual endpoints
+    // to the editor without synthesising a different curve on first edit.
+    if (gradient && points.empty()) {
+        points.push_back({{"x",0.0},{"y",bottom},{"in",nullptr},{"out",nullptr}});
+        points.push_back({{"x",1.0},{"y",top},{"in",nullptr},{"out",nullptr}});
+    }
+    json result = {{"components", ids}, {"ratios", ratios}, {"gradient", gradient},
+        {"reverse", gradient && bottom < top}, {"perPart", bool(read<ConfigOptionBools>(cfg, "filament_mixed_gradient_per_part", index))},
         {"points", points}, {"error", component_error(bundle, ids)}};
+    if (result["error"] == "" && std::any_of(ratios.begin(), ratios.end(), [](int r) { return r < 10; }))
+        result["error"] = "Each component needs at least 10%.";
     result["ramp"] = json::array();
     if (result["gradient"] == true && result["error"] == "") {
         try { result["ramp"] = preview(bundle, result)["ramp"]; }
@@ -101,15 +123,85 @@ json preview(const PresetBundle& bundle, const json& draft)
         throw std::invalid_argument("Gradients require two components.");
     std::vector<std::string> colours;
     for (unsigned id : ids) colours.push_back(read<ConfigOptionStrings>(bundle.project_config, "filament_colour", id - 1));
-    json ramp = json::array();
+    json ramp = json::array(), samples = json::array();
     if (gradient) {
         if (curve.empty()) curve.points = {{0., reverse ? .1 : .9}, {1., reverse ? .9 : .1}};
         for (int i = 0; i <= 16; ++i) {
             const int weight = int(std::lround(10000 * sample_gradient_curve(curve, i / 16.)));
+            samples.push_back(weight / 10000.0);
             ramp.push_back(blend_color_multi(colours, {weight, 10000 - weight}));
         }
     }
-    return {{"colour", blend_color_multi(colours, ratios)}, {"ramp", ramp}};
+    return {{"colour", blend_color_multi(colours, ratios)}, {"ramp", ramp}, {"samples",samples}};
+}
+
+json decompose(PresetBundle& bundle, const json& query)
+{
+    const size_t source = query.at("source").get<size_t>();
+    const std::string type = query.at("material").get<std::string>();
+    const std::string method = query.at("method").get<std::string>();
+    const size_t physical = bundle.num_physical_filaments();
+    if (physical < 2 || source == 0 || source > physical)
+        throw std::invalid_argument("Choose a physical filament in a rack with at least two materials.");
+    const auto& cfg = bundle.project_config;
+    const auto target_hex = read<ConfigOptionStrings>(cfg, "filament_colour", source-1);
+    ColorDecomposeRgb target;
+    if (!color_decompose_hex_to_rgb(target_hex, target)) throw std::invalid_argument("Invalid target colour.");
+    std::vector<ColorDecomposePhysicalFilament> candidates;
+    std::string base_preset;
+    for (size_t i = 0; i < physical; ++i) {
+        const auto& preset = bundle.filament_presets.at(i);
+        auto category = material_type(bundle, i);
+        if (preset.find("Bambu PLA Basic") != std::string::npos) category = "PLA Basic";
+        if (category != type) continue;
+        if (base_preset.empty()) base_preset = preset;
+        if (i + 1 != source) candidates.push_back({read<ConfigOptionStrings>(cfg, "filament_colour", i),
+            preset, type, false, static_cast<unsigned>(i+1)});
+    }
+    ColorDecomposeRecipeResult result;
+    if (method == "project") {
+        if (candidates.size() < 2) throw std::invalid_argument("Choose two other physical filaments of this type.");
+        result = recommend_from_physical_filaments(target, candidates, type);
+    } else {
+        if (type != "PLA Basic" || (method != "CMYW" && method != "RYBW"))
+            throw std::invalid_argument("The standard palettes require PLA Basic.");
+        if (base_preset.empty()) {
+            for (const auto& preset : bundle.filaments.get_presets())
+                if (preset.is_compatible && preset.name.find("Bambu PLA Basic") != std::string::npos) {
+                    base_preset = preset.name;
+                    break;
+                }
+        }
+        if (base_preset.empty()) throw std::invalid_argument("No compatible PLA Basic preset is available.");
+        result = lookup_standard_recipe(target, method == "CMYW" ? ColorDecomposeRecipeMode::CMYW : ColorDecomposeRecipeMode::RYBW, type);
+    }
+    if (!result.valid || result.components.empty()) throw std::invalid_argument("No matching recipe was found.");
+    if (result.components.size() == 1) throw std::invalid_argument("This colour already matches one filament.");
+    json additions = json::array(), ids = json::array(), ratios = json::array();
+    for (const auto& component : result.components) {
+        size_t id = component.filament_index;
+        if (!id) {
+            ColorDecomposeRgb rgb;
+            for (const auto& candidate : candidates)
+                if (color_decompose_hex_to_rgb(candidate.color_hex, rgb) && color_decompose_rgb_to_hex(rgb) == component.color_hex) {
+                    id = candidate.filament_index;
+                    break;
+                }
+            if (!id) {
+                additions.push_back({{"colour",component.color_hex},{"name",component.base_color},{"preset",base_preset}});
+                id = physical + additions.size();
+            }
+        }
+        ids.push_back(id);
+        ratios.push_back(component.ratio);
+    }
+    std::string error;
+    if (bundle.filament_presets.size() + additions.size() + 1 > size_t(EnforcerBlockerType::ExtruderMax))
+        error = "The base filaments and mix would exceed 32 project slots.";
+    else if (!additions.empty() && !State::supports_independent_materials(bundle.printers.get_edited_preset().config) && !bundle.is_bbl_vendor())
+        error = "This printer cannot add the required physical slots.";
+    return {{"target", target_hex}, {"matched", result.matched_color_hex}, {"additions", additions}, {"error",error},
+        {"recipe", {{"components",ids},{"ratios",ratios},{"gradient",false},{"reverse",false},{"perPart",false},{"points",json::array()}}}};
 }
 
 json recommendations(const PresetBundle& bundle, int size)

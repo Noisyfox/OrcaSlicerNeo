@@ -661,7 +661,7 @@ if(WASM_THREADING)
     -sMALLOC=mimalloc
   )
 endif()
-# Only non-profile runtime resources (currently resources/info) may be
+# Only non-profile runtime resources may be
 # preloaded. Profile packages are fetched and installed into MEMFS by JS.
 set(_mix_recipes "${CMAKE_CURRENT_SOURCE_DIR}/cpp/resources/filament_mixing/standard_color_recipes.json")
 target_link_options(orca_slice PRIVATE "--preload-file=${_mix_recipes}@/filament_mixing/standard_color_recipes.json")

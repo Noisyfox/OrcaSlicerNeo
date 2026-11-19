@@ -1383,6 +1383,7 @@ export interface MixedFilamentRecipe {
 }
 
 export interface MixedFilamentPreview {
+  samples: number[];
   colour: string;
   ramp: string[];
 }
@@ -1393,8 +1394,21 @@ export interface MixedFilamentRecommendation {
   colour: string;
 }
 
+export interface ColorDecomposeQuery {
+  source: number;
+  material: string;
+  method: 'project' | 'CMYW' | 'RYBW';
+}
+export interface ColorDecomposeProposal {
+  target: string;
+  matched: string;
+  error: string;
+  recipe: MixedFilamentRecipe;
+  additions: { name: string; colour: string; preset: string }[];
+}
+
 export type MixedFilamentRequest = FilamentCommandRequest & (
-  { recipe: MixedFilamentRecipe; slot?: number } | { operation: 'delete-all' }
+  { recipe: MixedFilamentRecipe; slot?: number } | { operation: 'delete-all' } | { decompose: ColorDecomposeQuery }
 );
 
 /** One ordered, one-based material slot owned by the native session. */
@@ -1802,6 +1816,7 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
   editMixedFilament(request: MixedFilamentRequest): Promise<FilamentMutationResultOrError>;
   previewMixedFilament(request: MixedFilamentRecipe): Promise<MixedFilamentPreview | { error: string }>;
+  previewColorDecomposition(query: ColorDecomposeQuery): Promise<ColorDecomposeProposal | { error: string }>;
   getMixRecommendations(size: 2 | 3): Promise<MixedFilamentRecommendation[]>;
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
   deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError>;

@@ -44,7 +44,7 @@ import type {
   PreviewAnalysis, PreviewMetricKey,
   PreviewTextChunk, PreviewTextChunkRequest,
   PreviewTextLines, PreviewTextLinesRequest,
-  MixedFilamentRecipe, MixedFilamentRequest, MixedFilamentRecommendation,
+  ColorDecomposeQuery, ColorDecomposeProposal, MixedFilamentRecipe, MixedFilamentRequest, MixedFilamentRecommendation,
   FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
   FilamentAssignmentProjection, FilamentRoutingProjection,
   FilamentMutationResultOrError, FilamentMutationResult,
@@ -647,6 +647,10 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     return { ok: false, version: 1, error: 'invalid filament mutation slot', errorCode: 'invalid_response' };
   if (requireSlot && Number(mutation.slot) > snapshot.slots.length)
     return { ok: false, version: 1, error: 'invalid filament mutation slot range', errorCode: 'invalid_response' };
+  if (mutation.kind === 'save-mix' && !snapshot.slots[Number(mutation.slot) - 1].mix)
+    return { ok: false, version: 1, error: 'missing saved recipe', errorCode: 'invalid_response' };
+  if (mutation.kind === 'delete-mixes' && snapshot.slots.some(slot => slot.mix))
+    return { ok: false, version: 1, error: 'incomplete mixed filament deletion', errorCode: 'invalid_response' };
   if (mutation.kind === 'add' && Number(mutation.slot) !== snapshot.slots.filter(s => !s.mix).length)
     return { ok: false, version: 1, error: 'invalid filament add slot', errorCode: 'invalid_response' };
   if (mutation.kind === 'select-preset' && (!has('preset') || typeof mutation.preset !== 'string' || mutation.preset.length === 0))
@@ -2468,9 +2472,21 @@ export function createClient(
     async previewMixedFilament(request: MixedFilamentRecipe) {
       const raw = callJson(await module(), 'orc_preview_mixed_filament', ['string'], [JSON.stringify(request)]);
       if (isRecord(raw) && typeof raw.error === 'string') return { error: raw.error };
-      if (!isRecord(raw) || typeof raw.colour !== 'string' || !Array.isArray(raw.ramp) || !raw.ramp.every(c => typeof c === 'string'))
+      if (!isRecord(raw) || !Array.isArray(raw.samples) || !raw.samples.every(Number.isFinite) ||
+          typeof raw.colour !== 'string' || !Array.isArray(raw.ramp) || !raw.ramp.every(c => typeof c === 'string'))
         throw new Error('Invalid mixed filament preview');
-      return { colour: raw.colour, ramp: raw.ramp as string[] };
+      return { colour: raw.colour, ramp: raw.ramp as string[], samples:raw.samples as number[] };
+    },
+
+    async previewColorDecomposition(query: ColorDecomposeQuery) {
+      const raw = callJson(await module(), 'orc_preview_mixed_filament', ['string'], [JSON.stringify({decompose:query})]);
+      if (!isRecord(raw) || typeof raw.error !== 'string') throw new Error('Invalid colour decomposition response');
+      if (!('recipe' in raw)) return { error: raw.error };
+      if (!isRecord(raw.recipe) || !Array.isArray(raw.recipe.components) || !Array.isArray(raw.recipe.ratios) ||
+          typeof raw.target !== 'string' || typeof raw.matched !== 'string' || !Array.isArray(raw.additions) ||
+          !raw.additions.every(a=>isRecord(a) && typeof a.name === 'string' && typeof a.colour === 'string' && typeof a.preset === 'string'))
+        throw new Error('Invalid colour decomposition proposal');
+      return raw as unknown as ColorDecomposeProposal;
     },
 
     async getMixRecommendations(size: 2 | 3) {

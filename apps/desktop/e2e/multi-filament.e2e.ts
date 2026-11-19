@@ -1,3 +1,4 @@
+import { verifyMixedFilamentEditor } from './mixed-filament-flow';
 import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
 import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
@@ -284,6 +285,16 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
   } finally {
     const page = await app.firstWindow();
     await test.info().attach('rack-native-receipts', {body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
+    await app.close();
+  }
+});
+
+test('creates, edits and deletes a mixed filament with the real utility worker', async () => {
+  test.skip(!REAL, 'Requires the real native recipe and colour projection.');
+  const app = await launchApp();
+  try {
+    await verifyMixedFilamentEditor(await app.firstWindow());
+  } finally {
     await app.close();
   }
 });

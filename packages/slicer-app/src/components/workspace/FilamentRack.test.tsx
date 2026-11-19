@@ -9,7 +9,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import type * as D from '@orca/platform-contract';
-import type { FilamentSessionSnapshot, HistoryStatus } from '@slicer/client';
+import type { FilamentSessionSnapshot, HistoryStatus, MixedFilamentRecipe } from '@slicer/client';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const id = <K extends string>(value: string) => value as D.Id<K>;
@@ -96,6 +96,34 @@ describe('FilamentRack runtime interaction', () => {
     useProjectStore.getState().reset();
     useSettingsStore.setState({ filamentCatalog: [], modifiedPresets: { printer: [], filament: [] } });
     useDeviceSelectionStore.setState({ currentPrinterId: null, connection: null, materials: null, connectionOwner: null });
+  });
+
+  it('keeps a missing component editable at the creation limit and resets the tab for a new project', async () => {
+    const base = makeSnapshot();
+    const physical = Array.from({ length: 31 }, (_, i) => ({
+      ...base.slots[0], slot: i + 1, logicalId: `physical-${i}`,
+    }));
+    const mix = { components: [1, 0], ratios: [60, 40], gradient: false, reverse: false, perPart: false,
+      points: [], error: 'Replace the missing filament.', ramp: [] };
+    const snapshot = makeSnapshot({ slots: [...physical, { ...base.slots[0], logicalId: 'mix', slot: 32, mix }] });
+    const rendered = renderRack({ getFilamentSessionSnapshot: async () => snapshot,
+      getMixRecommendations: async () => [], previewMixedFilament: async (recipe: MixedFilamentRecipe) =>
+        recipe.components.includes(0) ? {error: mix.error} : {colour:'#112233', ramp:[], samples:[]} });
+    root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const button = (title:string) => [...document.querySelectorAll('button')].find(b => b.textContent === title)!;
+    await act(async () => button('Mixes').click());
+    expect(button('Create').disabled).toBe(true);
+    expect(rendered.container.textContent).toContain('Missing filament · 40%');
+    await act(async () => rendered.container.querySelector<HTMLButtonElement>('[aria-label="Edit mix in slot 32"]')!.click());
+    expect(button('Save mix').disabled).toBe(true);
+    const select = document.querySelector<HTMLSelectElement>('select[aria-label="Component 2"]')!;
+    await act(async () => { select.value = '2'; select.dispatchEvent(new Event('change', {bubbles:true})); });
+    expect(button('Save mix').disabled).toBe(false);
+    await act(async () => button('Cancel').click());
+    expect(rendered.container.textContent).toContain('Missing filament · 40%');
+    act(() => useProjectStore.getState().reset());
+    expect(button('Material (31)').getAttribute('aria-selected')).toBe('true');
   });
 
   it.each(['solid', 'gradient', 'multicolor'] as const)('uses shared alpha swatches for installed %s materials', async mode => {

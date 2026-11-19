@@ -369,6 +369,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     projectHistoryStatus(history);
     const filament = await refreshFilamentSession(runtime);
     if (!filament.ok) throw new Error(filament.error ?? 'project load filament session refresh failed');
+    useProjectStore.setState(state => ({ projectGeneration: state.projectGeneration + 1 }));
     useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), projectFileName: input.displayName, location: input.location, hasContent: true, scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
     await rememberProject(platform, input.location);
     setOperation('completed', 100);

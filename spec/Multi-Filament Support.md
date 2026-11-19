@@ -2098,7 +2098,12 @@ boundary validation.
 ## 15. Mixed filaments
 
 **Design status.** Accepted for implementation on Electron and Web. The
-native slicing behaviour described below was verified during design.
+native slicing behaviour described below was verified during design. The native
+slot and recipe commands and the Prepare sidebar editor are implemented.
+[Native transaction tests](../packages/slicer-wasm/harness/mixed-filament-smoke.mjs)
+cover physical insertion, facet paint, undo, 3MF persistence and creation from
+the standard colour table. The [shared host acceptance flow](../apps/desktop/e2e/mixed-filament-flow.ts)
+exercises the Mixes editor through the Electron and Web workers.
 
 ### Configuration entry point
 
