@@ -388,7 +388,9 @@ sequence. Cancelling a gesture restores its local pre-gesture transform and
 aborts the Worker transaction.
 
 Release publishes a completion promise synchronously, including for numeric
-field blur. Slice, history navigation, object-list mutations, Save/Save As and
+field blur. A Save shortcut issued while a transform field still has focus
+saves the last committed value. Enter or ordinary focus loss submits the
+draft. Slice, history navigation, object-list mutations, Save/Save As and
 project dirty checks wait for previously released transforms before entering
 the project FIFO or reading the model. Completion includes the Worker history
 commit and publication of corrected sibling transforms. A failed or stale edit

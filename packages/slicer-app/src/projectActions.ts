@@ -1,5 +1,4 @@
 import { configurePrinterProjectPreferences } from './preferences';
-import { commitFocusedTransformInput } from './components/workspace/settings/commitFocusedTransformInput';
 import { waitForSettledModelTransforms } from './components/workspace/actions/persistModelTransforms';
 import { captureProjectThumbnails } from './components/workspace/projectThumbnails';
 import { paintingCommandAllowed, closePaintingForCommand, resetPaintingProjectPalette, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
@@ -119,7 +118,6 @@ async function rememberProject(platform: PlatformCapabilities, location: Project
 
 /** Read the Worker checkpoint state for lifecycle guards. */
 export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
-  commitFocusedTransformInput();
   const pending = waitForSettledModelTransforms();
   if (pending) {
     const settled = await pending;
@@ -172,7 +170,6 @@ export function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectAc
 }
 async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean): Promise<ProjectActionResult> {
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
-  commitFocusedTransformInput();
   const pending = waitForSettledModelTransforms();
   if (pending) {
     const settled = await pending;

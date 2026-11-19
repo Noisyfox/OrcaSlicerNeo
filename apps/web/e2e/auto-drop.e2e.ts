@@ -50,22 +50,48 @@ test('real Web Worker settles Auto Drop and preserves it through history', async
   await page.getByTestId('history-undo').click(); await expect(z).toHaveValue(raised);
   await page.getByTestId('history-redo').click(); await expect(z).toHaveValue(rest);
 
-  // Save As also works on the clean checkpoint, while X still has keyboard focus.
-  const saveAs = async () => {
+  const save = page.getByTestId('titlebar-save-project');
+  const savedTranslation = async (action: () => Promise<void>) => {
     const download = page.waitForEvent('download');
-    await page.keyboard.press('ControlOrMeta+Shift+s');
+    await action();
     const file = await download;
     const entries = readZipEntries(await readFile((await file.path())!));
     const model = entries.find((entry: { name: string }) => entry.name === '3D/3dmodel.model');
     const xml = new TextDecoder().decode(model.content);
     const transform = /<item\b[^>]*\btransform="([^"]+)"/.exec(xml);
     expect(transform).not.toBeNull();
-    await expect(page.getByTestId('titlebar-save-project')).toBeDisabled();
-    return transform![1].trim().split(/\s+/).map(Number)[9];
+    await expect(save).toBeDisabled();
+    return transform![1].trim().split(/\s+/).slice(9, 12).map(Number);
   };
-  const beforeX = await saveAs();
+  const baseline = await savedTranslation(() => page.keyboard.press('ControlOrMeta+Shift+s'));
   const x = page.getByTestId('move-x');
-  await x.fill((Number(await x.inputValue()) + 3).toFixed(3));
-  expect(await saveAs()).toBeCloseTo(beforeX + 3);
+  const originalX = Number(await x.inputValue());
+  const draftX = (originalX + 7).toFixed(3);
+
+  // A committed edit enables ordinary Save while the next value is still being typed.
+  await x.fill((originalX + 3).toFixed(3));
+  await x.press('Enter');
+  await expect(save).toBeEnabled();
+  await x.fill(draftX);
+  await expect(x).toBeFocused();
+  await expect(x).toHaveValue(draftX);
+  const keyboardSave = await savedTranslation(() => page.keyboard.press('ControlOrMeta+s'));
+  expect(keyboardSave[0]).toBeCloseTo(baseline[0] + 3);
+
+  // Clicking Z releases X. Clicking Save then releases Z and must export its bed correction.
+  await x.fill(draftX);
+  await z.fill(raised);
+  await expect(save).toBeEnabled();
+  const clickedSave = await savedTranslation(() => save.click());
+  expect(clickedSave[0]).toBeCloseTo(baseline[0] + 7);
+  expect(clickedSave[2]).toBeCloseTo(baseline[2]);
+  await expect(z).toHaveValue(rest);
+
+  await z.fill(raised);
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  const afterSlice = await savedTranslation(() => page.keyboard.press('ControlOrMeta+Shift+s'));
+  expect(afterSlice).toEqual(clickedSave);
   await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
 });

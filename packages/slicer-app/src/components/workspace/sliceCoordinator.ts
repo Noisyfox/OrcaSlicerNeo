@@ -1,7 +1,6 @@
 import { paintingCommandAllowed, closePaintingForCommand } from './viewport/gizmo/painting/projectCommands';
 import { closeMeasureForCommand } from './viewport/gizmo/measure/projectCommands';
 import { waitForSettledModelTransforms } from './actions/persistModelTransforms';
-import { commitFocusedTransformInput } from './settings/commitFocusedTransformInput';
 import { useSlicerStore, type SliceStatus } from '@/stores/useSlicerStore';
 
 export interface WorkspaceSliceCoordinator {
@@ -65,7 +64,6 @@ export function createWorkspaceSliceCoordinator({
     ensureSlice,
     requestPreviewSlice: async () => {
       if (!paintingCommandAllowed()) return;
-      commitFocusedTransformInput();
       const pending = waitForSettledModelTransforms();
       if (!await closePaintingForCommand()) return;
       const measureCleanup = closeMeasureForCommand();

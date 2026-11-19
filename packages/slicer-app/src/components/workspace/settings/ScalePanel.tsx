@@ -72,7 +72,6 @@ export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneIntera
     <div key={`f-${axis}`} className="flex items-center gap-2 py-1">
       <Label className="w-10 shrink-0 text-xs text-muted-foreground">{axis.toUpperCase()}</Label>
       <Input
-        data-transform-input
         data-testid={`scale-factor-${axis}`}
         className="flex-1"
         value={factorDraft?.[i] ?? formatPercent(displayedFactor[i])}
@@ -94,7 +93,6 @@ export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneIntera
     <div key={`s-${axis}`} className="flex items-center gap-2 py-1">
       <Label className="w-10 shrink-0 text-xs text-muted-foreground">{axis.toUpperCase()}</Label>
       <Input
-        data-transform-input
         data-testid={`scale-size-${axis}`}
         className="flex-1"
         value={sizeDraft?.[i] ?? formatPosition(size[i])}

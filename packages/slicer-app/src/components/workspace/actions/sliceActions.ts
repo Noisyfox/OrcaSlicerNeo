@@ -12,7 +12,6 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 import { syncModelTransforms } from './syncModelTransforms';
-import { commitFocusedTransformInput } from '../settings/commitFocusedTransformInput';
 import { applySettledTransformSyncResult, waitForSettledModelTransforms } from './persistModelTransforms';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 import { useNotificationStore, type NotificationAttempt } from '@/stores/useNotificationStore';
@@ -80,7 +79,6 @@ export async function sliceModel(platform: PlatformCapabilities, plateId?: strin
 }
 
 async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlateId?: string): Promise<void> {
-  commitFocusedTransformInput();
   const pending = waitForSettledModelTransforms();
   let notificationAttempt: NotificationAttempt | null = null;
   if (!await closePaintingForCommand()) return;
