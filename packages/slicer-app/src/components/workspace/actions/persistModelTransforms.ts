@@ -1,14 +1,13 @@
-import type { SlicerRuntime } from '@orca/platform-contract';
+import type { TransformGestureResult } from './transformHistory';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { activatePlateResultForSession, invalidateAffectedPlateResults, type SliceCancellationRuntime } from '@/stores/plateResultLifecycle';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { applyPlateSessionTransforms, syncModelTransforms, type TransformSyncResult } from './syncModelTransforms';
+import { applyPlateSessionTransforms, type TransformSyncResult } from './syncModelTransforms';
 
 /** Apply the renderer-side consequences of a settled transform write.
  *
- * Transform history uses the same boundary as the legacy settle helper, but
- * commits through the Worker transaction before invoking this projection.
+ * Transform history commits through the Worker transaction before invoking this projection.
  * Keeping the projection here ensures the defensive pre-slice synchronizer
  * and history-backed edits invalidate derived output identically.
  */
@@ -29,35 +28,24 @@ export function applySettledTransformSyncResult(result: TransformSyncResult, run
     activatePlateResultForSession(result.plateSession);
 }
 
-// Legacy settle synchronization is retained for the defensive pre-slice
-// consistency check. User-facing transforms use TransformHistoryCoordinator,
-// which performs the one final write inside its Worker transaction.
-let pendingSettledTransformSync: Promise<{ ok: boolean; error?: string }> = Promise.resolve({ ok: true });
+const released = new Set<Promise<TransformGestureResult>>();
 
-/** Queue a snapshot after a move has settled (mouse release or panel commit). */
-export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<TransformSyncResult> {
-  const snapshot = [...glVolumeCollection.volumes];
-  const sync = pendingSettledTransformSync.then(
-    () => syncModelTransforms(runtime, snapshot),
-    () => syncModelTransforms(runtime, snapshot),
-  );
-  const settled = sync.then((result) => {
-    // A settled model transform is a slice-input change (spec §8): the
-    // bridge invalidated the completed Print, so mirror that in the
-    // renderer — the stale toolpath preview is cleared (useSliceResult)
-    // and export is disabled until re-slicing. On sync failure nothing
-    // was applied, so the prior result stays valid.
-    applySettledTransformSyncResult(result, runtime);
-    return result;
-  }).catch((error) => ({
-    ok: false as const,
-    error: error instanceof Error ? error.message : String(error),
-  }));
-  pendingSettledTransformSync = settled;
-  return settled;
+/** Register at release, before the asynchronous reservation can enter the project FIFO. */
+export function trackReleasedTransform(completion: Promise<TransformGestureResult>): void {
+  released.add(completion);
+  void completion.then(() => released.delete(completion));
 }
 
-/** Wait for any synchronization triggered by a just-finished edit. */
-export function waitForSettledModelTransforms(): Promise<{ ok: boolean; error?: string }> {
-  return pendingSettledTransformSync;
+type Settlement = { ok: true } | { ok: false; error: string };
+
+/** Snapshot releases at command admission. Live gestures and later edits remain independent. */
+export function waitForSettledModelTransforms(): Promise<Settlement> | null {
+  if (released.size === 0) return null;
+  return Promise.all(released).then(results => {
+    for (const result of results) {
+      if (result.outcome === 'failed' || result.outcome === 'stale')
+        return { ok: false, error: result.error };
+    }
+    return { ok: true };
+  });
 }

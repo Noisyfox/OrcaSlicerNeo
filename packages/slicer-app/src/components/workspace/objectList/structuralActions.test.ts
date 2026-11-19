@@ -161,7 +161,7 @@ describe('object list structural actions', () => {
   });
 
   it('waits for pending transforms before reordering model indices', async () => {
-    let release!: (result: { ok: boolean }) => void;
+    let release!: (result: { ok: true }) => void;
     vi.mocked(waitForSettledModelTransforms).mockReturnValueOnce(new Promise((resolve) => {
       release = resolve;
     }));

@@ -3,6 +3,7 @@ import type { ModelObjectBuffer } from '@slicer/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { GLVolume, glVolumeCollection } from '../viewport/GLVolume';
+import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { TransformHistoryCoordinator } from './transformHistory';
 import { historyContextForStructure, runProjectMutationOperation } from './historyMutation';
 import { useObjectListStore } from '../objectList/useObjectListStore';
@@ -232,11 +233,19 @@ describe('TransformHistoryCoordinator', () => {
     expect(history.begin('Move', 'move')).toBe(true);
     expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
     expect(runtime.setModelTransforms).not.toHaveBeenCalled();
+    expect(waitForSettledModelTransforms()).toBeNull();
     const commit = history.commit();
+    const settled = waitForSettledModelTransforms();
+    expect(settled).toBeInstanceOf(Promise);
+    const published = vi.fn();
+    void settled!.then(published);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledTimes(1);
+    expect(published).not.toHaveBeenCalled();
     releaseMutation();
     await commit;
+    await expect(settled).resolves.toEqual({ ok: true });
+    expect(waitForSettledModelTransforms()).toBeNull();
     expect(runtime.setModelTransforms).toHaveBeenCalledTimes(1);
   });
 

@@ -2,7 +2,7 @@ import type { HistoryContext, HistoryStatus, ModelMutationResult, ModelStructure
 import { useProjectStore } from '@/stores/useProjectStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
-import { applySettledTransformSyncResult } from './persistModelTransforms';
+import { applySettledTransformSyncResult, trackReleasedTransform } from './persistModelTransforms';
 import {
   captureTransformReservationState,
   executeProjectHistoryTransaction,
@@ -94,6 +94,7 @@ export class TransformHistoryCoordinator {
     if (!current) return { outcome: 'cancelled' };
     current.finalTransforms = this.captureTransforms();
     current.decision = 'commit';
+    trackReleasedTransform(current.completion);
     this.pump();
     return current.completion;
   }
@@ -152,9 +153,11 @@ export class TransformHistoryCoordinator {
     if (!next.reservationReady) return;
     if (!next.reservation) {
       const error = next.reservationError?.message ?? 'transform reservation was unavailable';
-      void this.reconcile?.().catch((reconcileError) => this.onError(reconcileError));
+      this.running = next;
       this.onError(new Error(error));
-      this.finish(next, { outcome: 'failed', error });
+      void Promise.resolve().then(() => this.reconcile?.())
+        .catch((reconcileError) => this.onError(reconcileError))
+        .finally(() => this.finish(next, { outcome: 'failed', error }));
       return;
     }
     this.running = next;

@@ -92,7 +92,7 @@ describe('object list action helpers', () => {
   });
 
   it('waits for pending transforms before invoking the metadata bridge', async () => {
-    let release!: (result: { ok: boolean }) => void;
+    let release!: (result: { ok: true }) => void;
     vi.mocked(waitForSettledModelTransforms).mockReturnValueOnce(new Promise((resolve) => {
       release = resolve;
     }));

@@ -38,7 +38,7 @@ async function commitAddedImpl(
   // A just-finished gesture persists its settled state on release. Wait for
   // that commit before the additive import refreshes the collection.
   const synced = await waitForSettledModelTransforms();
-  if (!synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
+  if (synced && !synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
   // An additive mutation can be requested while the previous model revision
   // is still loading. Serialize the mutation behind that mesh publication so
   // concurrent Worker reads cannot publish an older collection after the

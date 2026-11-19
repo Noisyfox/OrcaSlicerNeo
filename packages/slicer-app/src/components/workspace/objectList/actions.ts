@@ -58,7 +58,7 @@ export async function prepareObjectListMutation(): Promise<MutationOutcome> {
   if (!paintingCommandAllowed()) return { ok: false };
   try {
     const settled = await waitForSettledModelTransforms();
-    if (!settled.ok) {
+    if (settled && !settled.ok) {
       return {
         ok: false,
         error: settled.error ?? 'Unable to persist pending model transforms',
