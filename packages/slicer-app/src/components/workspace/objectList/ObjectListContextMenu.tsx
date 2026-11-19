@@ -21,7 +21,7 @@ import {
   splitObjectToObjectsInList,
   splitVolumeToPartsInList,
 } from './structuralActions';
-import { changePartTypeInList, setObjectPrintableInList, setInstancePrintableInList, setObjectsAutoDropInList } from './actions';
+import { assignFilamentInList, changePartTypeInList, setObjectPrintableInList, setInstancePrintableInList, setObjectsAutoDropInList } from './actions';
 import { selectedAutoDropObjects } from './autoDrop';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { ADD_VOLUME_MENUS, addVolumeAnchor, addVolumeInList } from './addVolumeActions';
@@ -72,7 +72,6 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const platform = usePlatform();
   const runtime = platform.runtime;
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
-  const runFilament = useFilamentSessionStore((s) => s.run);
   const projection = useObjectListStore((s) => s.projection);
   const structure = useObjectListStore((s) => s.structure);
   const act = (p: Promise<{ ok: boolean; error?: string }>) => { void p; onClose(); };
@@ -124,11 +123,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
         </>}
         testid={`objectlist-change-filament-${slot === 0 ? 'default' : slot}`}
         onClick={() => {
-          void runFilament(runtime, () => {
-            const current = useFilamentSessionStore.getState().snapshot;
-            if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
-            return runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
-          });
+          void assignFilamentInList(runtime, targets, slot);
           onClose();
         }}
       />

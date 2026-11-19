@@ -18,7 +18,7 @@ import {
   type ObjectListValidity,
   type SelectableRow,
 } from './projection';
-import { renameObjectInList, renamePartInList, setObjectPrintableInList, setInstancePrintableInList, setObjectsAutoDropInList } from './actions';
+import { prepareObjectListMutation, assignFilamentInList, renameObjectInList, renamePartInList, setObjectPrintableInList, setInstancePrintableInList, setObjectsAutoDropInList } from './actions';
 import { selectedAutoDropObjects } from './autoDrop';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
@@ -78,7 +78,6 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   }, [plateSessionPlates, plateSessionInstances]);
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const filamentPending = useFilamentSessionStore((s) => s.pendingKind !== null);
-  const runFilament = useFilamentSessionStore((s) => s.run);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
@@ -121,9 +120,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         onClick={(event) => {
           event.stopPropagation();
           setResetPending(true);
-          void commitScopedConfigurationMutation(platform, {
+          void prepareObjectListMutation().then(prepared => prepared.ok ? commitScopedConfigurationMutation(platform, {
             version: 1, operation: 'reset-all', targets: [{ scope, id }],
-          }).then((mutation) => {
+          }) : null).then((mutation) => {
             if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
           }).catch(() => {
             // The shared mutation path publishes the runtime error to the UI.
@@ -135,11 +134,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
     const targets = assignmentTargetsForSelection({ kind, id }, projection, structure);
     if (targets.length === 0) return;
-    void runFilament(platform.runtime, () => {
-      const current = useFilamentSessionStore.getState().snapshot;
-      if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
-      return platform.runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
-    });
+    void assignFilamentInList(platform.runtime, targets, slot);
   }
 
   useEffect(() => {

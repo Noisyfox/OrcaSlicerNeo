@@ -1,6 +1,7 @@
 import { paintingCommandAllowed, beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
-import type { VolumeType } from '@slicer/client';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import type { FilamentAssignmentTargetRequest, VolumeType } from '@slicer/client';
 import type { PlateSessionMutation } from '@slicer/client';
 import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
@@ -71,6 +72,16 @@ export async function prepareObjectListMutation(): Promise<MutationOutcome> {
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function assignFilamentInList(runtime: SlicerRuntime, targets: FilamentAssignmentTargetRequest[], slot: number): Promise<void> {
+  const prepared = await prepareObjectListMutation();
+  if (!prepared.ok) return;
+  await useFilamentSessionStore.getState().run(runtime, () => {
+    const current = useFilamentSessionStore.getState().snapshot;
+    if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
+    return runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
+  });
 }
 
 /** Publish result/plate state after the committed SceneDelta updated the scene. */

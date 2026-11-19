@@ -4,6 +4,7 @@ import type { SceneInteractionController } from '../components/workspace/viewpor
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { projectHistoryStatus } from './projectHistoryStatus';
+import { waitForSettledModelTransforms } from '../components/workspace/actions/persistModelTransforms';
 import { restoreProjectHistory } from '../components/workspace/actions/historyMutation';
 import { invalidateAffectedPlateResults } from '../stores/plateResultLifecycle';
 import { historyDiagnosticNow, historyRestorePath, type HistoryRestorePath, useHistoryDiagnosticsStore } from './historyDiagnostics';
@@ -53,17 +54,26 @@ export function createHistoryRestoreCoordinator({
   refreshModel,
   publishRestoredFilamentRack,
 }: HistoryRestoreCoordinatorOptions): HistoryRestoreCoordinator {
-  const restore = (action: HistoryRestoreAction): Promise<boolean> => {
-    if (!paintingCommandAllowed()) return Promise.resolve(false);
+  const restore = async (action: HistoryRestoreAction): Promise<boolean> => {
+    if (!paintingCommandAllowed()) return false;
     if (runtime.getRuntimeExecutionState?.().serialSliceActive) {
       useHistoryRestoreStore.getState().setError('slice_busy');
-      return Promise.resolve(false);
+      return false;
     }
     // A drag is a draft gesture. The first Undo/Redo cancels it and is
     // intentionally consumed; a second shortcut performs navigation.
     if (sceneInteraction.activeDrag) {
       sceneInteraction.cancelDrag();
-      return Promise.resolve(false);
+      return false;
+    }
+
+    const pending = waitForSettledModelTransforms();
+    if (pending) {
+      const settled = await pending;
+      if (!settled.ok) {
+        useHistoryRestoreStore.getState().setError(settled.error);
+        return false;
+      }
     }
 
     // Every request is deliberately retained as its own FIFO item.  Repeated

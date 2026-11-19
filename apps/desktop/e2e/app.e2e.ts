@@ -1601,6 +1601,50 @@ test('Auto Drop settles moves and enabling it restores bed contact', async () =>
   } finally { await app.close(); }
 });
 
+test('blurred Move precedes a toolbar Undo and a printable change', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const list = page.getByTestId('object-list');
+    const row = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])').first();
+    await row.locator('button.object-list-row').first().click({ position: { x: 40, y: 10 } });
+    await page.getByTestId('gizmo-btn-move').click();
+    const x = page.getByTestId('move-x');
+    const start = await x.inputValue();
+    const moved = (Number(start) + 3).toFixed(3);
+    const undo = page.getByTestId('history-undo');
+    const redo = page.getByTestId('history-redo');
+    await x.fill(moved);
+    await undo.click();
+    await expect(redo).toHaveAttribute('aria-label', 'Redo Move');
+    await expect(x).toHaveValue(start);
+
+    const printable = list.getByRole('checkbox', { name: /^Object .* printable$/ }).first();
+    await x.fill(moved);
+    await printable.click();
+    await expect(undo).toHaveAttribute('aria-label', 'Undo Change Printable');
+    await undo.click();
+    await expect(undo).toHaveAttribute('aria-label', 'Undo Move');
+    await expect(printable).toBeChecked();
+    await undo.click();
+    await expect(x).toHaveValue(start);
+    await redo.click();
+    await expect(redo).toHaveAttribute('aria-label', 'Redo Change Printable');
+    // The following printable command owns the context of this predecessor frame.
+    if (!await x.isVisible()) {
+      await row.locator('button.object-list-row').first().click({ position: { x: 40, y: 10 } });
+      await page.getByTestId('gizmo-btn-move').click();
+    }
+    await expect(x).toHaveValue(moved);
+  } finally { await app.close(); }
+});
+
 test('split floating parts offers preserving positions or placing on bed', async () => {
   test.skip(REAL, 'uses the deterministic multi-part mock fixture');
   const { app } = await launchApp();

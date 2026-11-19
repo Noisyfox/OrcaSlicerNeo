@@ -295,7 +295,9 @@ export async function clearScene(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
 ): Promise<void> {
-  if (!paintingCommandAllowed() || !await closePaintingForCommand()) return;
+  if (!paintingCommandAllowed()) return;
+  const pending = waitForSettledModelTransforms();
+  if (!await closePaintingForCommand()) return;
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();
   if (slicer.status === 'slicing' || !settings.modelLoaded) return;
@@ -303,6 +305,8 @@ export async function clearScene(
   // resulting plate projection. The history helper refreshes the filament
   // snapshot once while this outer fence is held.
   try {
+    const settled = await pending;
+    if (settled && !settled.ok) throw new Error(settled.error);
     const history = await runProjectHistoryMutation(platform.runtime, 'Clear Scene', () => platform.runtime.clearModel(), sceneInteraction, {
       publish: async (r) => {
         if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
