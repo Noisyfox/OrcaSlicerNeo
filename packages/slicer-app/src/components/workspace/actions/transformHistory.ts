@@ -73,7 +73,7 @@ export class TransformHistoryCoordinator {
     // short read-only reservation completes, other mutations continue freely.
     if (useProjectStore.getState().projectMutationPendingCount !== 0) return false;
     const beforeContext = historyContextForStructure(this.sceneInteraction);
-    const startTargets = this.captureCompositeTargets();
+    const startTargets = compositeTargetsFor(this.sceneInteraction.transformCommitVolumes());
     if (startTargets.length === 0) return false;
     const objectIndices = new Set(startTargets.map((target) => target.objectIdx));
     // An authoritative bed correction arrives asynchronously. Do not let a
@@ -234,18 +234,14 @@ export class TransformHistoryCoordinator {
       volumeTransform: structuredClone(volume.volumeTransform),
     }));
   }
-
-  private captureCompositeTargets(): readonly CompositeTarget[] {
-    return compositeTargetsFor(this.captureTransforms());
-  }
 }
 
 export class TransformReservationStaleError extends Error {
   constructor(message: string) { super(message); }
 }
 
-function compositeTargetsFor(transforms: Parameters<typeof syncModelTransforms>[1]): readonly CompositeTarget[] {
-  const targets = transforms.map(({ buffer }) => ({ objectIdx: buffer.objectIdx, volumeIdx: buffer.volumeIdx, instanceIdx: buffer.instanceIdx }));
+function compositeTargetsFor(volumes: ReadonlyArray<{ buffer: CompositeTarget }>): readonly CompositeTarget[] {
+  const targets = volumes.map(({ buffer }) => ({ objectIdx: buffer.objectIdx, volumeIdx: buffer.volumeIdx, instanceIdx: buffer.instanceIdx }));
   if (new Set(targets.map(compositeTargetKey)).size !== targets.length)
     throw new Error('transform reservation contains duplicate renderer targets');
   return targets.sort(compareCompositeTargets);
