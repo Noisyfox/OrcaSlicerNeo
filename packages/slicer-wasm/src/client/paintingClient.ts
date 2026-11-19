@@ -1,5 +1,6 @@
 import type { OrcaModule } from './types';
 import type { PaintingChannel, PaintingApi, PaintingGeometryRequest, PaintingGeometryResult } from './painting';
+import { PAINTING_MAX_STATE } from './painting';
 import { callJson } from './heap';
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -12,7 +13,6 @@ const validTool = (c: PaintingChannel, tool: unknown): boolean => {
     : c === 'support' ? ['smartFill', 'gap', 'overhang'] : c === 'fuzzy' ? ['triangle', 'smartFill'] : [];
   return [...shared, ...specific].includes(String(tool));
 };
-const maxState = (value: PaintingChannel): number => value === 'mmu' ? 16 : value === 'fuzzy' ? 1 : 2;
 function envelope(value: unknown): asserts value is Record<string, unknown> {
   if (!record(value) || (typeof value.error !== 'string' && (value.ok !== true || value.version !== 1)))
     throw new Error('invalid painting response');
@@ -69,7 +69,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
       let end = 0;
       const states = new Set<number>();
       for (const group of entry.groups) {
-        if (!Array.isArray(group) || group.length !== 3 || !integer(group[0]) || group[0] > maxState(request.channel) || states.has(group[0]) ||
+        if (!Array.isArray(group) || group.length !== 3 || !integer(group[0]) || group[0] > PAINTING_MAX_STATE[request.channel] || states.has(group[0]) ||
             group[1] !== end || !integer(group[2], 1) || group[2] % 3) throw new Error('invalid painting groups');
         states.add(group[0]); end += group[2];
       }
@@ -101,7 +101,7 @@ function ids(value: unknown): value is number[] {
 function phase(value: unknown, stroke: unknown, id: string): boolean {
   return value === 'idle' ? stroke === null : (value === 'drawing' || value === 'finished') && canonical(stroke, `pst-${id.slice(3)}-`);
 }
-function counts(value: unknown, c: PaintingChannel): boolean { return Array.isArray(value) && value.length === 17 && value.every((n, state) => integer(n) && (state <= maxState(c) || n === 0)); }
+function counts(value: unknown, c: PaintingChannel): boolean { return Array.isArray(value) && value.length === PAINTING_MAX_STATE.mmu + 1 && value.every((n, state) => integer(n) && (state <= PAINTING_MAX_STATE[c] || n === 0)); }
 function checkReceipt(raw: Record<string, unknown>, request: Record<string, unknown>, operation: string): void {
   if (!channel(raw.channel) || raw.channel !== request.channel || !canonical(raw.sessionId, 'ps-') || raw.sessionId !== request.sessionId || !integer(raw.revision, 1) ||
       !integer(request.revision, 1) || raw.revision !== request.revision + 1 || !phase(raw.phase, raw.strokeId, raw.sessionId) ||

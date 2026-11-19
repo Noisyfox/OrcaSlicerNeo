@@ -51,7 +51,7 @@ describe('painting binary ownership', () => {
   it.each(['stale', 'groups', 'pointer', 'count', 'identity', 'later'])('frees all buffers on %s malformed response', mode => {
     const { m, raw, a, b, freed } = geometry();
     if (mode === 'stale') raw.revision++;
-    if (mode === 'groups') raw.resources[0].groups = [[17,0,3]];
+    if (mode === 'groups') raw.resources[0].groups = [[33,0,3]];
     if (mode === 'pointer') raw.resources[0].vertex_ptr = a + 1;
     if (mode === 'count') raw.resources[0].vertexCount = 1e20;
     if (mode === 'identity') raw.parts[0].resourceId = 'committed-scene';
@@ -83,7 +83,7 @@ it('transports lifecycle, geometry, effective/no-op commits and history through 
   expect(opened.ok).toBe(true);
   let handle = { version: 1 as const, channel: 'mmu' as const, sessionId: opened.session.id, revision: opened.session.revision };
   const geo: any = await client.getPaintingGeometry(handle); expect(geo.resources[0].vertices).toBeInstanceOf(Float32Array);
-  const begun: any = await client.beginPaintingStroke({ ...handle, tool: 'triangle', settings: { state: 2 } });
+  const begun: any = await client.beginPaintingStroke({ ...handle, tool: 'triangle', settings: { state: 32 } });
   await expect(client.closeHistorySession(hs.sessionId)).rejects.toThrow('busy');
   await expect(client.undoHistory()).rejects.toThrow('busy');
   const committed: any = await client.commitPaintingStroke({ ...handle, revision: begun.revision, strokeId: begun.strokeId });
@@ -91,7 +91,9 @@ it('transports lifecycle, geometry, effective/no-op commits and history through 
   expect(committed.plateInputRevisions).toEqual((await client.getPlateSessionSnapshot() as any).inputRevisions);
   expect(committed.history.undoEntries[0].label).toBe('Paint');
   handle.revision = committed.revision;
-  const next: any = await client.beginPaintingStroke({ ...handle, tool: 'triangle', settings: { state: 2 } });
+  const painted = await client.getPaintingGeometry(handle);
+  expect(painted).toMatchObject({ resources: [{ groups: [[32, 0, 3]] }] });
+  const next: any = await client.beginPaintingStroke({ ...handle, tool: 'triangle', settings: { state: 32 } });
   const noop: any = await client.commitPaintingStroke({ ...handle, revision: next.revision, strokeId: next.strokeId });
   expect(noop.committed).toBe(false);
   expect(noop.plateInputRevisions).toEqual(committed.plateInputRevisions);
@@ -198,7 +200,7 @@ it.each(['support', 'seam', 'fuzzy'] as const)('carries %s identity/state/geomet
   expect(read).toMatchObject({ session: { channel: c, parts: [{ annotationTimestamp: 1 }] } });
   await client.closePaintingSession(handle);
   const mmu = await client.openPaintingSession({ version: 1, channel: 'mmu', historySessionId: hs.sessionId, objectId: object.id, instanceId: object.instances[0].id });
-  expect(mmu).toMatchObject({ session: { channel: 'mmu', parts: [{ facetCounts: [1, ...Array(16).fill(0)] }] } });
+  expect(mmu).toMatchObject({ session: { channel: 'mmu', parts: [{ facetCounts: [1, ...Array(32).fill(0)] }] } });
 });
 
 it.each(['support', 'seam', 'fuzzy'] as const)('rejects illegal %s geometry states and stale channel identities, releasing the lease', c => {
@@ -227,7 +229,7 @@ it.each(['support', 'seam', 'fuzzy'] as const)('rejects illegal %s imported/cand
       const pointer = original(name, ret, types, args);
       if (name !== 'orc_painting_session_read') return pointer;
       const raw = JSON.parse(m.UTF8ToString(Number(pointer))); m._free(Number(pointer));
-      const counts = [1, ...Array(16).fill(0)]; counts[c === 'fuzzy' ? 2 : 3] = 1;
+      const counts = [1, ...Array(32).fill(0)]; counts[c === 'fuzzy' ? 2 : 3] = 1;
       if (candidate) raw.session.candidate = { revision: raw.session.revision, selectedFacetCount: 1, gapRegionCount: 0, parts: [{ volumeId: raw.session.parts[0].volumeId, facetCounts: counts }] };
       else raw.session.parts[0].facetCounts = counts;
       const bytes = new TextEncoder().encode(JSON.stringify(raw) + '\0'); const result = m._malloc(bytes.length); m.HEAPU8.set(bytes, result); return result;

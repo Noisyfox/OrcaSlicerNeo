@@ -169,7 +169,7 @@ begin('triangle', { state: 2 }, top(92, 105));
 // Stale identities and invalid business settings do not cancel the owned stroke.
 for (const request of [
   { ...handle(), revision: session.revision - 1, strokeId: session.strokeId, settings: { state: 2 }, event: top(108,95) },
-  { ...handle(), strokeId: session.strokeId, settings: { state: 17 }, event: top(108,95) },
+  { ...handle(), strokeId: session.strokeId, settings: { state: 33 }, event: top(108,95) },
 ]) {
   const rejected = error(command('orc_painting_stroke_sample', request));
   assert.equal(rejected.cancellation, undefined); assert.equal(refresh().phase, 'drawing');
@@ -242,20 +242,7 @@ assert.equal(ok(command('orc_painting_settle', { version: 1 })).settledVersion, 
 const metadataSession = ok(command('orc_history_session_open', {})).sessionId;
 assert.equal(ok(command('orc_painting_settle', { version: 1 })).settledVersion, settled.settledVersion, 'open metadata does not resettle');
 ok(command('orc_history_session_close', { sessionId: metadataSession }));
-// An actual painted reference cannot be merged to explicit final state17.
-load(fixture()); open(); begin('triangle', { state: 2 }); commit();
-for (let count = 2; count < 18; count++) {
-  const rack = ok(call('orc_get_filament_session_snapshot'));
-  ok(command('orc_add_filament_slot', { version: 1, revision: rack.revisions.session }));
-}
-refresh();
-const remapBefore = observe(); const remapPaint = exportedPaint();
-const rack18 = ok(call('orc_get_filament_session_snapshot'));
-error(command('orc_merge_filament_slots', { version: 1, revision: rack18.revisions.session, source: 2, destination: 18 }));
-assert.deepEqual(observe(), remapBefore); assert.equal(exportedPaint(), remapPaint);
-// Same high destination is legal when no actual annotation uses the source.
-const merged = ok(command('orc_merge_filament_slots', { version: 1, revision: rack18.revisions.session, source: 3, destination: 18 }));
-refresh(); assert.ok(session.parts[0].facetCounts[2] > 0);
+load(fixture()); open();
 const outstandingLease = ok(command('orc_painting_geometry', handle())).leaseId;
 ok(command('orc_history_session_close', { sessionId: hs }));
 // Ownership is request-scoped, independent of a now-closed painting session.
@@ -346,6 +333,49 @@ ok(call('orc_history_redo')); ok(call('orc_history_redo'));
 assert.equal(ok(call('orc_get_preset_snapshot')).print.name, nextProcess.name);
 assert.equal(exportedPaint(), secondPaint);
 }
+
+// The project rack can exceed Orca's 32 explicit MMU states.
+load(fixture());
+const rackSnapshot = () => ok(call('orc_get_filament_session_snapshot'));
+let wideRack = rackSnapshot();
+while (wideRack.slots.length < 34)
+  wideRack = ok(command('orc_add_filament_slot', { version: 1, revision: wideRack.revisions.session })).result.snapshot;
+open();
+for (const [state, event] of [[17, top(98, 103)], [32, top(103, 98)]]) {
+  begin('triangle', { state }, event);
+  assert.equal(commit().committed, true);
+}
+const highCounts = refresh().parts[0].facetCounts;
+assert.equal(highCounts[17], 1);
+assert.equal(highCounts[32], 1);
+assert.ok(geometry().resources.some(resource => resource.groups.some(([state]) => state === 32)));
+assert.ok(mesh().paint_geometries.some(resource => resource.draw_groups.some(group => group.state_id === 32)));
+ok(command('orc_history_session_close', { sessionId: hs }));
+const highArchive = exportedBytes();
+load(highArchive); open();
+assert.deepEqual(read().parts[0].facetCounts, highCounts, '3MF must retain both high paint slots');
+const mergeSlots = (source, destination) => command('orc_merge_filament_slots', {
+  version: 1, revision: rackSnapshot().revisions.session, source, destination,
+});
+const beforeRejectedMerge = observe(), beforeRejectedPaint = exportedPaint();
+assert.match(error(mergeSlots(32, 34)).error, /explicit painting remap exceeds state 32/);
+assert.deepEqual(observe(), beforeRejectedMerge);
+assert.equal(exportedPaint(), beforeRejectedPaint);
+ok(mergeSlots(17, 33)); // The destination becomes slot 32; the existing slot 32 shifts to 31.
+const remappedCounts = refresh().parts[0].facetCounts;
+assert.deepEqual([remappedCounts[17], remappedCounts[31], remappedCounts[32]], [0, 1, 1]);
+ok(call('orc_history_undo'));
+assert.deepEqual(refresh().parts[0].facetCounts, highCounts);
+ok(call('orc_history_redo'));
+assert.deepEqual(refresh().parts[0].facetCounts, remappedCounts);
+ok(call('orc_history_undo'));
+ok(mergeSlots(33, 34)); // A final destination above 32 is valid for an unpainted source.
+assert.deepEqual(refresh().parts[0].facetCounts, highCounts);
+ok(command('orc_history_session_close', { sessionId: hs }));
+const highSlotSlice = await sliceExtrusionTools();
+for (const slot of [17, 32])
+  assert.ok(highSlotSlice.tools.includes(slot - 1), `missing extrusion from painted slot ${slot}`);
+console.log('Painting slots 17 and 32 passed geometry, 3MF, remap, history and slicing');
 
 // Persist a newly committed two-material edit, reload it through the public
 // 3MF bridge, and prove the slicer consumes both material assignments. Keep

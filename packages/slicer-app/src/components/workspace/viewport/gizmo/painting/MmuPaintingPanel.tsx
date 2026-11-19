@@ -1,3 +1,4 @@
+import { PAINTING_MAX_STATE } from '@slicer/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,9 +24,9 @@ export function MmuPaintingPanel() {
     </fieldset>
     {state.tool !== 'gap' && <fieldset><legend className="mb-2 text-module text-muted-foreground">Filament</legend>
       <RadioGroup value={String(s.state)} onValueChange={(v) => controller.setSettings({ state: Number(v) })} className="grid-cols-4 gap-2" aria-label="Painting filament">
-        {slots.slice(0, 16).map((slot) => <Label key={slot.slot} className="flex items-center gap-1" title={`${slot.preset.name} · ${filamentSwatchTitle(slot.colour.display)}`}><RadioGroupItem value={String(slot.slot)} /><FilamentSwatch display={slot.colour.display} className="size-3 rounded-full border" /><span className="sr-only">Paint filament </span>{slot.slot}</Label>)}
+        {slots.slice(0, PAINTING_MAX_STATE.mmu).map((slot) => <Label key={slot.slot} className="flex items-center gap-1" title={`${slot.preset.name} · ${filamentSwatchTitle(slot.colour.display)}`}><RadioGroupItem value={String(slot.slot)} /><FilamentSwatch display={slot.colour.display} className="size-3 rounded-full border" /><span className="sr-only">Paint filament </span>{slot.slot}</Label>)}
       </RadioGroup>
-      {slots.length > 16 && <p className="mt-2 text-xs text-muted-foreground">Explicit painting supports filaments 1–16. Unpainted areas keep their assigned material.</p>}
+      {slots.length > PAINTING_MAX_STATE.mmu && <p className="mt-2 text-xs text-muted-foreground">Explicit painting supports filaments 1–{PAINTING_MAX_STATE.mmu}. Unpainted areas keep their assigned material.</p>}
     </fieldset>}
     {(state.tool === 'circle' || state.tool === 'sphere') && <NumberSetting label="Radius (mm)" value={s.radius} min={0.01} step={0.1} change={(radius) => controller.setSettings({ radius })} />}
     {state.tool === 'height' && <NumberSetting label="Height (mm)" value={s.height} min={0.01} step={0.1} change={(height) => controller.setSettings({ height })} />}

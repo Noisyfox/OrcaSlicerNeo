@@ -586,7 +586,9 @@ void validate_paint_remap(const Model& model, std::size_t removed, const std::op
         for (const auto value : TriangleSelector::extract_used_facet_states(volume->mmu_segmentation_facets.get_data())) {
             const auto i = std::size_t(value);
             const auto final = i == removed + 1 && replacement ? *replacement + 1 : i > removed + 1 ? i - 1 : i;
-            if (i > 16 || final > 16) throw std::invalid_argument("explicit painting remap exceeds state 16");
+            constexpr auto max_state = static_cast<std::size_t>(EnforcerBlockerType::ExtruderMax);
+            if (i > max_state || final > max_state)
+                throw std::invalid_argument("explicit painting remap exceeds state " + std::to_string(max_state));
         }
 }
 
@@ -595,12 +597,12 @@ void remap_model_filament_references(Model& model, const std::size_t removed,
                                      const std::size_t new_count)
 {
     // Validate final *actual* annotation references before changing any owner.
-    // A default material >16 is legal; only explicit facet states are bounded.
+    // A default material above the paint limit is legal; only explicit facet states are bounded.
     EnforcerBlockerStateMap mapping;
     for (std::size_t i = 0; i < mapping.size(); ++i) {
         const int result = i == 0 ? 0 : i == removed + 1 ? (replacement ? int(*replacement + 1) : 0)
             : int(i > removed + 1 ? i - 1 : i);
-        mapping[i] = static_cast<EnforcerBlockerType>(result <= 16 ? result : 0);
+        mapping[i] = static_cast<EnforcerBlockerType>(result <= static_cast<int>(EnforcerBlockerType::ExtruderMax) ? result : 0);
     }
     validate_paint_remap(model, removed, replacement);
     for (ModelObject* object : model.objects) {

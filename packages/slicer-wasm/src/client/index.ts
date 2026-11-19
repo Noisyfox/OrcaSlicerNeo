@@ -85,6 +85,7 @@ export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSes
   PaintingSessionRequest, PaintingTargetRequest, PaintingPartMetadata, PaintingSessionMetadata,
   PaintingSessionResult, PaintingSessionCloseResult } from './painting';
 
+export { PAINTING_MAX_STATE } from './painting';
 export type * from './painting';
 export type * from './measure';
 

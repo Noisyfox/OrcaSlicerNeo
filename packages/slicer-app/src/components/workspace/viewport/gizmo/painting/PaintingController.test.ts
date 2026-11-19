@@ -287,7 +287,9 @@ describe('painting session and display ownership', () => {
   });
   it('remaps logical palette and falls back to one without losing numeric settings', () => {
     const { controller: c } = fixture(); c.setSettings({ state: 3, radius: 7 }); c.remapPalette({ 3: 2 }, 3);
-    expect(c.getSnapshot().settings.state).toBe(2); c.remapPalette({ 2: 17 }, 18); expect(c.getSnapshot().settings.state).toBe(1);
+    expect(c.getSnapshot().settings.state).toBe(2); c.remapPalette({ 2: 32 }, 33);
+    expect(c.getSnapshot().settings.state).toBe(32);
+    c.remapPalette({ 32: 33 }, 33); expect(c.getSnapshot().settings.state).toBe(1);
     c.setSettings({ state: 4 }); c.resetProjectPalette(); expect(c.getSnapshot().settings).toMatchObject({ state: 1, radius: 7 });
   });
 });

@@ -20,7 +20,7 @@ const char* channel_name(Channel channel) {
 }
 int max_state(Channel channel) {
     switch (channel) {
-    case Channel::Mmu: return 16;
+    case Channel::Mmu: return static_cast<int>(EnforcerBlockerType::ExtruderMax);
     case Channel::Support: case Channel::Seam: return 2;
     case Channel::Fuzzy: return 1;
     }
@@ -64,14 +64,6 @@ void validate_tool(Channel channel, Tool tool) {
         (channel == Channel::Support && (tool == Tool::SmartFill || tool == Tool::Gap || tool == Tool::Overhang))) return;
     throw std::invalid_argument("painting tool is unavailable for channel");
 }
-}
-
-std::array<std::size_t, 17> PartDraft::facet_counts() const
-{
-    std::array<std::size_t, 17> counts{};
-    for (int state = 0; state <= 16; ++state)
-        counts[state] = selector->num_facets(static_cast<EnforcerBlockerType>(state));
-    return counts;
 }
 
 void Sessions::bind(Session& session, const Model& model, std::size_t object_id, std::size_t instance_id)

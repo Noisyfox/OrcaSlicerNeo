@@ -1,3 +1,4 @@
+import { PAINTING_MAX_STATE } from '@slicer/client';
 import type {
   PaintingApi, PaintingSessionMetadata, PaintingDraftResult, PaintingPointerEvent,
   PaintingSettings, PaintingTool, PaintingGeometryResult, HistoryStatus, SlicerClient,
@@ -194,7 +195,7 @@ export class PaintingController {
   }
   setSettings(value: Partial<Required<PaintingSettings>>): void {
     const next = { ...this.state.settings, ...value };
-    if (!Number.isInteger(next.state) || next.state < 1 || next.state > (this.state.channel === 'mmu' ? 16 : this.state.channel === 'fuzzy' ? 1 : 2) ||
+    if (!Number.isInteger(next.state) || next.state < 1 || next.state > PAINTING_MAX_STATE[this.state.channel] ||
       (next.vertical && this.state.channel !== 'seam') ||
       ((value.overhangAngle !== undefined || value.restrictToOverhangs !== undefined) && this.state.channel !== 'support') ||
       (next.overhangAngle !== null && (!Number.isFinite(next.overhangAngle) || next.overhangAngle < 0 || next.overhangAngle > 90)) ||
@@ -224,7 +225,7 @@ export class PaintingController {
   }
   remapPalette(mapping: Readonly<Record<number, number>>, count: number): void {
     const state = mapping[this.mmuParameters().settings.state] ?? this.mmuParameters().settings.state;
-    this.setMmuState(state >= 1 && state <= Math.min(16, count) ? state : 1);
+    this.setMmuState(state >= 1 && state <= Math.min(PAINTING_MAX_STATE.mmu, count) ? state : 1);
   }
   resetProjectPalette(): void { this.selectedFilamentId = null; this.setMmuState(1); }
   reconcilePalette(snapshot: FilamentSessionSnapshot, mutation?: FilamentMutationSummary): void {
@@ -235,7 +236,7 @@ export class PaintingController {
     const selected = this.selectedFilamentId
       ? snapshot.slots.find((slot) => slot.logicalId === this.selectedFilamentId)
       : snapshot.slots.find((slot) => slot.slot === state);
-    const slot = selected && selected.slot <= 16 ? selected : snapshot.slots[0];
+    const slot = selected && selected.slot <= PAINTING_MAX_STATE.mmu ? selected : snapshot.slots[0];
     this.setMmuState(slot?.slot ?? 1);
     this.selectedFilamentId = slot?.logicalId ?? null;
   }

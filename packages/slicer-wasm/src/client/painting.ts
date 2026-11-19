@@ -1,6 +1,8 @@
 /** Version-one native lifecycle, tool, binary display and publication protocol. */
 import type { HistoryEditingSessionId, StableObjectId, StableInstanceId, StablePartId } from './history';
 export type PaintingChannel = 'mmu' | 'support' | 'seam' | 'fuzzy';
+// MMU mirrors the native EnforcerBlockerType::ExtruderMax.
+export const PAINTING_MAX_STATE = { mmu: 32, support: 2, seam: 2, fuzzy: 1 } as const satisfies Record<PaintingChannel, number>;
 /** Canonical ps-<positive uint64 decimal>, allocated for the WASM lifetime. */
 export type PaintingSessionId = string;
 /** pst-<session uint64>-<session-local positive uint64>. */
@@ -29,7 +31,7 @@ export interface PaintingPartMetadata {
   /** Committed timestamp of the active channel, independent of draft revision. */
   readonly annotationTimestamp: number;
   readonly volumeTransform: readonly number[];
-  /** Counts indexed by state 0..16; states outside the channel domain are zero. Includes subdivisions. */
+  /** Counts indexed by state 0..32; states outside the channel domain are zero. Includes subdivisions. */
   readonly facetCounts: readonly number[];
   /** Draft-only identity, never a committed scene resource key. */
   readonly draftResourceId: string;

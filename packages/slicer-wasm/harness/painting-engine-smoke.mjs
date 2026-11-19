@@ -72,18 +72,18 @@ ok(command('orc_init', JSON.parse(fixtureProfileOptions(Module))));
 load(fixture()); open();
 const committed = observe();
 const initial = read().parts.map(p => p.facetCounts);
-assert.deepEqual(initial[0], [12, ...Array(16).fill(0)]);
+assert.deepEqual(initial[0], [12, ...Array(32).fill(0)]);
 for (const tool of ['circle', 'sphere', 'triangle', 'height', 'region']) {
-  const receipt = begin(tool, { state: 16, radius: 50, height: 2 });
+  const receipt = begin(tool, { state: 32, radius: 50, height: 2 });
   assert.equal(receipt.phase, 'drawing'); assert.equal(receipt.effective, true, tool);
   assert.equal(receipt.hit.volumeId, session.parts[0].volumeId);
   assert.ok(receipt.hit.originalFacet >= 0 && receipt.hit.originalFacet < 12);
   assert.ok(Math.abs(receipt.hit.world[2] - 20) < 1e-4);
-  assert.ok(read().parts[0].facetCounts[16] > 0);
+  assert.ok(read().parts[0].facetCounts[32] > 0);
   if (tool === 'circle') assert.ok(read().parts[0].facetCounts[0] > 0);
-  if (tool === 'sphere') assert.equal(read().parts[0].facetCounts[16], 12);
-  if (tool === 'triangle') assert.equal(read().parts[0].facetCounts[16], 1);
-  if (tool === 'region') assert.equal(read().parts[0].facetCounts[16], 2);
+  if (tool === 'sphere') assert.equal(read().parts[0].facetCounts[32], 12);
+  if (tool === 'triangle') assert.equal(read().parts[0].facetCounts[32], 1);
+  if (tool === 'region') assert.equal(read().parts[0].facetCounts[32], 2);
   const active = read();
   error(command('orc_history_session_close', { sessionId: hs }));
   assert.deepEqual(read(), active); assert.deepEqual(observe(), committed);
@@ -101,7 +101,7 @@ assert.ok(read().parts[0].facetCounts[1] > 0 && read().parts[0].facetCounts[2] >
 sample({ erase: true, radius: 1 }, top(108,100));
 const active = read();
 for (const patch of [{ revision: session.revision - 1 }, { strokeId: session.strokeId + '\0bad' },
-  { settings: { radius: 0 } }, { settings: { state: 17 } }, { settings: { angle: 91 } },
+  { settings: { radius: 0 } }, { settings: { state: 33 } }, { settings: { angle: 91 } },
   { event: { ...top(), projection: Array(16).fill(0) } }, { event: { ...top(), faceIndex: 1 } },
   { tool: 'sphere' }]) {
   error(command('orc_painting_stroke_sample', { ...handle(), strokeId: session.strokeId, settings: {}, event: top(), ...patch }));
