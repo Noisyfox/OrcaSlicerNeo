@@ -1327,10 +1327,11 @@ export class SceneInteractionController {
         if (!oldByInstance.has(key)) oldByInstance.set(key, cloneTransform(volume.instanceTransform));
       }
 
+      const transformsByInstance = new Map<InstanceKey, ModelTransform>();
+      for (const entry of instanceEntries) transformsByInstance.set(entry.instanceKey, entry.transform);
       for (const volume of this.getVolumes()) {
-        for (const entry of instanceEntries) {
-          if (entry.instanceKey === instanceKeyOf(volume)) volume.instanceTransform = cloneTransform(entry.transform);
-        }
+        const transform = transformsByInstance.get(instanceKeyOf(volume));
+        if (transform) volume.instanceTransform = cloneTransform(transform);
       }
 
       this.synchronizeInstanceLinearTransforms(instanceEntries, oldByInstance);
