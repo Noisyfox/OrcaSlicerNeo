@@ -2932,7 +2932,7 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
       await pollAxisAt([xStart], 'X');
       await page.mouse.down();
       await page.mouse.move(xEnd.x, xEnd.y, { steps: 5 });
-      await page.mouse.up();
+      await commitTransform(page, () => page.mouse.up());
       await expect
         .poll(async () => page.getByTestId('scale-factor-x').inputValue(), { timeout: 10_000 })
         .not.toBe('100.0');
@@ -2961,14 +2961,14 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
       // Panel edits: factor input sets the absolute percent, size input sets
       // the target dimension, Reset restores the original.
       await page.getByTestId('scale-factor-x').fill('200');
-      await page.getByTestId('scale-factor-x').press('Enter');
+      await commitTransform(page, () => page.getByTestId('scale-factor-x').press('Enter'));
       await expect(page.getByTestId('scale-factor-x')).toHaveValue('200.0');
       await expect(page.getByTestId('scale-size-x')).toHaveValue('40.000');
       await page.getByTestId('scale-size-y').fill('60');
-      await page.getByTestId('scale-size-y').press('Enter');
+      await commitTransform(page, () => page.getByTestId('scale-size-y').press('Enter'));
       await expect(page.getByTestId('scale-size-y')).toHaveValue('60.000');
       await expect(page.getByTestId('scale-factor-y')).toHaveValue('300.0');
-      await page.getByTestId('scale-reset').click();
+      await commitTransform(page, () => page.getByTestId('scale-reset').click());
       await expect(page.getByTestId('scale-factor-x')).toHaveValue('100.0');
       await expect(page.getByTestId('scale-size-x')).toHaveValue('20.000');
 
@@ -3044,19 +3044,19 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
       // rotation; the axis is locked once the drag starts, so the path
       // between the two ring points only affects the rotation angle.
       await page.mouse.move(pivotX - 84, pivotY + 14, { steps: 5 });
-      await page.mouse.up();
+      await commitTransform(page, () => page.mouse.up());
       await expect
         .poll(async () => page.getByTestId('rotate-z').inputValue(), { timeout: 10_000 })
         .not.toBe('0.0');
 
       // Panel edits set absolute degrees (single selection); garbage reverts.
       await page.getByTestId('rotate-x').fill('90');
-      await page.getByTestId('rotate-x').press('Enter');
+      await commitTransform(page, () => page.getByTestId('rotate-x').press('Enter'));
       await expect(page.getByTestId('rotate-x')).toHaveValue('90.0');
       await page.getByTestId('rotate-y').fill('nope');
       await page.getByTestId('rotate-y').press('Enter');
       await expect(page.getByTestId('rotate-y')).toHaveValue('0.0');
-      await page.getByTestId('rotate-reset').click();
+      await commitTransform(page, () => page.getByTestId('rotate-reset').click());
       await expect(page.getByTestId('rotate-x')).toHaveValue('0.0');
 
       // Closing the gizmo (toggle off) restores the selection box.
