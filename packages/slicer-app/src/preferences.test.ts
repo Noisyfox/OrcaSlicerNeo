@@ -111,8 +111,8 @@ describe('selection restoration', () => {
       ok: true as const,
       version: 1 as const,
       slots: [
-        { logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'p1', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
-        { logicalId: 'filament-2', slot: 2, preset: { isProjectEmbedded: false, isUser: false, id: 'p2', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'user' as const, native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
+        { logicalId: 'filament-1', slot: 1, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'p1', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
+        { logicalId: 'filament-2', slot: 2, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'p2', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'user' as const, native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
       ],
       mappings: { filament: [1, 2], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physicalExtruder: [0, 0] },
       flushing: { matrix: [0, 1, 2, 0], vector: [0, 0], matrixDimension: 2, planeCount: 1, source: 'native' as const },
@@ -146,7 +146,7 @@ describe('selection restoration', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const repository = { load: vi.fn(async () => prefs), save: vi.fn(async () => { throw new Error('storage unavailable'); }) };
     const snapshot = ({
-      ok: true, version: 1, slots: [{ logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'p', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+      ok: true, version: 1, slots: [{ logicalId: 'filament-1', slot: 1, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'p', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
       capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -158,7 +158,7 @@ describe('selection restoration', () => {
   it('serializes concurrent rack writes so the newest slot projection wins', async () => {
     const makeSnapshot = (name: string) => ({
       ok: true as const, version: 1 as const,
-      slots: [{ logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'p', name, label: name, vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+      slots: [{ logicalId: 'filament-1', slot: 1, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'p', name, label: name, vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' as const },
       capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -181,7 +181,7 @@ describe('selection restoration', () => {
   it('waits for the newest queued rack write before a printer transition reads it', async () => {
     const current = {
       ok: true as const, version: 1 as const,
-      slots: [{ logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'old', name: 'Old', label: 'Old', vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+      slots: [{ logicalId: 'filament-1', slot: 1, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'old', name: 'Old', label: 'Old', vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' as const },
       capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
@@ -231,7 +231,7 @@ describe('selection restoration', () => {
     const resolved = snapshot('P', 'Q', 'PLA');
     const current = {
       ok: true as const, version: 1 as const,
-      slots: [{ logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'PLA', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#111111', provenance: 'preset' as const, native: { representative: '#111111', multiColour: '#111111', type: '1' }, display: { mode: 'solid' as const, colors: ['#111111'] } } }],
+      slots: [{ logicalId: 'filament-1', slot: 1, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'PLA', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#111111', provenance: 'preset' as const, native: { representative: '#111111', multiColour: '#111111', type: '1' }, display: { mode: 'solid' as const, colors: ['#111111'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' as const },
       capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },

@@ -50,7 +50,7 @@ export interface WorkerTransport {
 }
 
 const historyMutationOperations = new Set([
-  'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
+  'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot', 'editMixedFilament',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'assignFilament',
   'setFilamentRouting', 'setFlushingVolumes', 'movePrimeTower', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
   'mutatePresetDraft', 'selectPrinterWithRememberedRack', 'applyMaterialImport', 'synchronizePrinter', 'setToolheadDiameter', 'setProjectFlow',
@@ -70,9 +70,9 @@ const restrictedWhileSerialSlicing = new Set([
   ...setupWizardOperations,
   ...paintingOperations,
   ...measureOperations,
-  'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
+  'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot', 'editMixedFilament',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
-  'assignFilament', 'setFilamentRouting', 'setFlushingVolumes', 'getFlushingVolumes', 'setAutoFlushPolicy', 'beginHistory', 'commitHistory',
+  'assignFilament', 'setFilamentRouting', 'setFlushingVolumes', 'getFlushingVolumes', 'previewMixedFilament', 'getMixRecommendations', 'setAutoFlushPolicy', 'beginHistory', 'commitHistory',
   'abortHistory', 'undoHistory', 'redoHistory', 'jumpHistory', 'markHistorySaved',
   'openHistorySession', 'closeHistorySession', 'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',

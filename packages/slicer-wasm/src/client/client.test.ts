@@ -524,7 +524,7 @@ describe('SlicerClient bridge contract', () => {
     expect(snapshot).toMatchObject({ ok: true, version: 1, status: { state: 'ready', error: null } });
     if (!snapshot.ok) throw new Error(snapshot.error);
     expect(snapshot.slots).toEqual([{
-      logicalId: 'filament-1', slot: 1,
+      logicalId: 'filament-1', slot: 1, materialType: 'PLA', mix: null,
       preset: { isProjectEmbedded: false, isUser: false, id: 'Generic PLA @System', name: 'Generic PLA @System', label: 'Generic PLA', vendor: 'Generic' },
       colour: { effective: '#F2754E', provenance: 'preset',
         native: { representative: '#F2754E', multiColour: '', type: '1' },
@@ -602,8 +602,8 @@ describe('SlicerClient bridge contract', () => {
     const payload = {
       ok: true, version: 1,
       slots: [
-        { logical_id: 'filament-1', slot: 1, preset: { is_project_embedded: false, is_user: false, id: 'preset-a', name: 'preset-a', label: 'preset-a', vendor: '' }, colour: wireColour('#26A69A') },
-        { logical_id: 'filament-2', slot: 2, preset: { is_project_embedded: false, is_user: false, id: 'preset-b', name: 'preset-b', label: 'preset-b', vendor: '' }, colour: wireColour('#112233', 'user') },
+        { logical_id: 'filament-1', slot: 1, material_type: 'PLA', mix: null, preset: { is_project_embedded: false, is_user: false, id: 'preset-a', name: 'preset-a', label: 'preset-a', vendor: '' }, colour: wireColour('#26A69A') },
+        { logical_id: 'filament-2', slot: 2, material_type: 'PLA', mix: null, preset: { is_project_embedded: false, is_user: false, id: 'preset-b', name: 'preset-b', label: 'preset-b', vendor: '' }, colour: wireColour('#112233', 'user') },
       ],
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'native' },
@@ -775,7 +775,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const toWire = (snapshot: typeof base) => ({ ...snapshot,
-      slots: snapshot.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId, preset: { id: slot.preset.id, name: slot.preset.name, label: slot.preset.label, vendor: slot.preset.vendor, is_project_embedded: slot.preset.isProjectEmbedded, is_user: slot.preset.isUser },
+      slots: snapshot.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId, material_type: slot.materialType, preset: { id: slot.preset.id, name: slot.preset.name, label: slot.preset.label, vendor: slot.preset.vendor, is_project_embedded: slot.preset.isProjectEmbedded, is_user: slot.preset.isUser },
         colour: { ...slot.colour, native: { ...slot.colour.native, multi_colour: slot.colour.native.multiColour } } })),
       mappings: { ...snapshot.mappings, physical_extruder: snapshot.mappings.physicalExtruder },
       flushing: { ...snapshot.flushing, matrix_dimension: snapshot.flushing.matrixDimension, plane_count: snapshot.flushing.planeCount },
@@ -905,7 +905,7 @@ describe('SlicerClient bridge contract', () => {
   it('remaps middle merge and preserves destination colour in the atomic client contract', async () => {
     const payload = {
       ok: true, version: 1,
-      slots: [1, 2, 3].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { is_project_embedded: false, is_user: false, id: `p${slot}`, name: `p${slot}`, label: `p${slot}`, vendor: '' }, colour: wireColour(`#00000${slot}`, slot === 2 ? 'user' : 'preset') })),
+      slots: [1, 2, 3].map((slot) => ({ logical_id: `filament-${slot}`, slot, material_type: 'PLA', mix: null, preset: { is_project_embedded: false, is_user: false, id: `p${slot}`, name: `p${slot}`, label: `p${slot}`, vendor: '' }, colour: wireColour(`#00000${slot}`, slot === 2 ? 'user' : 'preset') })),
       mappings: { filament: [1, 1, 1], volume: [0, 0, 0], nozzle: [1, 1, 1], filament2: [1, 1, 1], physical_extruder: [0] },
       flushing: { matrix: Array(9).fill(0), vector: [], matrix_dimension: 3, plane_count: 1, source: 'native' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
@@ -922,7 +922,7 @@ describe('SlicerClient bridge contract', () => {
   it('rejects a flush plane count that does not match native nozzle count', async () => {
     const payload = {
       ok: true, version: 1,
-      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { is_project_embedded: false, is_user: false, id: `p${slot}`, name: `p${slot}`, label: `p${slot}`, vendor: '' }, colour: wireColour('#000000') })),
+      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, material_type: 'PLA', mix: null, preset: { is_project_embedded: false, is_user: false, id: `p${slot}`, name: `p${slot}`, label: `p${slot}`, vendor: '' }, colour: wireColour('#000000') })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0, 0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 2, source: 'native' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
@@ -940,7 +940,7 @@ describe('SlicerClient bridge contract', () => {
   ])('rejects %s native slot ordering without sorting', async (_label, slots) => {
     const payload = {
       ok: true, version: 1, slots: slots.map((entry, index) => ({ ...entry, logical_id: `filament-${index}`,
-        preset: { is_project_embedded: false, is_user: false, id: 'p', name: 'p', label: 'p', vendor: '' }, colour: wireColour('#000000') })),
+        material_type: 'PLA', mix: null, preset: { is_project_embedded: false, is_user: false, id: 'p', name: 'p', label: 'p', vendor: '' }, colour: wireColour('#000000') })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'default' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
@@ -955,7 +955,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const withSlots = (capabilities: Record<string, unknown>) => ({ ...base,
-      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { is_project_embedded: false, is_user: false, id: `p${slot}`, name: `p${slot}`, label: `p${slot}`, vendor: '' }, colour: wireColour('#000000') })),
+      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, material_type: 'PLA', mix: null, preset: { is_project_embedded: false, is_user: false, id: `p${slot}`, name: `p${slot}`, label: `p${slot}`, vendor: '' }, colour: wireColour('#000000') })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: (capabilities.nozzle_count === 2 ? [0, 1] : [0]) },
       flushing: { matrix: Array.from({ length: 4 * Number(capabilities.nozzle_count) }, () => 0), vector: [], matrix_dimension: 2,
         plane_count: Number(capabilities.nozzle_count), source: 'default' },
@@ -979,7 +979,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await c.getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const payload = { ...base,
-      slots: base.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId, preset: { id: slot.preset.id, name: slot.preset.name, label: slot.preset.label, vendor: slot.preset.vendor, is_project_embedded: slot.preset.isProjectEmbedded, is_user: slot.preset.isUser },
+      slots: base.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId, material_type: slot.materialType, preset: { id: slot.preset.id, name: slot.preset.name, label: slot.preset.label, vendor: slot.preset.vendor, is_project_embedded: slot.preset.isProjectEmbedded, is_user: slot.preset.isUser },
         colour: { ...slot.colour, native: { ...slot.colour.native, multi_colour: slot.colour.native.multiColour } } })),
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
       flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },

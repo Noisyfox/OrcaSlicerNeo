@@ -1,4 +1,5 @@
 #include "bridge_filament.hpp"
+#include "bridge_mixed_filament.hpp"
 #include "bridge_painting.hpp"
 #include "bridge_history.hpp"
 #include "bridge_preset_drafts.hpp"
@@ -1244,6 +1245,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             return command_error("stale_revision", "filament session revision is stale");
         const auto before_filament_presets = state().presets.filament_presets;
         const auto before_slot_ids = state().filament_slot_ids;
+        const auto before_print = model_changes ? std::optional<Preset>(state().presets.prints.get_edited_preset()) : std::nullopt;
         const auto before_project_config = state().presets.project_config;
         const auto before_ams_colours = state().presets.ams_multi_color_filment;
         const auto before_edited_filament = state().presets.filaments.get_edited_preset();
@@ -1274,6 +1276,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
             state().presets.filaments.get_edited_preset() = before_edited_filament;
+            if (before_print) state().presets.prints.get_edited_preset() = *before_print;
             if (before_model) state().model = *before_model;
             state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
@@ -1874,6 +1877,7 @@ json select_filament_slot_preset_command(const json& request, const Runtime& run
         std::string error;
         const auto slot = filament_command_slot(request, "slot", count, error);
         if (!slot) throw FilamentCommandFailure("unsupported_reference", error);
+        if (bundle.is_mixed_filament(*slot)) throw std::invalid_argument("Edit the mix recipe instead.");
         if (!request.contains("preset") || !request["preset"].is_string()) throw FilamentCommandFailure("invalid_command", "preset is required");
         const std::string name = request["preset"].get<std::string>();
         const auto device = request.value("deviceSource", json());
@@ -1896,6 +1900,7 @@ json select_filament_slot_preset_command(const json& request, const Runtime& run
             apply_slot_colour(bundle, *slot, device.at("material").at("colour"));
             auto_recalculate_filament_flush(bundle, int(*slot), true);
         }
+        Mixes::refresh_colours(bundle);
         auto_recalculate_filament_flush(bundle, -1, false);
         return json{{"kind", "select-preset"}, {"slot", *slot + 1}, {"preset", name}};
     }, &visibility_changes);
@@ -1955,8 +1960,10 @@ json set_filament_slot_colour_command(const json& request, const Runtime& runtim
         std::string error;
         const auto slot = filament_command_slot(request, "slot", count, error);
         if (!slot) throw FilamentCommandFailure("unsupported_reference", error);
+        if (bundle.is_mixed_filament(*slot)) throw std::invalid_argument("Edit the mix recipe instead.");
         const auto& colour = request.at("colour");
         apply_slot_colour(bundle, *slot, colour);
+        Mixes::refresh_colours(bundle);
         auto_recalculate_filament_flush(bundle, static_cast<int>(*slot), true);
         return json{{"kind", "set-colour"}, {"slot", *slot + 1}, {"colour", colour}};
     });
@@ -1969,11 +1976,89 @@ static constexpr std::array<const char*, 16> kNativeFilamentColours = {
     "#FA8173", "#800000", "#F7B763", "#A4C41E",
 };
 
+// Move the newly appended physical slot ahead of the virtual tail. Every
+// index here is zero based; persisted model references and paint are one based.
+void insert_before_mixes(PresetBundle& bundle, Model& model, std::vector<BridgeState::PlateSessionPlate>& plates,
+                         size_t first, size_t last)
+{
+    if (first == last) return;
+    auto rotate = [first, last](auto& slots) {
+        if (slots.size() > last)
+            std::rotate(slots.begin() + first, slots.begin() + last, slots.begin() + last + 1);
+    };
+    auto& cfg = bundle.project_config;
+    bundle.filament_presets[last] = bundle.filament_presets.at(first - 1);
+    rotate(bundle.filament_presets);
+    rotate(bundle.ams_multi_color_filment);
+    state().filament_slot_ids = State::project_slot_identities(last + 1);
+    rotate(state().filament_slot_ids);
+    for (auto key : {"filament_colour", "filament_multi_colour", "filament_colour_type", "filament_mixed_components",
+                     "filament_mixed_sublayer_ratios", "filament_mixed_gradient_range", "filament_mixed_gradient_curve"})
+        if (auto* opt = cfg.opt<ConfigOptionStrings>(key)) rotate(opt->values);
+    for (auto key : {"filament_is_mixed", "filament_mixed_gradient", "filament_mixed_gradient_per_part"})
+        if (auto* opt = cfg.opt<ConfigOptionBools>(key)) rotate(opt->values);
+    auto rotate_maps = [&](DynamicPrintConfig& config) {
+        for (auto key : {"filament_map", "filament_map_2", "filament_nozzle_map", "filament_volume_map"})
+            if (auto* opt = config.opt<ConfigOptionInts>(key)) rotate(opt->values);
+    };
+    rotate_maps(cfg);
+    if (auto* matrix = cfg.opt<ConfigOptionFloats>("flush_volumes_matrix")) {
+        auto old = matrix->values;
+        const size_t n = bundle.filament_presets.size();
+        auto original = [first,last](size_t i) { return i == first ? last : i > first && i <= last ? i - 1 : i; };
+        for (size_t plane = 0; plane + n*n <= old.size(); plane += n*n)
+            for (size_t r = 0; r < n; ++r)
+                for (size_t c = 0; c < n; ++c)
+                    matrix->values[plane + r*n+c] = old[plane + original(r)*n + original(c)];
+    }
+    const auto shift = [first](int value) { return value > int(first) ? value + 1 : value; };
+    auto shift_config = [&](auto& config) {
+        for (const auto& key : config.keys()) {
+            if (!is_filament_slot_reference_key(key)) continue;
+            if (auto* opt = dynamic_cast<const ConfigOptionInt*>(config.option(key)); opt && shift(opt->value) != opt->value)
+                config.set_key_value(key, new ConfigOptionInt(shift(opt->value)));
+        }
+    };
+    shift_config(cfg);
+    shift_config(bundle.prints.get_edited_preset().config);
+    for (auto* object : model.objects) {
+        shift_config(object->config);
+        for (auto* volume : object->volumes) {
+            shift_config(volume->config);
+            if (volume->mmu_segmentation_facets.empty()) continue;
+            for (auto paint : TriangleSelector::extract_used_facet_states(volume->mmu_segmentation_facets.get_data()))
+                if (shift(int(paint)) > int(EnforcerBlockerType::ExtruderMax))
+                    throw std::invalid_argument("explicit painting remap exceeds state 32");
+            if (first < size_t(EnforcerBlockerType::ExtruderMax))
+                volume->mmu_segmentation_facets.shift_states_above(*volume, EnforcerBlockerType(first + 1), 1);
+        }
+    }
+    for (auto& [id, info] : model.plates_custom_gcodes)
+        for (auto& item : info.gcodes) item.extruder = shift(item.extruder);
+    for (auto& plate : plates) {
+        shift_config(plate.settings);
+        rotate_maps(plate.settings);
+        // add_plate_filament_references appended the new slot to each sequence.
+        auto permute = [&](int value) { return value == int(last + 1) ? int(first + 1) : shift(value); };
+        if (auto* seq = plate.settings.opt<ConfigOptionInts>("first_layer_print_sequence"))
+            for (int& v : seq->values) v = permute(v);
+        auto* seq = plate.settings.opt<ConfigOptionInts>("other_layers_print_sequence");
+        const auto* groups = plate.settings.opt<ConfigOptionInt>("other_layers_print_sequence_nums");
+        if (seq && groups && groups->value > 0 && seq->size() >= 3 * size_t(groups->value)) {
+            const auto width = seq->size() / groups->value;
+            for (size_t i = 0; i < seq->size(); ++i)
+                if (i % width >= 2) seq->values[i] = permute(seq->values[i]);
+        }
+        plate.settings_metadata = config_metadata_json(plate.settings);
+    }
+}
+
 json add_filament_command(const json& request, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
-    return run_filament_slot_mutation(request, "Add Filament Slot", false,
-        [](PresetBundle& bundle, Model&, auto& plates, auto&, std::size_t count) {
+    return run_filament_slot_mutation(request, "Add Filament Slot", state().presets.num_mixed_filaments() != 0,
+        [](PresetBundle& bundle, Model& model, auto& plates, auto& scoped, std::size_t count) {
+        const size_t first = bundle.num_physical_filaments();
         const bool flexible = State::supports_independent_materials(bundle.printers.get_edited_preset().config) || bundle.is_bbl_vendor();
         if (!flexible || count >= 64) throw FilamentCommandFailure("capability_rejected", "filament slot capacity or capability rejected");
         const std::string colour = kNativeFilamentColours[state().next_filament_colour_index++ % kNativeFilamentColours.size()];
@@ -1986,8 +2071,10 @@ json add_filament_command(const json& request, const Runtime& runtime)
             multi->values[count] = colour;
         }
         add_plate_filament_references(plates, bundle, count);
-        auto_recalculate_filament_flush(bundle, static_cast<int>(count), true, true);
-        return json{{"kind", "add"}, {"slot", count + 1}};
+        insert_before_mixes(bundle, model, plates, first, count);
+        if (first < count) scoped = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
+        auto_recalculate_filament_flush(bundle, static_cast<int>(first), true, true);
+        return json{{"kind", "add"}, {"slot", first + 1}};
         });
 }
 
@@ -2111,6 +2198,38 @@ void remove_filament_slot(PresetBundle& bundle, Model& model,
     remap_native_scoped_config_filament_references(snapshot, source, replacement);
 }
 
+json edit_mix_command(const json& request, const Runtime& runtime)
+{
+    RuntimeScope scope(runtime);
+    const bool remove_all = request.value("operation", "") == "delete-all";
+    return run_filament_slot_mutation(request, remove_all ? "Delete All Mixed Filaments" : "Save Mixed Filament", remove_all,
+        [&](PresetBundle& bundle, Model& model, auto& plates, auto& scoped, std::size_t count) {
+            if (remove_all) {
+                if (!bundle.num_mixed_filaments()) throw std::invalid_argument("No mixes to remove.");
+                for (size_t i = count; i-- > 0;)
+                    if (bundle.is_mixed_filament(i))
+                        remove_filament_slot(bundle, model, plates, scoped, i, std::nullopt);
+                return json{{"kind", "delete-mixes"}};
+            }
+            size_t index = count;
+            if (request.contains("slot")) {
+                std::string error;
+                const auto slot = filament_command_slot(request, "slot", count, error);
+                if (!slot || !bundle.is_mixed_filament(*slot)) throw std::invalid_argument("Select a mixed filament.");
+                index = *slot;
+            } else if (count >= size_t(EnforcerBlockerType::ExtruderMax) || bundle.num_physical_filaments() < 2)
+                throw std::invalid_argument("A mix requires two physical slots and an available painting slot.");
+            const auto& draft = request.at("recipe");
+            const auto preview = Mixes::preview(bundle, draft);
+            if (index == count) {
+                State::resize_slots_preserving_colours(bundle, count + 1, preview.at("colour").get<std::string>());
+                add_plate_filament_references(plates, bundle, count);
+            }
+            Mixes::write(bundle, index, draft, preview);
+            return json{{"kind", "save-mix"}, {"slot", index + 1}};
+        });
+}
+
 json delete_or_merge_filament_command(const json& request, const bool merge, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
@@ -2118,10 +2237,12 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
         return run_filament_slot_mutation(request, "Delete Filament Slot", true,
             [request](PresetBundle& bundle, Model& model, auto& plates, auto& snapshot, std::size_t count) {
             const bool flexible = State::supports_independent_materials(bundle.printers.get_edited_preset().config) || bundle.is_bbl_vendor();
-            if (!flexible || count <= 1) throw FilamentCommandFailure("capability_rejected", "filament slot capability rejected");
+
             std::string error;
             const auto source = filament_command_slot(request, "slot", count, error);
             if (!source) throw FilamentCommandFailure("unsupported_reference", error);
+            if (!bundle.is_mixed_filament(*source) && (!flexible || bundle.num_physical_filaments() <= 1))
+                throw FilamentCommandFailure("capability_rejected", "The physical slot cannot be removed.");
             remove_filament_slot(bundle, model, plates, snapshot, *source, std::nullopt);
             // update_num_filaments already remapped surviving flush rows and columns.
             return json{{"kind", "delete"}, {"source", *source + 1},
@@ -2130,10 +2251,12 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
     return run_filament_mutation(request, merge ? "Merge Filament Slots" : "Delete Filament Slot",
         [request, merge](PresetBundle& bundle, Model& model, auto& plates, auto& snapshot, std::size_t count) {
         const bool flexible = State::supports_independent_materials(bundle.printers.get_edited_preset().config) || bundle.is_bbl_vendor();
-        if (!flexible || count <= 1) throw FilamentCommandFailure("capability_rejected", "filament slot capability rejected");
+
         std::string error;
         const auto source = filament_command_slot(request, merge ? "source" : "slot", count, error);
         if (!source) throw FilamentCommandFailure("unsupported_reference", error);
+        if (!bundle.is_mixed_filament(*source) && (!flexible || bundle.num_physical_filaments() <= 1))
+            throw FilamentCommandFailure("capability_rejected", "The physical slot cannot be removed.");
         std::optional<std::size_t> replacement;
         if (merge) {
             const auto destination = filament_command_slot(request, "destination", count, error);
@@ -2608,6 +2731,7 @@ json filament_session_snapshot_json(const bool include_references)
         slots.push_back({
             {"slot", i + 1},
             {"logical_id", slot_ids[i]},
+            {"material_type", Mixes::material_type(bundle, i)}, {"mix", Mixes::recipe(bundle, i)},
             {"preset", {{"id", name}, {"is_project_embedded", source && UserPresets::picker_is_project_embedded(*source)}, {"is_user", source && UserPresets::picker_is_user(*source)}, {"name", name}, {"label", source ? Profiles::preset_display_label(*source) : name}, {"vendor", vendor}}},
             {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"},
                         {"native", {{"representative", native_value(project_colours)},
@@ -2679,7 +2803,7 @@ json filament_session_snapshot_json(const bool include_references)
         {"min_slots", min_slots}, {"max_slots", 64}, {"nozzle_count", printer_nozzles},
         {"flexible", flexible_slots},
         {"can_add", flexible_slots && slot_count < 64},
-        {"can_delete", flexible_slots && slot_count > 1},
+        {"can_delete", flexible_slots && bundle.num_physical_filaments() > 1},
         {"can_merge", flexible_slots && slot_count > 1},
     };
 
@@ -3043,6 +3167,25 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_filament_slot_colour(const char* reques
         Slic3r::Neo::Bridge::Filament::Session::filament_command_runtime()).dump()); }
     catch (const std::exception& e) { return duplicate_json(Slic3r::Neo::Bridge::Filament::Commands::command_error("invalid_command", e.what()).dump()); }
     catch (...) { return duplicate_json(Slic3r::Neo::Bridge::Filament::Commands::command_error("invalid_command", "invalid filament command").dump()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_edit_mixed_filament(const char* request_json)
+{
+    try { return duplicate_json(Slic3r::Neo::Bridge::Filament::Commands::edit_mix_command(json::parse(request_json),
+        Slic3r::Neo::Bridge::Filament::Session::filament_command_runtime()).dump()); }
+    catch (const std::exception& e) { return error_json(e.what()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_preview_mixed_filament(const char* request_json)
+{
+    try {
+        const auto request = json::parse(request_json);
+        using namespace Slic3r::Neo::Bridge::Filament;
+        if (request.contains("recommendations"))
+            return duplicate_json(Mixes::recommendations(state().presets, request.at("recommendations").get<int>()).dump());
+        return duplicate_json(Mixes::preview(state().presets, request).dump());
+    }
+    catch (const std::exception& e) { return error_json(e.what()); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_add_filament_slot(const char* request_json)

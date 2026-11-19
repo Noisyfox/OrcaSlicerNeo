@@ -11,6 +11,7 @@ export type {
   ArrangementRequest, ArrangementResult, ArrangementParkingReason, ArrangementPlateSessionMutation,
   ModelMutationResult, ModelPlateSessionMutation, InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot, PrinterPicker, BedTypeCapabilities,
   FilamentColourProvenance, FilamentNativeColour, FilamentColourDisplay,
+  MixedFilamentRecipe, MixedFilamentPoint, MixedFilamentPreview, MixedFilamentRequest, MixedFilamentRecommendation,
   FilamentSessionSlot, FilamentNativeMapping,
   AutoFlushPolicy, FlushingVolumesSnapshot, FlushingVolumesSnapshotResult, FlushingVolumesRequest, FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,
   FilamentAssignmentProjection, FilamentAssignmentProjectionSet,

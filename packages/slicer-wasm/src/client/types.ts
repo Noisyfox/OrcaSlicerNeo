@@ -1366,11 +1366,44 @@ export interface FilamentColourDisplay {
   readonly colors: readonly string[];
 }
 
+export interface MixedFilamentPoint {
+  x: number;
+  y: number;
+  in: number | null;
+  out: number | null;
+}
+
+export interface MixedFilamentRecipe {
+  components: number[];
+  ratios: number[];
+  gradient: boolean;
+  reverse: boolean;
+  perPart: boolean;
+  points: MixedFilamentPoint[];
+}
+
+export interface MixedFilamentPreview {
+  colour: string;
+  ramp: string[];
+}
+
+export interface MixedFilamentRecommendation {
+  components: number[];
+  ratios: number[];
+  colour: string;
+}
+
+export type MixedFilamentRequest = FilamentCommandRequest & (
+  { recipe: MixedFilamentRecipe; slot?: number } | { operation: 'delete-all' }
+);
+
 /** One ordered, one-based material slot owned by the native session. */
 export interface FilamentSessionSlot {
   /** Opaque runtime identity restored with native history, never persisted to 3MF. */
   readonly logicalId: string;
   readonly slot: number;
+  readonly materialType: string;
+  readonly mix: (MixedFilamentRecipe & { error: string; ramp: string[] }) | null;
   readonly preset: { readonly isUser: boolean; readonly isProjectEmbedded: boolean; readonly id: string; readonly name: string; readonly label: string; readonly vendor: string };
   readonly colour: {
     readonly effective: string;
@@ -1481,7 +1514,7 @@ export interface FilamentSessionSnapshotError {
 export type FilamentSessionSnapshotResult = FilamentSessionSnapshot | FilamentSessionSnapshotError;
 
 export interface FilamentMutationSummary {
-  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing' | 'flushing' | 'synchronize';
+  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'save-mix' | 'delete-mixes' | 'delete' | 'merge' | 'assign' | 'routing' | 'flushing' | 'synchronize';
   readonly slot?: number;
   readonly source?: number;
   readonly destination?: number | null;
@@ -1767,6 +1800,9 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   mutatePresetDraft(request: PresetDraftMutationRequest, context: import('./history').HistoryContext): Promise<PresetDraftMutationResult>;
   selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
+  editMixedFilament(request: MixedFilamentRequest): Promise<FilamentMutationResultOrError>;
+  previewMixedFilament(request: MixedFilamentRecipe): Promise<MixedFilamentPreview | { error: string }>;
+  getMixRecommendations(size: 2 | 3): Promise<MixedFilamentRecommendation[]>;
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
   deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError>;
   mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError>;

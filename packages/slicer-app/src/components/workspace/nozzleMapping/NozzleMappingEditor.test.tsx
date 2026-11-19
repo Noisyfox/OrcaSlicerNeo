@@ -86,7 +86,7 @@ it('selects Convenience Mode without exposing manual rows or changing the saved 
 
 it('shows numbered rack colours and aliases with canonical preset names in tooltips', async () => {
   const slots: FilamentSessionSlot[] = [1, 3].map(slot => ({
-    logicalId: `filament-${slot}`, slot,
+    logicalId: `filament-${slot}`, slot, materialType: 'PLA', mix: null,
     preset: { isProjectEmbedded: false, isUser: false, id: `pla-${slot}`, name: `PLA @ printer ${slot}`, label: 'PLA', vendor: '' },
     colour: { effective: slot === 1 ? '#112233' : '#ffffff', provenance: 'preset',
       native: { representative: '#112233', multiColour: '#112233', type: '1' },

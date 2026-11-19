@@ -414,6 +414,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_performance.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_mixed_filament.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_nozzle_mapping.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
@@ -662,6 +663,9 @@ if(WASM_THREADING)
 endif()
 # Only non-profile runtime resources (currently resources/info) may be
 # preloaded. Profile packages are fetched and installed into MEMFS by JS.
+set(_mix_recipes "${CMAKE_CURRENT_SOURCE_DIR}/cpp/resources/filament_mixing/standard_color_recipes.json")
+target_link_options(orca_slice PRIVATE "--preload-file=${_mix_recipes}@/filament_mixing/standard_color_recipes.json")
+set_property(TARGET orca_slice APPEND PROPERTY LINK_DEPENDS "${_mix_recipes}")
 foreach(_pf IN LISTS PRELOAD_FILES)
   if(NOT "${_pf}" STREQUAL "")
     if("${_pf}" MATCHES "resources[/\\]profiles|/profiles@")
