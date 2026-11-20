@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { type ColorSwatchDisplay } from '@/components/ui/color-swatch';
-import { FilamentSwatch } from '../FilamentSwatch';
+import { FilamentChoiceContent, FilamentSwatch, filamentSlotChoice } from '../FilamentSwatch';
 import { GradientControls, PercentageInput, RatioTriangle, setRatio } from './RecipeControls';
 
 const defaultRecipe: MixedFilamentRecipe = {
@@ -54,7 +54,8 @@ export function MixEditor({
   const physical = slots.filter((s) => !s.mix);
   const physicalOptions = physical.map(slot => ({
     value: slot.slot,
-    label: `${slot.slot} · ${slot.preset.label} (${slot.materialType})`,
+    ...filamentSlotChoice(slot),
+    materialType: slot.materialType,
   }));
   const size = draft.components.length === 3 ? 3 : 2;
   useEffect(() => {
@@ -144,8 +145,9 @@ export function MixEditor({
               </Select>
             </div>
             {draft.components.map((id, i) => {
-              const missing = !physical.some((slot) => slot.slot === id);
-              const options = missing ? [{ value: id, label: 'Missing filament' }, ...physicalOptions] : physicalOptions;
+              const physicalOption = physicalOptions.find(option => option.value === id);
+              const selected = physicalOption ?? { value: id, label: 'Missing filament', display: null, materialType: '' };
+              const options = physicalOption ? physicalOptions : [selected, ...physicalOptions];
               return <div key={i} className="flex items-center gap-2">
                 <Select
                   items={options}
@@ -156,12 +158,19 @@ export function MixEditor({
                     patch({ components: draft.components.map((slot, j) => i === j ? value : slot) });
                   }}
                 >
-                  <SelectTrigger variant="sidebar" className="min-w-0 flex-1" aria-label={`Component ${i + 1}`}>
-                    <SelectValue />
+                  <SelectTrigger variant="sidebar" className="min-w-0 flex-1" aria-label={`Component ${i + 1}`}
+                    title={selected.materialType ? `${selected.label} (${selected.materialType})` : selected.label}>
+                    <SelectValue className="flex! items-center gap-2">
+                      <FilamentChoiceContent display={selected.display} label={<span className="truncate">{selected.label}</span>} />
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent align="start">
                     <SelectGroup>
-                      {options.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                      {options.map(({ value, label, display, materialType }) => (
+                        <SelectItem key={value} value={value} title={materialType ? `${label} (${materialType})` : label}>
+                          <FilamentChoiceContent display={display} label={label} />
+                        </SelectItem>
+                      ))}
                     </SelectGroup>
                   </SelectContent>
                 </Select>

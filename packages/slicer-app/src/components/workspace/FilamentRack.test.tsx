@@ -169,8 +169,13 @@ describe('FilamentRack runtime interaction', () => {
     await act(async () => rendered.container.querySelector<HTMLButtonElement>('[aria-label="Edit mix in slot 32"]')!.click());
     expect(button('Save mix').disabled).toBe(true);
     const select = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Component 2"]')!;
-    expect(select.querySelector('[data-slot="select-value"]')?.textContent).toBe('Missing filament');
-    await chooseSelectOption(select, text => text.startsWith('2 · '));
+    const value = select.querySelector('[data-slot="select-value"]')!;
+    expect(value.textContent).toBe('Missing filament');
+    expect(value.querySelector('[aria-hidden="true"]')).toBeNull();
+    const replacement = `2 - ${physical[1].preset.name}`;
+    await chooseSelectOption(select, text => text === replacement);
+    expect(value.textContent).toBe(replacement);
+    expect(value.querySelector('[aria-hidden="true"]')).not.toBeNull();
     expect(button('Save mix').disabled).toBe(false);
     await act(async () => button('Cancel').click());
     expect(rendered.container.textContent).toContain('Missing filament · 40%');

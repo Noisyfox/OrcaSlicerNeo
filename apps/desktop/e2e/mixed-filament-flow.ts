@@ -88,9 +88,14 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(damaged).toHaveAccessibleDescription(/Missing filament/);
   await damaged.click();
   const secondComponent = editor.getByRole('combobox', { name: 'Component 2', exact: true });
-  await expect(secondComponent.locator('[data-slot="select-value"]')).toHaveText('Missing filament');
+  const selectedComponent = secondComponent.locator('[data-slot="select-value"]');
+  await expect(selectedComponent).toHaveText('Missing filament');
   await secondComponent.click();
-  await page.getByRole('option', { name: /^2 · / }).click();
+  const replacement = page.getByRole('option', { name: /^2 - / });
+  await expect(replacement.locator('span[aria-hidden="true"]')).toHaveCSS('width', '14px');
+  await replacement.click();
+  await expect(selectedComponent).toHaveText(/^2 - /);
+  await expect(selectedComponent.locator('span[aria-hidden="true"]')).toHaveCSS('width', '14px');
   await editor.getByRole('button', { name: 'Save mix' }).click();
   await expect(damaged).not.toContainText('missing filament', { ignoreCase: true });
   await material.click();

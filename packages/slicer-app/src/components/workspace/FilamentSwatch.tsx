@@ -1,4 +1,5 @@
 import type { FilamentSessionSlot } from '@slicer/client';
+import type { ReactNode } from 'react';
 import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 
 type Display = FilamentSessionSlot['colour']['display'];
@@ -19,7 +20,7 @@ export function filamentSlotChoice(slot: FilamentSessionSlot) {
   return { label: `${slot.slot} - ${slot.preset.name}`, display: slot.colour.display };
 }
 
-export function FilamentChoiceContent({ label, display }: { label: string; display: Display | null }) {
+export function FilamentChoiceContent({ label, display }: { label: ReactNode; display: Display | null }) {
   return <>
     {display !== null && <FilamentSwatch display={display} className="size-3.5 shrink-0 rounded-xs border border-foreground/20" />}
     {label}
