@@ -14,3 +14,14 @@ export function filamentSlotNumberStyle(display: Display, effectiveColour: strin
 export function FilamentSwatch({ display, className = '' }: { display: Display; className?: string }) {
   return <span aria-hidden="true" className={className} style={colorSwatchStyle(display)} />;
 }
+
+export function filamentSlotChoice(slot: FilamentSessionSlot) {
+  return { label: `${slot.slot} - ${slot.preset.name}`, display: slot.colour.display };
+}
+
+export function FilamentChoiceContent({ label, display }: { label: string; display: Display | null }) {
+  return <>
+    {display !== null && <FilamentSwatch display={display} className="size-3.5 shrink-0 rounded-xs border border-foreground/20" />}
+    {label}
+  </>;
+}

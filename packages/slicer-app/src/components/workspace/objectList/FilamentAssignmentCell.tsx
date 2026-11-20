@@ -10,7 +10,7 @@ import {
 import { TooltipFor } from '@/components/ui/tooltip';
 import { assignmentForRow } from './filamentAssignment';
 import type { FilamentSessionSnapshot, FilamentAssignmentTargetRequest } from '@slicer/client';
-import { FilamentSwatch, filamentSwatchTitle } from '../FilamentSwatch';
+import { FilamentChoiceContent, filamentSlotChoice, filamentSwatchTitle } from '../FilamentSwatch';
 import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 
 export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, allowDefault = false, pending = false, onAssign }: {
@@ -34,8 +34,7 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
     ...(allowDefault ? [{ value: '0', label: 'Default', display: null }] : []),
     ...snapshot.slots.map((slot) => ({
       value: String(slot.slot),
-      label: `${slot.slot} - ${slot.preset.name}`,
-      display: slot.colour.display,
+      ...filamentSlotChoice(slot),
     })),
   ];
   return (
@@ -68,8 +67,7 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
       >
         <SelectGroup>
           {items.map((item) => <SelectItem key={item.value} value={item.value}>
-            {item.display !== null && <FilamentSwatch display={item.display} className="size-3.5 shrink-0 rounded-xs border border-foreground/20" />}
-            {item.label}
+            <FilamentChoiceContent display={item.display} label={item.label} />
           </SelectItem>)}
         </SelectGroup>
       </SelectContent>

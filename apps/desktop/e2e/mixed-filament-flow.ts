@@ -2,6 +2,16 @@ import { expect, type Page } from '@playwright/test';
 
 import { addPrimitive } from './add-primitive';
 
+async function verifyMergeChoices(page: Page, source: number, destination: number) {
+  await page.getByTestId(`filament-merge-${source}`).hover();
+  const choice = page.getByTestId(`filament-merge-${source}-to-${destination}`);
+  await expect(choice).toHaveText(new RegExp(`^${destination} - .+`));
+  await expect(choice.locator('span[aria-hidden="true"]')).toHaveCSS('width', '14px');
+  await expect(page.getByTestId(`filament-merge-${source}-to-${source}`)).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+}
+
 export async function verifyMixedFilamentEditor(page: Page) {
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120000 });
   await page.locator('#app-tab-prepare').click();
@@ -50,6 +60,8 @@ export async function verifyMixedFilamentEditor(page: Page) {
   const mixNumber = recipe.locator('.filament-slot-number');
   await expect(mixNumber).toHaveCSS('width', materialNumberWidth);
   await expect(mixNumber).toHaveCSS('background-image', /^linear-gradient/);
+  await recipe.click({ button: 'right' });
+  await verifyMergeChoices(page, 3, 1);
   await rack.getByTestId('filament-rack-toggle').click();
   await rack.getByTestId('filament-rack-toggle').click();
   await expect(recipe).toBeVisible();
@@ -63,6 +75,8 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await mixes.click();
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toBeVisible();
   await material.click();
+  await rack.getByTestId('filament-slot-2').click({ button: 'right' });
+  await verifyMergeChoices(page, 2, 4);
   await rack.getByTestId('filament-slot-2').click({ button: 'right' });
   await page.getByTestId('filament-delete-2').click();
   const confirm = page.getByTestId('filament-impact-confirm');

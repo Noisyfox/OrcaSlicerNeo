@@ -16,7 +16,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { FilamentSwatch, filamentSlotNumberStyle } from '../FilamentSwatch';
+import { FilamentChoiceContent, FilamentSwatch, filamentSlotChoice, filamentSlotNumberStyle } from '../FilamentSwatch';
 import { MixEditor, mixSwatchDisplay } from './MixEditor';
 
 export function MixesPanel({
@@ -121,13 +121,14 @@ export function MixesPanel({
                 Edit
               </ContextMenuItem>
               <ContextMenuSub>
-                <ContextMenuSubTrigger disabled={pending}>Merge with…</ContextMenuSubTrigger>
+                <ContextMenuSubTrigger data-testid={`filament-merge-${s.slot}`} disabled={pending}>Merge with…</ContextMenuSubTrigger>
                 <ContextMenuSubContent>
                   {slots
-                    .filter((d) => d !== s)
-                    .map((d) => (
-                      <ContextMenuItem key={d.logicalId} onClick={() => onMerge(s.slot, d.slot)}>
-                        Slot {d.slot}
+                    .filter(destination => destination.slot !== s.slot)
+                    .map(destination => (
+                      <ContextMenuItem key={destination.logicalId} data-testid={`filament-merge-${s.slot}-to-${destination.slot}`}
+                        onClick={() => onMerge(s.slot, destination.slot)}>
+                        <FilamentChoiceContent {...filamentSlotChoice(destination)} />
                       </ContextMenuItem>
                     ))}
                 </ContextMenuSubContent>

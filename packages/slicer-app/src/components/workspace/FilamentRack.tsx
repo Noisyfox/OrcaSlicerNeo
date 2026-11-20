@@ -9,7 +9,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore, readFlushingVolumes } from '@/stores/useFilamentSessionStore';
 import { type FilamentMutationResultOrError, type FilamentSessionSlot } from '@slicer/client';
-import { filamentSlotNumberStyle, filamentSwatchTitle } from './FilamentSwatch';
+import { FilamentChoiceContent, filamentSlotChoice, filamentSlotNumberStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus, RefreshCw } from 'lucide-react';
@@ -80,7 +80,7 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
   presetItems: readonly PresetComboItem[];
   deviceFilaments: DeviceFilaments | null;
   onDevicePreset: (option: DeviceFilaments['prepared']['options'][number]) => void;
-  mergeDestinations: readonly number[];
+  mergeDestinations: readonly FilamentSessionSlot[];
   canDelete: boolean;
   canMerge: boolean;
   pending: boolean;
@@ -133,9 +133,11 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
         <ContextMenuSub>
           <ContextMenuSubTrigger data-testid={`filament-merge-${slot.slot}`} disabled={pending || !canMerge}>Merge with…</ContextMenuSubTrigger>
           <ContextMenuSubContent>
-            {mergeDestinations.filter((destination) => destination !== slot.slot).map((destination) => (
-              <ContextMenuItem key={destination} data-testid={`filament-merge-${slot.slot}-to-${destination}`}
-                onClick={() => { if (paintingCommandAllowed()) onMerge(destination); }}>Slot {destination}</ContextMenuItem>
+            {mergeDestinations.filter(destination => destination.slot !== slot.slot).map(destination => (
+              <ContextMenuItem key={destination.logicalId} data-testid={`filament-merge-${slot.slot}-to-${destination.slot}`}
+                onClick={() => { if (paintingCommandAllowed()) onMerge(destination.slot); }}>
+                <FilamentChoiceContent {...filamentSlotChoice(destination)} />
+              </ContextMenuItem>
             ))}
           </ContextMenuSubContent>
         </ContextMenuSub>
@@ -293,7 +295,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
                   onDevicePreset={option => { if (deviceFilaments) void updateSlot(() => selectDeviceFilament(platform, deviceFilaments, slot.slot, option)); }}
                   canDelete={snapshot.capabilities.canDelete}
                   canMerge={snapshot.capabilities.canMerge}
-                  mergeDestinations={snapshot.slots.map((entry) => entry.slot)}
+                  mergeDestinations={snapshot.slots}
                   pending={pending}
                   onPreset={(preset) => void updateSlot(() => platform.runtime.selectFilamentSlotPreset({ version: 1, revision: revision(), slot: slot.slot, preset }))}
                   onColour={(colour) => void updateSlot(() => platform.runtime.setFilamentSlotColour({ version: 1, revision: revision(), slot: slot.slot, colour }))}
