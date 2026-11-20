@@ -119,7 +119,7 @@ export function RatioTriangle({
       <canvas ref={canvas} aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" />
       <svg
         viewBox="0 0 100 80"
-        className="relative block size-full touch-none"
+        className="relative block size-full touch-none overflow-visible"
         role="img"
         aria-label="Drag to set the three component percentages"
         onPointerDown={(e) => {
