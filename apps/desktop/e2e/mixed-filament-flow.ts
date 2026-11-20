@@ -1,5 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
+import { addPrimitive } from './add-primitive';
+
 export async function verifyMixedFilamentEditor(page: Page) {
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120000 });
   await page.locator('#app-tab-prepare').click();
@@ -33,6 +35,24 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(rack.getByTestId('filament-slot-3')).toBeVisible();
   await mixes.click();
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toBeVisible();
+  await material.click();
+  await rack.getByTestId('filament-slot-2').click({ button: 'right' });
+  await page.getByTestId('filament-delete-2').click();
+  const confirm = page.getByTestId('filament-impact-confirm');
+  if (await confirm.isVisible()) await confirm.click();
+  await expect(rack.getByTestId('filament-slot-3')).toHaveCount(0);
+  await mixes.click();
+  const damaged = rack.getByRole('button', { name: 'Edit mix in slot 3' });
+  await expect(damaged).toContainText('missing filament', { ignoreCase: true });
+  await damaged.click();
+  await expect(editor.getByLabel('Component 2', { exact: true })).toHaveValue('0');
+  await editor.getByLabel('Component 2', { exact: true }).selectOption('2');
+  await editor.getByRole('button', { name: 'Save mix' }).click();
+  await expect(damaged).not.toContainText('missing filament', { ignoreCase: true });
+  await material.click();
+  await rack.getByTestId('filament-add').click();
+  await expect(rack.getByTestId('filament-slot-3')).toBeVisible();
+  await mixes.click();
   await rack.getByRole('button', { name: 'Delete all' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete all' }).click();
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toHaveCount(0);
@@ -50,4 +70,21 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(editor.getByRole('heading')).toContainText('Decompose Color');
   await editor.getByRole('button', { name: 'Create mix', exact: true }).click();
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 5' })).toBeVisible();
+  await addPrimitive(page, 'cube');
+  await page.getByTestId('config-mode-scoped').click();
+  const assignment = page.locator('[data-testid^="filament-cell-object-"]').first();
+  await assignment.click();
+  await page.getByRole('option', { name: /^4 - / }).click();
+  await expect(assignment).toHaveText('4');
+  const tower = await page.evaluate(() => (window as Window & {
+    __orcaE2e?: { primeTowerStates?: () => unknown }
+  }).__orcaE2e?.primeTowerStates?.());
+  await page.getByTestId('btn-slice').click();
+  const status = page.getByTestId('slicer-status');
+  await expect(status).toHaveText(/^(Sliced|Error)$/, { timeout: 120000 });
+  await expect(status, `Mixed slice with tower ${JSON.stringify(tower)}`).toHaveText('Sliced');
+  await page.getByTestId('preview-color-scheme').click();
+  await page.getByTestId('preview-color-scheme-filament').click();
+  for (const tool of [0, 1, 2]) await expect(page.getByTestId(`preview-scheme-visibility-filament-${tool}`)).toBeVisible();
+  await expect(page.getByTestId('preview-scheme-visibility-filament-3')).toHaveCount(0);
 }

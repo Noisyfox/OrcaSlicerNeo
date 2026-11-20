@@ -2097,13 +2097,26 @@ boundary validation.
 
 ## 15. Mixed filaments
 
-**Design status.** Accepted for implementation on Electron and Web. The
-native slicing behaviour described below was verified during design. The native
-slot and recipe commands and the Prepare sidebar editor are implemented.
-[Native transaction tests](../packages/slicer-wasm/harness/mixed-filament-smoke.mjs)
-cover physical insertion, facet paint, undo, 3MF persistence and creation from
-the standard colour table. The [shared host acceptance flow](../apps/desktop/e2e/mixed-filament-flow.ts)
-exercises the Mixes editor through the Electron and Web workers.
+**Implementation status.** Electron and Web share the recipe editor, painting
+palette, physical-tool preview, printer rack memory, AMS sync and send thumbnail.
+The [native transaction tests](../packages/slicer-wasm/harness/mixed-filament-smoke.mjs)
+cover reference remapping, history, damaged recipes, printer switches and the
+32-slot painting boundary. The [host acceptance flow](../apps/desktop/e2e/mixed-filament-flow.ts)
+creates, edits and repairs recipes in the sidebar, assigns a mix and slices it.
+
+The [3MF interoperability test](../packages/slicer-wasm/harness/mixed-filament-interop-smoke.mjs)
+runs both the Neo Worker bridge and the desktop OrcaSlicer CLI. It checks
+the six recipe fields, a painted 60/40 mix, a custom per-part curve,
+assignments and physical tool IDs through both writers and slicers. Run
+`node packages/slicer-wasm/harness/mixed-filament-interop-smoke.mjs <wasm.js> <OrcaSlicer-executable>`
+from the repository root with the built WASM module and a desktop executable
+that supports mixed filaments.
+
+Orca reads a single-volume object's material from the object. On export,
+Neo copies a mixed material override on its sole part to the object's standard
+3MF extruder field. The saved project reopens with the same effective material.
+Multi-part objects retain independent part assignments, and saving preserves
+the assignments in the live Neo session.
 
 ### Configuration entry point
 
@@ -2329,7 +2342,8 @@ Every nozzle mapping entry point in Neo lists physical materials only.
 For the current plate, expand each used mix into its physical components
 and show each component once. Project and all-plate entry points keep their
 existing scope and exclude virtual slots. A mix uses its components' nozzle
-assignments.
+assignments. Prime Tower placement and its Prepare footprint use the same
+physical components when estimating the tower for a plate.
 
 When the project contains any mixed slot, disable the custom first-layer
 and other-layer filament order controls on every plate. Explain that the

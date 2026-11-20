@@ -1494,7 +1494,25 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project(const char* request_json) {
         }
         StoreParams params;
         params.path = path;
-        params.model = &state().model;
+        // Orca's 3MF reader clears the part-level extruder on a single-volume
+        // object. Carry its effective material on the export object's config.
+        std::unique_ptr<Model> export_model;
+        const auto& bundle = state().presets;
+        if (bundle.num_mixed_filaments() > 0) {
+            for (size_t i = 0; i < state().model.objects.size(); ++i) {
+                const auto* object = state().model.objects[i];
+                if (object->volumes.size() != 1 || !object->volumes.front()->is_model_part()) continue;
+                const auto* part = dynamic_cast<const ConfigOptionInt*>(object->volumes.front()->config.option("extruder"));
+                if (!part || part->value < 1) continue;
+                const auto* parent = dynamic_cast<const ConfigOptionInt*>(object->config.option("extruder"));
+                const int inherited = parent ? parent->value : 1;
+                if (part->value == inherited || (!bundle.is_mixed_filament(part->value - 1) &&
+                    !(inherited > 0 && bundle.is_mixed_filament(inherited - 1)))) continue;
+                if (!export_model) export_model = std::make_unique<Model>(state().model);
+                export_model->objects[i]->config.set_key_value("extruder", new ConfigOptionInt(part->value));
+            }
+        }
+        params.model = export_model ? export_model.get() : &state().model;
         params.plate_data_list = plates;
         if (!thumbnails.empty()) for (auto* plate : plates)
             params.thumbnail_data.push_back(&plate->plate_thumbnail);

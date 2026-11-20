@@ -1,5 +1,4 @@
 #include "bridge_nozzle_mapping.hpp"
-#include "libslic3r/FilamentMixer.hpp"
 #include "bridge_filament.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_preset_drafts.hpp"
@@ -328,10 +327,7 @@ json projection(const std::string& plate_id)
     json heads = json::array();
     for (std::size_t i = 0; i < nozzles; ++i)
         heads.push_back({{"id", i + 1}, {"diameter", diameters->values[i]}, {"capacity", capacities[i]}});
-    auto used = expand_mixed_filament_ids(PrimeTower::used_filament_slots_for_plate(plate_id), project);
-    used.erase(std::remove_if(used.begin(), used.end(), [&](int slot) {
-        return slot < 1 || static_cast<std::size_t>(slot) > count || state().presets.is_mixed_filament(slot - 1);
-    }), used.end());
+    const auto used = PrimeTower::used_filament_slots_for_plate(plate_id);
     json diagnostics = json::array();
     const bool manual = effective_mode == fmmManual || effective_mode == fmmNozzleManual;
     std::vector<int> assigned(nozzles, 0);

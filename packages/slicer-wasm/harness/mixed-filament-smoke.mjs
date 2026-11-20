@@ -2,43 +2,9 @@
 import assert from 'node:assert/strict';
 import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
-import { resolve } from 'node:path';
-import { loadModuleFactory } from './run-slice.mjs';
-import {
-  createNodeProfileSource,
-  fixtureProfileOptions,
-  installProfilePackages,
-} from './profile-installer.mjs';
+import { createMixedFilamentFixture } from './mixed-filament-fixture.mjs';
 
-const factory = await loadModuleFactory(resolve(process.argv[2]));
-const module = await factory({ noInitialRun: true, print() {}, printErr() {} });
-function call(name, types = [], args = []) {
-  const ptr = Number(module.ccall(name, 'number', types, args));
-  try {
-    return JSON.parse(module.UTF8ToString(ptr));
-  } finally {
-    module._free(ptr);
-  }
-}
-await installProfilePackages(
-  module,
-  createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')),
-);
-assert.equal(call('orc_init', ['string'], [fixtureProfileOptions(module)]).ok, true);
-const printer = call('orc_get_preset_snapshot').printers.find((p) =>
-  p.name.includes('Bambu Lab P1P 0.4 nozzle'),
-);
-assert.equal(call('orc_select_preset', ['string', 'string'], ['printer', printer.name]).ok, true);
-const rack = () => call('orc_get_filament_session_snapshot');
-const run = (name, fields = {}) =>
-  call(name, ['string'], [JSON.stringify({ version: 1, revision: rack().revisions.session, ...fields })]);
-function edit(name, fields) {
-  const r = run(name, fields);
-  assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal(r.result.mutation.history_entry_delta, 1);
-  return r.result.snapshot;
-}
-while (rack().slots.length < 2) edit('orc_add_filament_slot');
+const { module, call, rack, run, edit, printer } = await createMixedFilamentFixture(process.argv[2]);
 const initial = rack();
 const count = initial.slots.length;
 const draft = {
@@ -191,6 +157,8 @@ assert.deepEqual(restore.slots[2].mix.storage, remembered[2].mix);
 const currentPlate = call('orc_get_plate_session_snapshot').current_plate_id;
 const mapping = call('orc_get_nozzle_mapping', ['string'], [currentPlate]);
 assert.deepEqual(mapping.usedFilaments, [1, 2], JSON.stringify(mapping));
+const tower = call('orc_get_prime_tower_projection').plates.find(p => p.plate_id === currentPlate);
+assert.deepEqual(tower.used_slots, [1, 2]);
 async function sliceMix(overrides = {}) {
   const events = [];
   const acceptance = call('orc_slice', ['string'], [JSON.stringify({ enable_prime_tower: false, ...overrides })]);
@@ -222,6 +190,21 @@ assert.equal(rack().assignments.objects[0].explicit_slot, 3);
 assertPaint('0C');
 assert.equal(rack().slots.at(-1).slot, mix.slot);
 assert.deepEqual(rack().slots.at(-1).mix.points, gradient.points);
+assert.equal(call('orc_history_redo').ok, true);
+assertPaint('1C');
+assert.equal(rack().assignments.objects[0].explicit_slot, 4);
+assert.equal(call('orc_history_undo').ok, true);
+const merged = edit('orc_merge_filament_slots', { source: 2, destination: 3 });
+assert.deepEqual(merged.slots[1].mix.components, [1, 0]);
+assert.equal(merged.assignments.objects[0].explicit_slot, 2);
+assertPaint('8');
+assert.equal(call('orc_history_undo').ok, true);
+assertPaint('0C');
+assert.deepEqual(rack().slots.at(-1).mix.components, [1, 2]);
+assert.equal(call('orc_history_redo').ok, true);
+assertPaint('8');
+assert.deepEqual(rack().slots[1].mix, merged.slots[1].mix);
+assert.equal(call('orc_history_undo').ok, true);
 const archive = call('orc_export_project', ['string'], ['{}']);
 assert.equal(archive.ok, true);
 const loaded = call(
@@ -237,9 +220,13 @@ const broken = edit('orc_delete_filament_slot', { slot: 2 }).slots.at(-1).mix;
 assert.deepEqual(broken.components, [1, 0]);
 assert.deepEqual(broken.ratios, draft.ratios);
 assert.ok(broken.error);
-const restoredBroken = run('orc_apply_remembered_filament_rack', { slots: needsRepair });
-assert.equal(restoredBroken.ok, true, JSON.stringify(restoredBroken));
-assert.deepEqual(restoredBroken.slots[1].mix.storage, needsRepair[1].mix);
+assertPaint('8');
+assert.equal(call('orc_history_undo').ok, true);
+assertPaint('0C');
+assert.deepEqual(rack().slots.at(-1).mix.points, gradient.points);
+assert.equal(call('orc_history_redo').ok, true);
+assertPaint('8');
+assert.deepEqual(rack().slots.at(-1).mix, broken);
 assert.match((await sliceMix()).slice.error, /Repair mixed filament/);
 const brokenPlate = call('orc_get_plate_session_snapshot').current_plate_id;
 const newPlate = call('orc_add_plate').plates.at(-1).plate_id;
@@ -249,6 +236,9 @@ const separate = await sliceMix();
 assert.equal(separate.slice.ok, true, JSON.stringify(separate.slice));
 assert.doesNotMatch(JSON.stringify(separate.events), /gradient will not be printed/i);
 assert.equal(call('orc_select_plate', ['string'], [brokenPlate]).ok, true);
+// The fixture creates the second plate and cube directly through the ABI.
+// Publish that setup as the baseline before starting a new undo sequence.
+assert.equal(call('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo, false);
 
 edit('orc_edit_mixed_filament', { operation: 'delete-all' });
 assert.ok(rack().slots.every((s) => s.mix === null));
@@ -295,5 +285,27 @@ const highBefore = rack();
 const rejected = run('orc_add_filament_slot');
 assert.equal(rejected.ok, false, JSON.stringify(rejected));
 assert.deepEqual(rack(), highBefore);
+const sourcePaint = writeStoredZip(archiveEntries().map(entry => modelEntry(entry) ? { ...entry,
+  content: new TextEncoder().encode(decoder.decode(entry.content).replace(/<triangle\b[^>]*\/>/g,
+    triangle => triangle.replace(/ paint_color="[^"]*"/g, '').replace('/>', ' paint_color="4"/>'))) } : entry));
+const sourcePtr = module._malloc(sourcePaint.length);
+module.HEAPU8.set(sourcePaint, Number(sourcePtr));
+assert.equal(call('orc_load_project', ['pointer', 'number', 'number', 'string'],
+  [sourcePtr, sourcePaint.length, 0, 'merge-boundary.3mf']).ok, true);
+module._free(sourcePtr);
+assertPaint('4');
+edit('orc_add_filament_slot');
+edit('orc_add_filament_slot');
+assert.equal(rack().slots.at(-1).slot, 34);
+const beforeMerge = rack();
+const overflow = run('orc_merge_filament_slots', { source: 1, destination: 34 });
+assert.equal(overflow.ok, false);
+assert.match(overflow.error, /32/);
+assert.deepEqual(rack(), beforeMerge);
+assertPaint('4');
+assert.equal(call('orc_clear_model').ok, true);
+const restoredBroken = run('orc_apply_remembered_filament_rack', { slots: needsRepair });
+assert.equal(restoredBroken.ok, true, JSON.stringify(restoredBroken));
+assert.deepEqual(restoredBroken.slots[1].mix.storage, needsRepair[1].mix);
 console.log('Mixed filament transactions, insertion, history and 3MF round trip passed.');
 process.exit(0);
