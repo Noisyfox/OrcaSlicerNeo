@@ -399,6 +399,25 @@ it('samples only the active gradient RGB, preserves alpha, and commits only on C
   expect(confirm).toHaveBeenCalledWith({ kind: 'linear-gradient', colors: ['#11223380', '#12ABEF40', '#77889920', '#AABBCC10'] });
 });
 
+it.each([true, false])('returns focus after sampling only when the picker document is active (%s)', async (active) => {
+  const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(active);
+  try {
+    const container = await mount(<ColorPicker value={{ kind: 'solid', color: '#112233' }} onChange={() => {}}
+      screenColorSampler={{ pick: async () => ({ status: 'picked', color: '#12ABEF' }) }} />);
+    const hex = container.querySelector<HTMLInputElement>('[aria-label="HEX color"]')!;
+    const sample = button(container, 'Pick color from screen');
+    await act(async () => {
+      hex.focus();
+      sample.click();
+    });
+    await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+    expect(hex.value).toBe('12ABEF');
+    expect(document.activeElement).toBe(active ? sample : hex);
+  } finally {
+    focus.mockRestore();
+  }
+});
+
 it('hides unsupported eyedroppers and ignores duplicate clicks and late results after closing', async () => {
   const changed = vi.fn();
   const container = await mount(<ColorPicker value={{ kind: 'solid', color: '#112233' }} onChange={changed} />);
