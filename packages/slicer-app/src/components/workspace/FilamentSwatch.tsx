@@ -1,6 +1,7 @@
 import type { FilamentSessionSlot } from '@slicer/client';
 import type { ReactNode } from 'react';
 import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
+import { mixRecipeSummary } from './mixes/mixRecipeSummary';
 
 type Display = FilamentSessionSlot['colour']['display'];
 
@@ -17,7 +18,7 @@ export function FilamentSwatch({ display, className = '' }: { display: Display; 
 }
 
 export function filamentSlotChoice(slot: FilamentSessionSlot) {
-  const name = slot.mix ? 'Mix' : slot.preset.name;
+  const name = slot.mix ? mixRecipeSummary(slot.mix).description : slot.preset.name;
   return { label: `${slot.slot} - ${name}`, display: slot.colour.display };
 }
 

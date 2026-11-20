@@ -56,6 +56,8 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await editor.getByRole('button', { name: 'Save mix' }).click();
   const recipe = rack.getByRole('button', { name: 'Edit mix in slot 3' });
   await expect(recipe).toBeVisible();
+  const gradientSummary = 'Slot 1 → Slot 2';
+  await expect(recipe).toHaveAttribute('title', gradientSummary);
   await expect(mixes).toHaveText('Mixes (1)');
   await expect(recipe).toHaveCSS('height', materialSlotHeight);
   const mixNumber = recipe.locator('.filament-slot-number');
@@ -80,7 +82,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toBeVisible();
   await material.click();
   await rack.getByTestId('filament-slot-2').click({ button: 'right' });
-  await verifyMergeChoices(page, 2, 4, '4 - Mix');
+  await verifyMergeChoices(page, 2, 4, `4 - ${gradientSummary}`);
   await rack.getByTestId('filament-slot-2').click({ button: 'right' });
   await page.getByTestId('filament-delete-2').click();
   const confirm = page.getByTestId('filament-impact-confirm');
@@ -118,7 +120,8 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await editor.getByLabel('Percentage 2').blur();
   await expect(editor.getByLabel('Percentage 2')).toHaveValue('35');
   await editor.getByRole('button', { name: 'Save mix' }).click();
-  await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toContainText('35%');
+  const fixedSummary = 'Slot 1 · 43%, Slot 2 · 35%, Slot 3 · 22%';
+  await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toHaveAttribute('title', fixedSummary);
   await material.click();
   await rack.getByTestId('filament-slot-2').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Decompose Color' }).click();
@@ -126,14 +129,16 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await editor.getByRole('combobox', { name: 'Palette', exact: true }).click();
   await page.getByRole('option', { name: 'Project materials' }).click();
   await editor.getByRole('button', { name: 'Create mix', exact: true }).click();
-  await expect(rack.getByRole('button', { name: 'Edit mix in slot 5' })).toBeVisible();
+  const decomposed = rack.getByRole('button', { name: 'Edit mix in slot 5' });
+  await expect(decomposed).toHaveAttribute('title', /Slot \d+ · \d+%/);
+  const decomposedSummary = await decomposed.getAttribute('title');
   await expect(mixes).toHaveText('Mixes (2)');
   await addPrimitive(page, 'cube');
   await page.getByTestId('config-mode-scoped').click();
   const assignment = page.locator('[data-testid^="filament-cell-object-"]').first();
   await assignment.click();
-  await expect(page.getByRole('option', { name: '5 - Mix', exact: true })).toBeVisible();
-  await page.getByRole('option', { name: '4 - Mix', exact: true }).click();
+  await expect(page.getByRole('option', { name: `5 - ${decomposedSummary}`, exact: true })).toBeVisible();
+  await page.getByRole('option', { name: `4 - ${fixedSummary}`, exact: true }).click();
   await expect(assignment).toHaveText('4');
   const tower = await page.evaluate(() => (window as Window & {
     __orcaE2e?: { primeTowerStates?: () => unknown }

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/context-menu';
 import { FilamentChoiceContent, FilamentSwatch, filamentSlotChoice, filamentSlotNumberStyle } from '../FilamentSwatch';
 import { MixEditor, mixSwatchDisplay } from './MixEditor';
+import { mixRecipeSummary } from './mixRecipeSummary';
 
 export function MixesPanel({
   slots,
@@ -66,20 +67,7 @@ export function MixesPanel({
       {reason && <p className="text-muted-foreground">{reason}</p>}
       {mixes.map((s) => {
         const mix = s.mix!;
-        const order = mix.components.map((id, i) => ({ id, i }));
-        if (
-          mix.gradient &&
-          (mix.points.length ? mix.points[0].y < mix.points[mix.points.length - 1].y : mix.reverse)
-        )
-          order.reverse();
-        const components = order.map(({ id, i }) => ({
-          id,
-          display: slots[id - 1]?.colour.display,
-          ratio: mix.gradient ? '' : ` · ${mix.ratios[i]}%`,
-        }));
-        const summary = components.map(({ id, ratio }) => `${id ? `Slot ${id}` : 'Missing filament'}${ratio}`)
-          .join(mix.gradient ? ' → ' : ', ');
-        const description = mix.error ? `${summary}. ${mix.error}` : summary;
+        const { components, description } = mixRecipeSummary(mix);
         return (
           <ContextMenu key={s.logicalId}>
             <ContextMenuTrigger
@@ -98,18 +86,21 @@ export function MixesPanel({
               </span>
               <span className="sidebar-dropdown flex-1 rounded-l-none!">
                 <span className="min-w-0 flex-1 truncate">
-                  {components.map(({ id, display, ratio }, j) => (
-                    <span key={j} className="mr-2 inline-flex items-center gap-1 last:mr-0">
-                      {j > 0 && mix.gradient && '→'}
-                      {display && (
-                        <FilamentSwatch
-                          className="size-2.5 shrink-0 rounded-sm border"
-                          display={display}
-                        />
-                      )}
-                      <span className={id ? undefined : 'text-destructive'}>{id || 'Missing filament'}{ratio}</span>
-                    </span>
-                  ))}
+                  {components.map(({ id, ratio }, j) => {
+                    const display = slots[id - 1]?.colour.display;
+                    return (
+                      <span key={j} className="mr-2 inline-flex items-center gap-1 last:mr-0">
+                        {j > 0 && mix.gradient && '→'}
+                        {display && (
+                          <FilamentSwatch
+                            className="size-2.5 shrink-0 rounded-sm border"
+                            display={display}
+                          />
+                        )}
+                        <span className={id ? undefined : 'text-destructive'}>{id || 'Missing filament'}{ratio}</span>
+                      </span>
+                    );
+                  })}
                 </span>
                 {mix.error
                   ? <TriangleAlert className="sidebar-dropdown-arrow text-destructive!" aria-hidden="true" />
