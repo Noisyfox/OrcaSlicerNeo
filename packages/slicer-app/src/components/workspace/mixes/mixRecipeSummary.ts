@@ -12,7 +12,7 @@ export function mixRecipeSummary(mix: NonNullable<FilamentSessionSlot['mix']>) {
     components.reverse();
 
   const summary = components
-    .map(({ id, ratio }) => `${id ? `Slot ${id}` : 'Missing filament'}${ratio}`)
+    .map(({ id, ratio }) => `${id || 'Missing filament'}${ratio}`)
     .join(mix.gradient ? ' → ' : ', ');
   return { components, description: mix.error ? `${summary}. ${mix.error}` : summary };
 }
