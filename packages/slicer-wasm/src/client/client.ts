@@ -353,6 +353,12 @@ function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrEr
   return result as NativeScopedConfigResultOrError;
 }
 
+function encodeRememberedSlot({ preset, colour, native, mix }: import('./types').RememberedFilamentSlot) {
+  return { preset, colour, mix, native: {
+    representative: native.representative, multi_colour: native.multiColour, type: native.type,
+  } };
+}
+
 function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult;
 function normalizeFilamentSessionResult(raw: unknown, includeReferences: false): FilamentSessionOrdinaryEdit | FilamentSessionSnapshotError;
 function normalizeFilamentSessionResult(raw: unknown, includeReferences = true): FilamentSessionSnapshotResult | FilamentSessionOrdinaryEdit {
@@ -410,7 +416,12 @@ function normalizeFilamentSessionResult(raw: unknown, includeReferences = true):
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
     if (typeof item.material_type !== 'string') return null;
     const mix = item.mix;
-    if (mix !== null && (!isRecord(mix) || !integerArray(mix.components) || !integerArray(mix.ratios) ||
+    const storage = isRecord(mix) && isRecord(mix.storage) ? mix.storage : null;
+    if (mix !== null && (!isRecord(mix) || !storage ||
+        !['filament_mixed_components', 'filament_mixed_sublayer_ratios', 'filament_mixed_gradient_curve',
+          'filament_mixed_gradient_range'].every(key => typeof storage[key] === 'string') ||
+        typeof storage.filament_mixed_gradient !== 'boolean' || typeof storage.filament_mixed_gradient_per_part !== 'boolean' ||
+        !integerArray(mix.components) || !integerArray(mix.ratios) ||
         typeof mix.gradient !== 'boolean' || typeof mix.reverse !== 'boolean' || typeof mix.perPart !== 'boolean' ||
         typeof mix.error !== 'string' || !Array.isArray(mix.ramp) || !mix.ramp.every(validHex) ||
         !Array.isArray(mix.points) || !mix.points.every(p => isRecord(p) && Number.isFinite(p.x) &&
@@ -2469,8 +2480,8 @@ export function createClient(
       return normalizeFilamentMutationResult(callJson(await module(), 'orc_edit_mixed_filament', ['string'], [JSON.stringify(request)]));
     },
 
-    async previewMixedFilament(request: MixedFilamentRecipe) {
-      const raw = callJson(await module(), 'orc_preview_mixed_filament', ['string'], [JSON.stringify(request)]);
+    async previewMixedFilament(request: MixedFilamentRecipe, componentColours?: readonly string[]) {
+      const raw = callJson(await module(), 'orc_preview_mixed_filament', ['string'], [JSON.stringify({ ...request, componentColours })]);
       if (isRecord(raw) && typeof raw.error === 'string') return { error: raw.error };
       if (!isRecord(raw) || !Array.isArray(raw.samples) || !raw.samples.every(Number.isFinite) ||
           typeof raw.colour !== 'string' || !Array.isArray(raw.ramp) || !raw.ramp.every(c => typeof c === 'string'))
@@ -2517,9 +2528,7 @@ export function createClient(
       const m = await module();
       return normalizeFilamentSessionResult(callJson(m, 'orc_apply_remembered_filament_rack', ['string'], [JSON.stringify({
         version: request.version, revision: request.revision,
-        slots: request.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
-          representative: native.representative, multi_colour: native.multiColour, type: native.type,
-        } })),
+        slots: request.slots.map(encodeRememberedSlot),
       })]));
     },
 
@@ -2729,9 +2738,7 @@ export function createClient(
       linkProfileVendors(m, request.activation);
       const result = callJson(m, 'orc_prepare_profile_activation', ['string'], [JSON.stringify({ activation: request.activation, remembered_bed_types: request.rememberedBedTypes,
         remembered_filament_racks: Object.fromEntries(Object.entries(request.rememberedFilamentRacks).map(([printer, rack]) => [printer, {
-          version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
-            representative: native.representative, multi_colour: native.multiColour, type: native.type,
-          } })),
+          version: rack.version, slots: rack.slots.map(encodeRememberedSlot),
         }])) })]) as ProfileActivationPreparationResult;
       if (result.ok) preparedActivation = structuredClone(result.activation);
       return result;
@@ -2777,9 +2784,7 @@ export function createClient(
         remembered_bed_type: rememberedBedType,
         remembered_rack: rememberedRack === null ? null : {
           version: rememberedRack.version,
-          slots: rememberedRack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
-            representative: native.representative, multi_colour: native.multiColour, type: native.type,
-          } })),
+          slots: rememberedRack.slots.map(encodeRememberedSlot),
         },
       };
       return normalizePrinterTransition(
@@ -2860,8 +2865,7 @@ export function createClient(
     async synchronizePrinter(request: import('./types').PrinterSynchronizationRequest): Promise<PrinterTransitionResult> {
       const m = await module();
       const rackMemory = Object.fromEntries(Object.entries(request.rackMemory).map(([name, rack]) => [name, {
-        version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour,
-          native: { representative: native.representative, multi_colour: native.multiColour, type: native.type } })),
+        version: rack.version, slots: rack.slots.map(encodeRememberedSlot),
       }]));
       return normalizePrinterTransition(callJson(m, 'orc_synchronize_printer', ['string'], [JSON.stringify({
         expected_revision: request.revision,

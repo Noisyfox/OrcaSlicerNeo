@@ -35,7 +35,8 @@ describe('surface painting panel', () => {
     const snapshot = useFilamentSessionStore.getState().snapshot!;
     const ramp = ['#aa1111', '#996644', '#1111aa'];
     useFilamentSessionStore.setState({ snapshot: { ...snapshot, slots: snapshot.slots.map(slot => slot.slot !== 3 ? slot :
-      { ...slot, mix: {components:[1,2], ratios:[50,50], gradient:true, perPart:false, reverse:false, points:[], error:'', ramp} }) } });
+      { ...slot, mix: {components:[1,2], ratios:[50,50], gradient:true, perPart:false, reverse:false, points:[], storage: { filament_mixed_components: '1,2', filament_mixed_sublayer_ratios: '50,50',
+        filament_mixed_gradient: true, filament_mixed_gradient_per_part: false, filament_mixed_gradient_range: '', filament_mixed_gradient_curve: '' }, error:'', ramp} }) } });
     await render();
     const choice = container.querySelectorAll<HTMLElement>('[aria-label="Painting filament"] label')[2];
     expect(choice.title).toContain(ramp.join(' → '));

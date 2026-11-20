@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyRememberedFilamentRackFromRepository, rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreBootstrapSession, restoreSelections, publishRememberedBedType, loadRememberedBedTypeFromRepository, seedRememberedBedType, configurePrinterProjectPreferences, commitProjectFlow, publishRememberedNozzleCapacities } from './preferences';
-import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
+import { normalizeUserPreferences, type UserPreferences, type UserPreferencesRepository } from '@orca/platform-contract';
 import type { ProfileSnapshot } from '@slicer/client';
 import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION } from '@slicer/client';
 
@@ -121,6 +121,15 @@ describe('selection restoration', () => {
       revisions: { session: 1, project: 1, result: 0, plates: {} },
       status: { state: 'ready' as const, error: null },
     };
+    const storage = { filament_mixed_components: '1,0', filament_mixed_sublayer_ratios: '0.6000,0.4000',
+      filament_mixed_gradient: true, filament_mixed_gradient_per_part: true,
+      filament_mixed_gradient_range: '0.9,0.1', filament_mixed_gradient_curve: 'custom imported data' };
+    const mix = { storage, components: [1, 0], ratios: [60, 40], gradient: true, reverse: false,
+      perPart: true, points: [], error: 'Replace the missing filament.', ramp: [] };
+    const mixed = rememberedRackFromSnapshot({ ...snapshot, slots: [...snapshot.slots,
+      { ...snapshot.slots[0], slot: 3, logicalId: 'mixed', mix }] });
+    const disk = normalizeUserPreferences(JSON.parse(JSON.stringify({ ...prefs, rememberedFilamentRacks: { P: mixed } })));
+    expect(disk.rememberedFilamentRacks?.P.slots[2].mix).toEqual(storage);
     const rack = rememberedRackFromSnapshot(snapshot);
     expect(rack).toEqual({ version: 1, slots: [
       { preset: 'PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } },

@@ -28,11 +28,12 @@ const rackWriteQueues = new WeakMap<object, Map<string, Promise<void>>>();
 export function rememberedRackFromSnapshot(snapshot: FilamentSessionSnapshot): RememberedFilamentRack {
   return {
     version: 1,
-    slots: snapshot.slots.filter(slot => !slot.mix).map((slot) => ({
+    slots: snapshot.slots.map((slot) => ({
       preset: slot.preset.name,
       colour: /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(slot.colour.effective)
         ? slot.colour.effective : slot.colour.display.colors.find((value) => /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(value)) ?? '#26A69A',
       native: { ...slot.colour.native },
+      ...(slot.mix && { mix: slot.mix.storage }),
     })),
   };
 }

@@ -129,7 +129,6 @@ assert.equal(
   true,
 );
 module._free(ptr);
-const importedId = rack().slots.at(-1).logical_id;
 function assertPaint(code) {
   const xml = decoder.decode(archiveEntries().find(modelEntry).content);
   assert.deepEqual(
@@ -138,6 +137,57 @@ function assertPaint(code) {
   );
 }
 assertPaint('0C');
+// A tray remap is a read-only blend. Restoring printer memory preserves the
+// exact serialized recipe, including independently authored curve tangents.
+const rememberedSlots = () => rack().slots.map(slot => ({ preset: slot.preset.name,
+  colour: slot.colour.effective, native: slot.colour.native, ...(slot.mix && { mix: slot.mix.storage }) }));
+const remembered = rememberedSlots();
+const originalRack = rack();
+const remapped = run('orc_preview_mixed_filament', { ...gradient, componentColours: ['#FF0000', '#FFFFFF'] });
+const blueTray = run('orc_preview_mixed_filament', { ...gradient, componentColours: ['#FF0000', '#0000FF'] });
+assert.match(remapped.colour, /^#[0-9a-f]{6}$/i);
+assert.notEqual(remapped.colour, blueTray.colour);
+assert.deepEqual(rack(), originalRack);
+const amsSources = ['#FF0000', '#FFFFFF', '#0000FF'].map((color, i) => ({
+  slotId: `tray-${i + 1}`, catalogRefs: [{ namespace: 'orca-filament', value: 'OFoiVqVM' }],
+  materialType: 'PLA', colour: { kind: 'solid', color }, toolIndices: [0],
+}));
+const ams = { identity: { manufacturer: '', model: 'Bambu Lab P1P', externalRefs: [] }, sources: amsSources };
+const preparation = run('orc_prepare_material_import', { ...ams, mapping: null });
+assert.equal(preparation.ok, true, JSON.stringify(preparation));
+assert.equal(preparation.references.length, 2);
+const synced = edit('orc_apply_material_import', { ...ams, mode: 'rebuild', colourOnly: false,
+  replacements: [null, null], mapping: [], appendUnused: false });
+assert.deepEqual(synced.slots.map(s => s.colour.effective), ['#FF0000', '#FFFFFF', '#0000FF', remapped.colour]);
+assert.deepEqual(synced.slots[3].mix.storage, remembered[2].mix);
+assert.equal(synced.assignments.objects[0].explicit_slot, 4);
+assertPaint('1C');
+assert.equal(call('orc_history_undo').ok, true);
+assertPaint('0C');
+const shrink = edit('orc_apply_material_import', { ...ams, sources: amsSources.slice(0, 1), mode: 'rebuild',
+  colourOnly: false, replacements: [null, null], mapping: [], appendUnused: false });
+assert.deepEqual(shrink.slots[1].mix.components, [1, 0]);
+const needsRepair = rememberedSlots();
+assert.equal(call('orc_history_undo').ok, true);
+const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+const switchRack = (printer, slots) => {
+  const switched = run('orc_select_printer_with_remembered_rack', { printer, history_context: context,
+    remembered_bed_type: null, remembered_rack: { version: 1, slots } });
+  assert.equal(switched.ok, true, JSON.stringify(switched));
+};
+const alternate = call('orc_get_preset_snapshot').printers.find(p => p.name.includes('Bambu Lab X1 Carbon 0.4'));
+const alternateRack = structuredClone(remembered);
+alternateRack[2].mix.filament_mixed_sublayer_ratios = '0.3250,0.6750';
+switchRack(alternate.name, alternateRack);
+assert.deepEqual(rack().slots[2].mix.storage, alternateRack[2].mix);
+assert.equal(rack().assignments.objects[0].explicit_slot, 3);
+assertPaint('0C');
+switchRack(printer.name, remembered);
+assertPaint('0C');
+const restore = run('orc_apply_remembered_filament_rack', { slots: remembered });
+assert.equal(restore.ok, true, JSON.stringify(restore));
+assert.deepEqual(restore.slots[2].mix.storage, remembered[2].mix);
 const currentPlate = call('orc_get_plate_session_snapshot').current_plate_id;
 const mapping = call('orc_get_nozzle_mapping', ['string'], [currentPlate]);
 assert.deepEqual(mapping.usedFilaments, [1, 2], JSON.stringify(mapping));
@@ -152,6 +202,9 @@ assert.equal(wholeLayer.slice.ok, true, JSON.stringify(wholeLayer.slice));
 assert.match(JSON.stringify(wholeLayer.events), /gradient will not be printed/i);
 const { slice } = await sliceMix({ enable_mixed_color_sublayer: true });
 assert.equal(slice.ok, true, JSON.stringify(slice));
+const submission = run('orc_describe_print_plate', { receipt: { ...slice.receipt, result_generation: Number(slice.receipt.result_generation) }, filename_base: 'Mixed' });
+assert.equal(submission.ok, true, JSON.stringify(submission));
+assert.deepEqual(submission.manifest.materials.map(m => m.index), [0, 1]);
 const preview = getSliceResult(call, slice.receipt);
 assert.deepEqual(preview.metadata.extruder_palette.map(entry => entry.tool), [0, 1]);
 assert.ok(preview.metadata.extruder_palette.every(entry => entry.filamentLengthMeters > 0 && entry.filamentWeightGrams > 0));
@@ -160,7 +213,7 @@ const tools = module.HEAPU8.slice(Number(path.extruder_id_ptr), Number(path.extr
 assert.deepEqual([...new Set(tools)].sort(), [0, 1], 'sliced paths resolve the virtual slot to both physical components');
 const next = edit('orc_add_filament_slot');
 assert.equal(next.slots[count].mix, null);
-assert.equal(next.slots.at(-1).logical_id, importedId);
+assert.equal(next.slots.at(-1).logical_id, restore.slots[2].logical_id);
 assert.equal(next.slots.at(-1).slot, mix.slot + 1);
 assert.equal(next.assignments.objects[0].explicit_slot, 4);
 assertPaint('1C');
@@ -184,6 +237,9 @@ const broken = edit('orc_delete_filament_slot', { slot: 2 }).slots.at(-1).mix;
 assert.deepEqual(broken.components, [1, 0]);
 assert.deepEqual(broken.ratios, draft.ratios);
 assert.ok(broken.error);
+const restoredBroken = run('orc_apply_remembered_filament_rack', { slots: needsRepair });
+assert.equal(restoredBroken.ok, true, JSON.stringify(restoredBroken));
+assert.deepEqual(restoredBroken.slots[1].mix.storage, needsRepair[1].mix);
 assert.match((await sliceMix()).slice.error, /Repair mixed filament/);
 const brokenPlate = call('orc_get_plate_session_snapshot').current_plate_id;
 const newPlate = call('orc_add_plate').plates.at(-1).plate_id;

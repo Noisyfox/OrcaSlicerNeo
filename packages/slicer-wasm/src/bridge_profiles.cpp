@@ -1,6 +1,7 @@
 // ----------------------------------------------------------------
 // Native profile/config domain for the Neo bridge.
 // ----------------------------------------------------------------
+#include "bridge_mixed_filament.hpp"
 #include "bridge_profiles.hpp"
 #include "bridge_nozzle_mapping.hpp"
 
@@ -147,6 +148,7 @@ struct RememberedSlot {
     bool retain_colour = false;
     std::optional<std::string> multi_colour;
     std::optional<std::string> colour_type;
+    json mix;
 };
 
 void retain_matching_native_colour(RememberedSlot& slot, const ProfileTransitionState& previous,
@@ -782,6 +784,7 @@ std::optional<std::vector<RememberedSlot>> parse_remembered_slots(const json& ra
             const std::string representative = native["representative"].is_string()
                 ? native["representative"].get<std::string>() : slot["colour"].get<std::string>();
             RememberedSlot remembered{name, representative, true};
+            remembered.mix = slot.value("mix", json(nullptr));
             if (native["multi_colour"].is_string())
                 remembered.multi_colour = native["multi_colour"].get<std::string>();
             if (native["type"].is_string())
@@ -824,6 +827,7 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
                     ? current_colours->values[index]
                     : effective_filament_default_colour(bundle, bundle.filament_presets[index]);
                 slots.push_back({bundle.filament_presets[index], colour, true});
+                slots.back().mix = Filament::Mixes::stored_recipe(before_profiles.project_config, index);
                 if (same_previous_source)
                     retain_matching_native_colour(slots.back(), before_profiles, index);
             }
@@ -834,7 +838,8 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
         const std::size_t nozzle_count = nozzles == nullptr ? 1 : std::max<std::size_t>(1, nozzles->values.size());
         const bool flexible = bundle.is_bbl_vendor() ||
             Filament::State::supports_independent_materials(bundle.printers.get_edited_preset().config);
-        const std::size_t final_count = flexible ? slots.size() : std::max(slots.size(), nozzle_count);
+        auto physical = std::find_if(slots.begin(), slots.end(), [](const auto& slot) { return !slot.mix.is_null(); }) - slots.begin();
+        const std::size_t final_count = slots.size() + (flexible || size_t(physical) >= nozzle_count ? 0 : nozzle_count - physical);
         if (final_count > 64) throw std::runtime_error("Printer transition exceeds the filament slot limit");
 
         // Resize while the old rack still contains valid catalog
@@ -845,7 +850,7 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
             const std::string name = index < bundle.filament_presets.size()
                 ? bundle.filament_presets[index]
                 : bundle.filament_presets.back();
-            slots.push_back({name, {}, false});
+            slots.insert(slots.begin() + physical++, RememberedSlot{name, {}, false});
         }
         for (std::size_t index = 0; index < slots.size(); ++index)
             bundle.filament_presets[index] = slots[index].preset;
@@ -875,6 +880,9 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
             colour_types->values[index] = same_source && slots[index].retain_colour && slots[index].colour_type
                 ? *slots[index].colour_type : "1";
         }
+        std::vector<json> recipes;
+        for (const auto& slot : slots) recipes.push_back(slot.mix);
+        Filament::Mixes::restore_recipes(bundle, recipes);
     }
 
     Filament::Commands::normalize_references_after_rack_restore(
@@ -1788,6 +1796,7 @@ const char* apply_activation()
         for (std::size_t index = 0; index < Filament::State::material_slot_count(before_profiles.project_config); ++index) {
             const auto& name = before_profiles.filament_presets[index];
             slots.push_back({name, colours && index < colours->values.size() ? colours->values[index] : "#26A69A", true});
+            slots.back().mix = Filament::Mixes::stored_recipe(before_profiles.project_config, index);
             retain_matching_native_colour(slots.back(), before_profiles, index);
         }
         remembered_slots = std::move(slots);

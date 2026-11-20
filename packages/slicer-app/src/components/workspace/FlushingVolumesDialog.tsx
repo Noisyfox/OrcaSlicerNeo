@@ -20,7 +20,7 @@ export function rawFlushVolume(display: number, ratio: number): number {
   return ratio === 0 ? 0 : Math.round(display / ratio);
 }
 
-type RackFlushSnapshot = FlushingVolumesSnapshot & { slots?: readonly Pick<FilamentSessionSlot, 'mix'>[] };
+type RackFlushSnapshot = FlushingVolumesSnapshot & { slots?: readonly { mix: object | null }[] };
 
 function physicalPair(editor: RackFlushSnapshot, index: number) {
   return !editor.slots?.[Math.floor(index / editor.dimension) % editor.dimension]?.mix &&

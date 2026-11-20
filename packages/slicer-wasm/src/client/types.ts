@@ -1375,6 +1375,16 @@ export interface MixedFilamentPoint {
   out: number | null;
 }
 
+/** Lossless Orca project fields, including imported curves and missing components. */
+export interface StoredMixedFilament {
+  filament_mixed_components: string;
+  filament_mixed_sublayer_ratios: string;
+  filament_mixed_gradient_range: string;
+  filament_mixed_gradient_curve: string;
+  filament_mixed_gradient: boolean;
+  filament_mixed_gradient_per_part: boolean;
+}
+
 export interface MixedFilamentRecipe {
   components: number[];
   ratios: number[];
@@ -1419,7 +1429,7 @@ export interface FilamentSessionSlot {
   readonly logicalId: string;
   readonly slot: number;
   readonly materialType: string;
-  readonly mix: (MixedFilamentRecipe & { error: string; ramp: string[] }) | null;
+  readonly mix: (MixedFilamentRecipe & { error: string; ramp: string[]; storage: StoredMixedFilament }) | null;
   readonly preset: { readonly isUser: boolean; readonly isProjectEmbedded: boolean; readonly id: string; readonly name: string; readonly label: string; readonly vendor: string };
   readonly colour: {
     readonly effective: string;
@@ -1607,6 +1617,7 @@ export interface RememberedFilamentRackRequest extends FilamentCommandRequest {
 }
 
 export interface RememberedFilamentSlot {
+  readonly mix?: StoredMixedFilament;
   readonly preset: string;
   readonly colour: string;
   readonly native: { readonly representative: string | null; readonly multiColour: string | null; readonly type: string | null };
@@ -1817,7 +1828,7 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
   editMixedFilament(request: MixedFilamentRequest): Promise<FilamentMutationResultOrError>;
-  previewMixedFilament(request: MixedFilamentRecipe): Promise<MixedFilamentPreview | { error: string }>;
+  previewMixedFilament(request: MixedFilamentRecipe, componentColours?: readonly string[]): Promise<MixedFilamentPreview | { error: string }>;
   previewColorDecomposition(query: ColorDecomposeQuery): Promise<ColorDecomposeProposal | { error: string }>;
   getMixRecommendations(size: 2 | 3): Promise<MixedFilamentRecommendation[]>;
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;

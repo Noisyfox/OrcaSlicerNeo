@@ -60,6 +60,19 @@ static GradientCurve curve_from_points(const json& points)
     return curve;
 }
 
+static constexpr const char* string_fields[] = {"filament_mixed_components", "filament_mixed_sublayer_ratios",
+    "filament_mixed_gradient_range", "filament_mixed_gradient_curve"};
+static constexpr const char* bool_fields[] = {"filament_mixed_gradient", "filament_mixed_gradient_per_part"};
+
+json stored_recipe(const DynamicPrintConfig& config, size_t index)
+{
+    if (!read<ConfigOptionBools>(config, "filament_is_mixed", index)) return nullptr;
+    json stored;
+    for (auto key : string_fields) stored[key] = read<ConfigOptionStrings>(config, key, index);
+    for (auto key : bool_fields) stored[key] = bool(read<ConfigOptionBools>(config, key, index));
+    return stored;
+}
+
 json recipe(const PresetBundle& bundle, size_t index)
 {
     if (!bundle.is_mixed_filament(index)) return nullptr;
@@ -91,7 +104,7 @@ json recipe(const PresetBundle& bundle, size_t index)
         points.push_back({{"x",0.0},{"y",bottom},{"in",nullptr},{"out",nullptr}});
         points.push_back({{"x",1.0},{"y",top},{"in",nullptr},{"out",nullptr}});
     }
-    json result = {{"components", ids}, {"ratios", ratios}, {"gradient", gradient},
+    json result = {{"storage", stored_recipe(cfg, index)}, {"components", ids}, {"ratios", ratios}, {"gradient", gradient},
         {"reverse", gradient && bottom < top}, {"perPart", bool(read<ConfigOptionBools>(cfg, "filament_mixed_gradient_per_part", index))},
         {"points", points}, {"error", component_error(bundle, ids)}};
     if (result["error"] == "" && std::any_of(ratios.begin(), ratios.end(), [](int r) { return r < 10; }))
@@ -104,7 +117,7 @@ json recipe(const PresetBundle& bundle, size_t index)
     return result;
 }
 
-json preview(const PresetBundle& bundle, const json& draft)
+json preview(const PresetBundle& bundle, const json& draft, const json& component_colours)
 {
     const auto ids = draft.at("components").get<std::vector<unsigned>>();
     const auto error = component_error(bundle, ids);
@@ -123,6 +136,16 @@ json preview(const PresetBundle& bundle, const json& draft)
         throw std::invalid_argument("Gradients require two components.");
     std::vector<std::string> colours;
     for (unsigned id : ids) colours.push_back(read<ConfigOptionStrings>(bundle.project_config, "filament_colour", id - 1));
+    if (!component_colours.is_null()) {
+        const auto overrides = component_colours.get<std::vector<std::string>>();
+        if (overrides.size() != ids.size()) throw std::invalid_argument("Expected one preview colour per component");
+        for (const auto& colour : overrides) {
+            ColorDecomposeRgb rgb;
+            if (!color_decompose_hex_to_rgb(colour.substr(0, 7), rgb))
+                throw std::invalid_argument("Invalid preview component colour");
+        }
+        colours = overrides;
+    }
     json ramp = json::array(), samples = json::array();
     if (gradient) {
         if (curve.empty()) curve.points = {{0., reverse ? .1 : .9}, {1., reverse ? .9 : .1}};
@@ -240,6 +263,27 @@ static void put(DynamicPrintConfig& cfg, const char* key, size_t index, const Va
     auto& values = cfg.option<Option>(key, true)->values;
     values.resize(State::material_slot_count(cfg));
     values.at(index) = value;
+}
+
+void restore_recipes(PresetBundle& bundle, const std::vector<json>& recipes)
+{
+    auto& cfg = bundle.project_config;
+    if (bundle.num_mixed_filaments() == 0 &&
+        std::all_of(recipes.begin(), recipes.end(), [](const json& value) { return value.is_null(); })) return;
+    bool in_mixes = false;
+    for (size_t i = 0; i < recipes.size(); ++i) {
+        const auto& stored = recipes[i];
+        const bool mixed = !stored.is_null();
+        if ((mixed && i == 0) || (!mixed && in_mixes))
+            throw std::invalid_argument("Remembered mixes must follow physical filaments");
+        in_mixes = mixed;
+        put<ConfigOptionBools>(cfg, "filament_is_mixed", i, mixed);
+        for (auto key : string_fields)
+            put<ConfigOptionStrings>(cfg, key, i, mixed ? stored.at(key).get<std::string>() : "");
+        for (auto key : bool_fields)
+            put<ConfigOptionBools>(cfg, key, i, mixed && stored.at(key).get<bool>());
+    }
+    refresh_colours(bundle);
 }
 
 void write(PresetBundle& bundle, size_t index, const json& draft, const json& preview)

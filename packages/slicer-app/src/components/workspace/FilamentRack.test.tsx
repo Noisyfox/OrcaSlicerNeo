@@ -104,6 +104,8 @@ describe('FilamentRack runtime interaction', () => {
       ...base.slots[0], slot: i + 1, logicalId: `physical-${i}`,
     }));
     const mix = { components: [1, 0], ratios: [60, 40], gradient: false, reverse: false, perPart: false,
+      storage: { filament_mixed_components: '1,0', filament_mixed_sublayer_ratios: '60,40', filament_mixed_gradient_range: '',
+        filament_mixed_gradient_curve: '', filament_mixed_gradient: false, filament_mixed_gradient_per_part: false },
       points: [], error: 'Replace the missing filament.', ramp: [] };
     const snapshot = makeSnapshot({ slots: [...physical, { ...base.slots[0], logicalId: 'mix', slot: 32, mix }] });
     const rendered = renderRack({ getFilamentSessionSnapshot: async () => snapshot,
