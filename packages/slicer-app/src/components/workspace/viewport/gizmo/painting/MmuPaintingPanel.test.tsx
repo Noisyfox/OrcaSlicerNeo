@@ -31,6 +31,17 @@ describe('surface painting panel', () => {
     expect([...choice.querySelectorAll<HTMLElement>('span[style]')].map((span) => span.style.backgroundImage))
       .toContain('linear-gradient(90deg, #ff0000, #0000ff)');
   });
+  it('uses the native recipe ramp and assigns its virtual slot', async () => {
+    const snapshot = useFilamentSessionStore.getState().snapshot!;
+    const ramp = ['#aa1111', '#996644', '#1111aa'];
+    useFilamentSessionStore.setState({ snapshot: { ...snapshot, slots: snapshot.slots.map(slot => slot.slot !== 3 ? slot :
+      { ...slot, mix: {components:[1,2], ratios:[50,50], gradient:true, perPart:false, reverse:false, points:[], error:'', ramp} }) } });
+    await render();
+    const choice = container.querySelectorAll<HTMLElement>('[aria-label="Painting filament"] label')[2];
+    expect(choice.title).toContain(ramp.join(' → '));
+    await act(async () => choice.querySelector<HTMLElement>('[role="radio"]')!.click());
+    expect(mocked.controller.setSettings).toHaveBeenCalledWith({state:3});
+  });
   it('offers all six tools, first 32 palette entries and the limit explanation', async () => {
     await render();
     expect(container.querySelectorAll('[aria-label="Painting tool"] [role="radio"]')).toHaveLength(6);

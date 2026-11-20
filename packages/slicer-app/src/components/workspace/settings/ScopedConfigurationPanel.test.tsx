@@ -6,6 +6,8 @@ import { TooltipProvider, TOOLTIP_DELAY_MS } from '@/components/ui/tooltip';
 import { printSettingsGroups, isVisiblePrintSetting } from './printSettingsLayout';
 import { ScopedConfigurationPanel, ScopedField } from './ScopedConfigurationPanel';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import type { FilamentSessionSnapshot } from '@slicer/client';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { Selection } from '../viewport/Selection';
@@ -77,6 +79,22 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
 }
 
 describe('scoped field drafts', () => {
+  it('disables plate order and keeps the mix selectable for Process assignments', async () => {
+    const rack = { slots: [{ slot: 1, logicalId: 'a', preset: { label: 'PLA' }, mix: null },
+      { slot: 2, logicalId: 'b', preset: { label: 'PLA' }, mix: {} }] } as unknown as FilamentSessionSnapshot;
+    useFilamentSessionStore.setState({ snapshot: rack });
+    try {
+      const view = await renderField({ key: 'first_layer_sequence_choice', value: '0' }, undefined, undefined, false);
+      expect(view.container.querySelector('input')?.disabled).toBe(true);
+      await view.rerender({ key: 'outer_wall_filament_id', value: '2' });
+      expect(view.container.querySelector('[role="combobox"]')?.textContent).toContain('2 · Mix');
+      await act(async () => useFilamentSessionStore.setState({ snapshot: { ...rack, slots: rack.slots.slice(0, 1) } }));
+      await view.rerender({ key: 'other_layers_sequence_choice', value: '0' });
+      expect(view.container.querySelector('input')?.disabled).toBe(false);
+    } finally {
+      await act(async () => useFilamentSessionStore.getState().reset());
+    }
+  });
   it.each(['float', 'int', 'percent', 'float_or_percent'] as const)(
     'disables only the bounded direction for %s and follows draft and effective changes', async (type) => {
       const suffix = type === 'percent' || type === 'float_or_percent' ? '%' : '';

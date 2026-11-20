@@ -1,4 +1,5 @@
 #include "bridge_nozzle_mapping.hpp"
+#include "libslic3r/FilamentMixer.hpp"
 #include "bridge_filament.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_preset_drafts.hpp"
@@ -327,7 +328,10 @@ json projection(const std::string& plate_id)
     json heads = json::array();
     for (std::size_t i = 0; i < nozzles; ++i)
         heads.push_back({{"id", i + 1}, {"diameter", diameters->values[i]}, {"capacity", capacities[i]}});
-    const auto used = PrimeTower::used_filament_slots_for_plate(plate_id);
+    auto used = expand_mixed_filament_ids(PrimeTower::used_filament_slots_for_plate(plate_id), project);
+    used.erase(std::remove_if(used.begin(), used.end(), [&](int slot) {
+        return slot < 1 || static_cast<std::size_t>(slot) > count || state().presets.is_mixed_filament(slot - 1);
+    }), used.end());
     json diagnostics = json::array();
     const bool manual = effective_mode == fmmManual || effective_mode == fmmNozzleManual;
     std::vector<int> assigned(nozzles, 0);
@@ -429,6 +433,9 @@ json mutate(const json& request)
         for (const auto& target : change["filamentMap"])
             if (!target.is_number_unsigned() || target.get<std::uint64_t>() < 1 || target.get<std::uint64_t>() > nozzles)
                 return failure("invalid_request", "Mapping targets an unavailable nozzle");
+        for (std::size_t i = 0; i < count; ++i)
+            if (bridge.presets.is_mixed_filament(i) && change["filamentMap"][i] != before["effective"]["filamentMap"][i])
+                return failure("invalid_request", "Map the physical components of a mixed filament.");
         const bool mapping_changed = change["filamentMap"] != before["effective"]["filamentMap"];
         if (mapping_changed && mode == fmmNozzleManual) mode = fmmManual;
         changed = mapping_changed || before["effective"]["mode"] != mode;

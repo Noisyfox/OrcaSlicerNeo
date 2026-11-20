@@ -1739,6 +1739,8 @@ json set_filament_routing_command(const json& request, const Runtime& runtime)
         const int slot = request.contains("slot") && request["slot"].is_number_integer() ? request["slot"].get<int>() : -1;
         if (slot < 0 || slot > static_cast<int>(State::material_slot_count(bundle.project_config)))
             throw FilamentCommandFailure("unsupported_reference", "routing slot is outside the ordered filament slots");
+        if (!feature_selector && slot > 0 && bundle.is_mixed_filament(slot - 1))
+            throw FilamentCommandFailure("unsupported_reference", "Support requires a physical filament.");
         const auto targets = request.contains("targets") ? request["targets"] : request.value("target", json::object());
         const json array = targets.is_array() ? targets : json::array({targets});
         if (array.empty()) throw FilamentCommandFailure("invalid_command", "routing targets are required");

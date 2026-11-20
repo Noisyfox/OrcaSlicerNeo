@@ -34,6 +34,7 @@
 
 #include "bridge_buffers.hpp"
 #include "bridge_filament.hpp"
+#include "bridge_mixed_filament.hpp"
 #include "bridge_history.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_preset_drafts.hpp"
@@ -925,6 +926,12 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // cannot override the targeted Plate or the project-owned capacity.
         for (const auto* key : {"filament_map_mode", "filament_map", "filament_volume_map", "filament_nozzle_map", "extruder_ams_count"})
             config.set_key_value(key, plate_config.option(key)->clone());
+        if (state().presets.num_mixed_filaments() > 0) {
+            // Preserve saved plate orders so they are available again after deleting the mixes.
+            config.set_key_value("first_layer_print_sequence", new ConfigOptionInts());
+            config.set_key_value("other_layers_print_sequence", new ConfigOptionInts());
+            config.set_key_value("other_layers_print_sequence_nums", new ConfigOptionInt(0));
+        }
         config.normalize_fdm();
         // Fix round 3: validate() invariant guarantee. A Marlin flavor with
         // use_relative_e_distances=1 requires "G92 E0" in the layer-change
@@ -976,6 +983,14 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         {
             ScopedPlateModelContext model_context(state().model, *target_plate);
             print.apply(state().model, config);
+        }
+        if (state().presets.num_mixed_filaments() > 0) {
+            for (const auto tool : print.extruders(true)) {
+                const auto recipe = Filament::Mixes::recipe(state().presets, tool);
+                if (!recipe.is_null() && !recipe.at("error").get_ref<const std::string&>().empty())
+                    throw std::invalid_argument("Repair mixed filament " + std::to_string(tool + 1) + ". " +
+                        recipe.at("error").get<std::string>());
+            }
         }
         NozzleMapping::apply_device_materials(print);
         // Print::apply() may finish lazy native transform/config normalization
@@ -1269,6 +1284,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result(const char* pla
         const size_t palette_count = active_color_count > 0
             ? active_color_count : gcode_result.extruder_colors.size();
         for (size_t tool = 0; tool < palette_count; ++tool) {
+            if (tool < active_color_count && !(*active_slots)[tool].at("mix").is_null()) continue;
             ColorRGB color;
             std::string source_color;
             if (active_slots && tool < active_color_count &&
@@ -1282,10 +1298,18 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result(const char* pla
                     !gcode_result.settings_ids.filament[tool].empty()
                 ? gcode_result.settings_ids.filament[tool]
                 : "Tool " + std::to_string(tool + 1);
-            extruder_palette.push_back({
+            json palette_entry = {
                 {"id", tool}, {"tool", tool}, {"name", name},
                 {"color", {color.r_uchar(), color.g_uchar(), color.b_uchar()}},
-            });
+            };
+            const auto& volumes = gcode_result.print_statistics.total_volumes_per_extruder;
+            if (auto it = volumes.find(tool); it != volumes.end()) {
+                if (tool < gcode_result.filament_diameters.size() && gcode_result.filament_diameters[tool] > 0)
+                    palette_entry["filamentLengthMeters"] = it->second / (PI * std::pow(0.5 * gcode_result.filament_diameters[tool], 2)) * .001;
+                if (tool < gcode_result.filament_densities.size())
+                    palette_entry["filamentWeightGrams"] = it->second * .001 * gcode_result.filament_densities[tool];
+            }
+            extruder_palette.push_back(std::move(palette_entry));
         }
 
         auto ptr = [](const MallocBuffer& buffer) -> std::uintptr_t {

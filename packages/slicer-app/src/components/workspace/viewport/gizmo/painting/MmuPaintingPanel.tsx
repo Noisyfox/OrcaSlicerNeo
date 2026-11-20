@@ -24,7 +24,10 @@ export function MmuPaintingPanel() {
     </fieldset>
     {state.tool !== 'gap' && <fieldset><legend className="mb-2 text-module text-muted-foreground">Filament</legend>
       <RadioGroup value={String(s.state)} onValueChange={(v) => controller.setSettings({ state: Number(v) })} className="grid-cols-4 gap-2" aria-label="Painting filament">
-        {slots.slice(0, PAINTING_MAX_STATE.mmu).map((slot) => <Label key={slot.slot} className="flex items-center gap-1" title={`${slot.preset.name} · ${filamentSwatchTitle(slot.colour.display)}`}><RadioGroupItem value={String(slot.slot)} /><FilamentSwatch display={slot.colour.display} className="size-3 rounded-full border" /><span className="sr-only">Paint filament </span>{slot.slot}</Label>)}
+        {slots.slice(0, PAINTING_MAX_STATE.mmu).map((slot) => {
+          const display = slot.mix?.gradient && slot.mix.ramp.length > 1
+            ? { mode: 'gradient' as const, colors: slot.mix.ramp } : slot.colour.display;
+          return <Label key={slot.slot} className="flex items-center gap-1" title={`${slot.preset.name} · ${filamentSwatchTitle(display)}`}><RadioGroupItem value={String(slot.slot)} /><FilamentSwatch display={display} className="size-3 rounded-full border" /><span className="sr-only">Paint filament </span>{slot.slot}</Label>; })}
       </RadioGroup>
       {slots.length > PAINTING_MAX_STATE.mmu && <p className="mt-2 text-xs text-muted-foreground">Explicit painting supports filaments 1–{PAINTING_MAX_STATE.mmu}. Unpainted areas keep their assigned material.</p>}
     </fieldset>}

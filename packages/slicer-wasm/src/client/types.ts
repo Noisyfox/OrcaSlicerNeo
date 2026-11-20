@@ -1095,6 +1095,8 @@ export interface PreviewLayerRange {
 }
 
 export interface PreviewPaletteEntry extends ToolpathFeature {
+  filamentLengthMeters?: number;
+  filamentWeightGrams?: number;
   tool?: number;
 }
 

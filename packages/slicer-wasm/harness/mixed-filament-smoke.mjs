@@ -1,5 +1,6 @@
 // Usage: node harness/mixed-filament-smoke.mjs out/serial/orca_slice.js
 import assert from 'node:assert/strict';
+import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
@@ -133,10 +134,30 @@ function assertPaint(code) {
   const xml = decoder.decode(archiveEntries().find(modelEntry).content);
   assert.deepEqual(
     [...xml.matchAll(/paint_color="([^"]+)"/g)].map((match) => match[1]),
-    Array(12).fill(code),
+    Array((xml.match(/<triangle\b/g) ?? []).length).fill(code),
   );
 }
 assertPaint('0C');
+const currentPlate = call('orc_get_plate_session_snapshot').current_plate_id;
+const mapping = call('orc_get_nozzle_mapping', ['string'], [currentPlate]);
+assert.deepEqual(mapping.usedFilaments, [1, 2], JSON.stringify(mapping));
+async function sliceMix(overrides = {}) {
+  const events = [];
+  const acceptance = call('orc_slice', ['string'], [JSON.stringify({ enable_prime_tower: false, ...overrides })]);
+  const slice = await awaitAsyncTask(call, acceptance, 120000, batch => events.push(...batch));
+  return { slice, events };
+}
+const wholeLayer = await sliceMix({ enable_mixed_color_sublayer: false });
+assert.equal(wholeLayer.slice.ok, true, JSON.stringify(wholeLayer.slice));
+assert.match(JSON.stringify(wholeLayer.events), /gradient will not be printed/i);
+const { slice } = await sliceMix({ enable_mixed_color_sublayer: true });
+assert.equal(slice.ok, true, JSON.stringify(slice));
+const preview = getSliceResult(call, slice.receipt);
+assert.deepEqual(preview.metadata.extruder_palette.map(entry => entry.tool), [0, 1]);
+assert.ok(preview.metadata.extruder_palette.every(entry => entry.filamentLengthMeters > 0 && entry.filamentWeightGrams > 0));
+const path = preview.toolpath;
+const tools = module.HEAPU8.slice(Number(path.extruder_id_ptr), Number(path.extruder_id_ptr) + path.segment_count);
+assert.deepEqual([...new Set(tools)].sort(), [0, 1], 'sliced paths resolve the virtual slot to both physical components');
 const next = edit('orc_add_filament_slot');
 assert.equal(next.slots[count].mix, null);
 assert.equal(next.slots.at(-1).logical_id, importedId);
@@ -163,6 +184,16 @@ const broken = edit('orc_delete_filament_slot', { slot: 2 }).slots.at(-1).mix;
 assert.deepEqual(broken.components, [1, 0]);
 assert.deepEqual(broken.ratios, draft.ratios);
 assert.ok(broken.error);
+assert.match((await sliceMix()).slice.error, /Repair mixed filament/);
+const brokenPlate = call('orc_get_plate_session_snapshot').current_plate_id;
+const newPlate = call('orc_add_plate').plates.at(-1).plate_id;
+assert.equal(call('orc_select_plate', ['string'], [newPlate]).ok, true);
+assert.equal(call('orc_add_shape', ['string', 'string'], ['Cube', 'Physical only']).ok, true);
+const separate = await sliceMix();
+assert.equal(separate.slice.ok, true, JSON.stringify(separate.slice));
+assert.doesNotMatch(JSON.stringify(separate.events), /gradient will not be printed/i);
+assert.equal(call('orc_select_plate', ['string'], [brokenPlate]).ok, true);
+
 edit('orc_edit_mixed_filament', { operation: 'delete-all' });
 assert.ok(rack().slots.every((s) => s.mix === null));
 assert.equal(call('orc_history_undo').ok, true);

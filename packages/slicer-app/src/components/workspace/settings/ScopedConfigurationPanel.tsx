@@ -49,12 +49,18 @@ import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, Search } from 'lucid
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { printSettingsPages, printSettingPlacement, isVisiblePrintSetting, printSettingsGroups } from './printSettingsLayout';
 import { optionTooltip } from './optionTooltip';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { type SceneInteractionController } from '../viewport/SceneInteractionController';
 import { commitScopedConfigurationMutation } from './configurationActions';
+
+const physicalSelectors = new Set(['support_filament', 'support_interface_filament', 'wipe_tower_filament']);
+const slotSelectors = new Set([...physicalSelectors, 'outer_wall_filament_id', 'inner_wall_filament_id',
+  'sparse_infill_filament_id', 'internal_solid_filament_id', 'top_surface_filament_id', 'bottom_surface_filament_id']);
+const orderSelectors = new Set(['first_layer_sequence_choice', 'other_layers_sequence_choice']);
 
 const SOURCE_LABEL: Record<string, string> = {
   preset: 'Preset', project: 'Project', plate: 'Plate', object: 'Object', part: 'Volume', mixed: 'Mixed',
@@ -100,6 +106,8 @@ export const ScopedField = memo(function ScopedField({
   onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
   onReset: (field: ScopedConfigurationField) => Promise<void>;
 }) {
+  const slots = useFilamentSessionStore(s => slotSelectors.has(field.key) || orderSelectors.has(field.key) ? s.snapshot?.slots : undefined);
+  const mixedOrder = orderSelectors.has(field.key) && slots?.some(slot => slot.mix);
   const initial = valueForField(field);
   const [draft, setDraft] = useState(initial);
   const committing = useRef(false);
@@ -138,7 +146,7 @@ export const ScopedField = memo(function ScopedField({
   const unavailable=editor?.target.kind==='unavailable';
   const readOnly=unavailable || editor?.vector?.readOnly===true;
   const indexedKey=editor?.target.kind==='indexed' ? `${field.key}#${editor.target.index}` : field.key;
-  const optionHelp = unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` :
+  const optionHelp = mixedOrder ? 'The slicer schedules the physical components of mixed filaments.' : unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` :
     optionTooltip(editor?.metadata ?? field.meta, indexedKey, field.label, editor?.metadata?.tooltip_default ?? defaultValue);
   const row = 'grid grid-cols-[minmax(0,1fr)_minmax(0,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
   const labelCls = 'min-w-0 flex-1 truncate text-[13px] font-normal text-muted-foreground';
@@ -152,7 +160,7 @@ export const ScopedField = memo(function ScopedField({
     const next = Math.max(field.meta.min ?? -Infinity, Math.min(field.meta.max ?? Infinity, Number((number + direction * step).toFixed(6))));
     onDiscrete(`${next}${draft.trim().endsWith('%') ? '%' : ''}`);
   };
-  const controlDisabled = disabled || readOnly || !visible || conditionReadOnly || (field.key === 'curr_bed_type' && commitPending);
+  const controlDisabled = !!mixedOrder || disabled || readOnly || !visible || conditionReadOnly || (field.key === 'curr_bed_type' && commitPending);
   const hasEditableLocalOverride = field.local && field.resettable;
   const sourceDetails=editor && !unavailable ? `\nSource: ${editor.sourceMixed?'Mixed':editor.source===null?'(null)':elementText(editor.source,editor.vector)}${editor.inheritedSource ? `\nInherited source: ${SOURCE_LABEL[editor.inheritedSource]}.` : ''}\nEffective: ${field.mixed?'Mixed':editor.effective===null?'(null)':elementText(editor.effective,editor.vector)}` : '';
   const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${valueTooltip(field)}${sourceDetails}`}</span>;
@@ -160,6 +168,15 @@ export const ScopedField = memo(function ScopedField({
   let control;
   if(readOnly) {
     control=<TooltipFor content={tooltip} nonInteractive><span data-testid={`config-input-${field.key}`} className="text-xs text-muted-foreground">{unavailable?'Unavailable':displayed}</span></TooltipFor>;
+  } else if (slots && slotSelectors.has(field.key)) {
+    const choices = slots.filter(slot => !physicalSelectors.has(field.key) || !slot.mix);
+    const selected = choices.find(slot => String(slot.slot) === displayed);
+    control = <Select disabled={controlDisabled} value={displayed} onValueChange={v => v !== null && onDiscrete(v)}>
+      <TooltipFor content={tooltip} nonInteractive><SelectTrigger id={`scoped-${field.key}`} size="sm" variant="sidebar"
+        data-testid={`config-input-${field.key}`}><SelectValue>{field.mixed ? 'Mixed' : displayed === '0' ? 'Default' : selected ? `${displayed} · ${selected.mix ? 'Mix' : selected.preset.label}` : displayed}</SelectValue></SelectTrigger></TooltipFor>
+      <SelectContent><SelectGroup><SelectItem value="0">Default</SelectItem>{choices.map(slot =>
+        <SelectItem key={slot.logicalId} value={String(slot.slot)}>{slot.slot} · {slot.mix ? 'Mix' : slot.preset.label}</SelectItem>)}</SelectGroup></SelectContent>
+    </Select>;
   } else if (field.meta.type === 'bool') {
     control = <TooltipFor content={tooltip} nonInteractive><Checkbox
       id={`scoped-${field.key}`}
