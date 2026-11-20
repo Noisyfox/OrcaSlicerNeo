@@ -209,7 +209,10 @@ describe('shared painting command admission', () => {
     publish(palette(['a', 'b', 'c'])); expect(c.getSnapshot().settings.state).toBe(3);
     publish(palette(['a', 'b'])); expect(c.getSnapshot().settings.state).toBe(1);
     c.setSettings({ state: 2 });
-    publish(palette(['a', ...Array.from({ length: 15 }, (_, i) => `new${i}`), 'b']));
+    const otherIds = Array.from({ length: 31 }, (_, i) => `new${i}`);
+    publish(palette(['a', ...otherIds.slice(0, 30), 'b']));
+    expect(c.getSnapshot().settings.state).toBe(32);
+    publish(palette(['a', ...otherIds, 'b']));
     expect(c.getSnapshot().settings.state).toBe(1);
     c.resetProjectPalette(); expect(c.getSnapshot().settings).toMatchObject({ state: 1, radius: 9 });
   });

@@ -18,6 +18,17 @@ inline float support_overhang_angle(double angle) {
 class NativeSelector final : public TriangleSelector {
 public:
     using TriangleSelector::TriangleSelector;
+    static constexpr std::size_t StateCount = static_cast<std::size_t>(EnforcerBlockerType::ExtruderMax) + 1;
+    using FacetCounts = std::array<std::size_t, StateCount>;
+
+    FacetCounts facet_counts() const {
+        FacetCounts counts{};
+        for (const auto& triangle : m_triangles)
+            if (triangle.valid() && !triangle.is_split())
+                ++counts[static_cast<std::size_t>(triangle.get_state())];
+        return counts;
+    }
+
     std::shared_ptr<NativeSelector> clone() const {
         auto out = std::make_shared<NativeSelector>(m_mesh);
         // Reconstruction also rebuilds the selector's private free lists.
@@ -105,7 +116,7 @@ public:
     };
     Display display(const std::set<int>* membership = nullptr, bool selected_only = false) const {
         Display out;
-        std::array<std::vector<float>, 17> buckets;
+        std::array<std::vector<float>, StateCount> buckets;
         const auto for_each_leaf = [&](const auto& fn) {
             const auto visit = [&](int i) {
                 const auto& triangle = m_triangles[i];
@@ -116,7 +127,7 @@ public:
         };
         // Count only the displayed leaves, so tiny overlays do not reserve a
         // whole part and each colour allocates only its own share of the data.
-        std::array<std::size_t, 17> sizes{};
+        FacetCounts sizes{};
         for_each_leaf([&](const auto& triangle) { sizes[std::size_t(triangle.get_state())] += 9; });
         std::size_t total = 0;
         for (std::size_t state = 0; state < buckets.size(); ++state) {

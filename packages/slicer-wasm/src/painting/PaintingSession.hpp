@@ -35,7 +35,7 @@ struct PartDraft {
     // Content at the last stroke boundary. Samples only invalidate this cache.
     std::shared_ptr<const SelectorData> data;
     bool data_current = true;
-    std::array<std::size_t, 17> facet_counts() const;
+    NativeSelector::FacetCounts facet_counts() const { return selector->facet_counts(); }
 };
 
 enum class Tool { Circle, Sphere, Triangle, Height, Region, SmartFill, Gap, EraseAll, Overhang };

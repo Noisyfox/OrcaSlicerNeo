@@ -1,3 +1,5 @@
+import { PAINTING_MAX_STATE, type PaintingChannel } from '../painting';
+
 // Deterministic protocol model for UI tests; native picking/topology are tested
 // by the real WASM harness, never inferred from this one-triangle fixture.
 export function paintingMock(hooks: {
@@ -17,7 +19,6 @@ export function paintingMock(hooks: {
   let committed: number[] = [];
   const affected = new Set<number>();
   const identity = [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
-  const maxState = () => session.channel === 'mmu' ? 16 : session.channel === 'fuzzy' ? 1 : 2;
   const stateField = (channel: string): 'paintState' | 'supportState' | 'seamState' | 'fuzzyState' => {
     switch (channel) { case 'mmu': return 'paintState'; case 'support': return 'supportState'; case 'seam': return 'seamState'; case 'fuzzy': return 'fuzzyState'; default: throw new Error('invalid painting channel'); }
   };
@@ -42,9 +43,9 @@ export function paintingMock(hooks: {
   };
   const metadata = () => ({ ok: true, version: 1, session: { ...session, candidate: session.candidate ? { revision: session.revision, selectedFacetCount: session.candidate === 'gap' ? 0 : 1,
     gapRegionCount: session.candidate === 'gap' ? 1 : 0, parts: session.parts.map((p: any, i: number) => ({ volumeId: p.volumeId,
-      facetCounts: Array.from({ length: 17 }, (_, state) => +(state === session.states[i])) })) } : undefined, instanceTransform: identity,
+      facetCounts: Array.from({ length: PAINTING_MAX_STATE.mmu + 1 }, (_, state) => +(state === session.states[i])) })) } : undefined, instanceTransform: identity,
     parts: session.parts.map((part: any, i: number) => ({ volumeId: part.volumeId, sourceTriangleCount: 1, annotationTimestamp: part.timestamp,
-      volumeTransform: identity, facetCounts: Array.from({ length: 17 }, (_, state) => +(state === session.states[i])),
+      volumeTransform: identity, facetCounts: Array.from({ length: PAINTING_MAX_STATE.mmu + 1 }, (_, state) => +(state === session.states[i])),
       draftResourceId: `pd-${session.channel}-${session.id.slice(3)}-${part.generation}-${part.volumeId}` })) } });
   const receipt = () => ({ ok: true, version: 1, channel: session.channel, sessionId: session.id, revision: session.revision, strokeId: session.strokeId,
     phase: session.phase, effective: session.phase === 'drawing' ? affected.size > 0 : session.states.some((state: number, i: number) => state !== before[i]),
@@ -58,7 +59,7 @@ export function paintingMock(hooks: {
     if (settings.restrictToOverhangs && (settings.overhangAngle === undefined || settings.overhangAngle === null)) throw new Error('missing overhang angle');
     if (request.tool === 'smartFill' && settings.angle === null) throw new Error('Smart Fill requires an angle');
     const state = request.settings?.state ?? 1;
-    if (!Number.isInteger(state) || state < 0 || state > maxState()) throw new Error('invalid painting state');
+    if (!Number.isInteger(state) || state < 0 || state > PAINTING_MAX_STATE[session.channel as PaintingChannel]) throw new Error('invalid painting state');
   };
   const apply = (request: any) => {
     validateSettings(request);

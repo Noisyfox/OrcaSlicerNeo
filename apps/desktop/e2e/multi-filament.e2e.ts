@@ -1,3 +1,5 @@
+import { addPrimitive } from './add-primitive';
+import { verifyMixedFilamentEditor } from './mixed-filament-flow';
 import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
 import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
@@ -13,23 +15,6 @@ async function launchApp(extraEnv: Record<string, string> = {}): Promise<Electro
   const env = { ...process.env, ORCA_E2E: '1', ...extraEnv } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   return _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
-}
-
-async function addPrimitive(page: Page, primitive: string): Promise<void> {
-  const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('viewport canvas has no bounding box');
-  const fps = await page.locator('.scene-stats').boundingBox();
-  const y = Math.max(box.y + 40, fps ? fps.y + fps.height + 16 : box.y + 40);
-  await page.mouse.click(box.x + box.width - 40, y, { button: 'right' });
-  await expect(page.getByTestId('ctx-menu')).toBeVisible();
-  await page.getByTestId('btn-add-primitive').click();
-  await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
-  const objectRows = page.getByTestId('object-list').locator('section[data-testid^="plate-group-"] > div[data-testid^="object-"]');
-  const before = await objectRows.count();
-  await page.getByTestId(`btn-add-${primitive.toLowerCase()}`).click();
-  await expect(page.getByTestId('ctx-menu')).toBeHidden();
-  await expect.poll(() => objectRows.count()).toBe(before + 1);
 }
 
 async function dragCubeOnce(page: Page): Promise<void> {
@@ -284,6 +269,16 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
   } finally {
     const page = await app.firstWindow();
     await test.info().attach('rack-native-receipts', {body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
+    await app.close();
+  }
+});
+
+test('creates, edits and deletes a mixed filament with the real utility worker', async () => {
+  test.skip(!REAL, 'Requires the real native recipe and colour projection.');
+  const app = await launchApp();
+  try {
+    await verifyMixedFilamentEditor(await app.firstWindow());
+  } finally {
     await app.close();
   }
 });

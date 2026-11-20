@@ -84,7 +84,7 @@ separate draft resources.
 ## OrcaSlicer reference and Neo boundary
 
 OrcaSlicer's `FacetsAnnotation::get_facets` uses `TriangleSelector` to restore
-split triangles and produce meshes for facet states 0 through 16. Ordinary
+split triangles and produce meshes for facet states 0 through 32. Ordinary
 `GLVolume::simple_render` checks `mmu_segmentation_facets` and its timestamp,
 builds per-state render meshes, and selects a colour for each state. This is
 distinct from the `TriangleSelectorPatch` drawing used by painting Gizmos.

@@ -55,7 +55,7 @@ test.skip(!REAL || !existsSync(PROJECT_PATH),
 
 async function expectFilamentRackReady(page: Page): Promise<void> {
   await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
-  const heading = page.getByTestId('filament-rack').getByRole('heading');
+  const heading = page.getByTestId('filament-rack').getByRole('tab', {name: /^Material/});
   await expect(heading).toHaveText(/^Material \(\d+\)$/);
   const text = await heading.textContent();
   const match = text?.trim().match(/^Material \((\d+)\)$/);

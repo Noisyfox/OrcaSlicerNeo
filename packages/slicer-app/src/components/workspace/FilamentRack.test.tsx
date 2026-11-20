@@ -9,7 +9,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import type * as D from '@orca/platform-contract';
-import type { FilamentSessionSnapshot, HistoryStatus } from '@slicer/client';
+import type { FilamentSessionSnapshot, HistoryStatus, MixedFilamentPreview, MixedFilamentRecipe } from '@slicer/client';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const id = <K extends string>(value: string) => value as D.Id<K>;
@@ -18,8 +18,8 @@ function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): Filamen
   return {
     ok: true, version: 1,
     slots: [
-      { logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'pla', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
-      { logicalId: 'filament-2', slot: 2, preset: { isProjectEmbedded: false, isUser: false, id: 'petg', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'user', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
+      { logicalId: 'filament-1', slot: 1, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'pla', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
+      { logicalId: 'filament-2', slot: 2, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'petg', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'user', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
     ],
     mappings: { filament: [1, 2], volume: [0, 0], nozzle: [1, 2], filament2: [1, 2], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
@@ -66,14 +66,33 @@ function renderRack(runtime: Record<string, unknown>, onEditPreset?: (canonicalN
   return { container, root, platform };
 }
 
-async function openSlotAction(container: HTMLElement, slot: number, action: 'edit' | 'delete' | 'merge') {
+async function openSlotMenu(container: HTMLElement, slot: number) {
   await act(async () => {
     container.querySelector(`[data-testid="filament-slot-${slot}"]`)!.dispatchEvent(
       new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 }),
     );
     await Promise.resolve();
   });
+}
+async function openSlotAction(container: HTMLElement, slot: number, action: 'edit' | 'delete' | 'merge') {
+  await openSlotMenu(container, slot);
   return document.querySelector(`[data-testid="filament-${action}-${slot}"]`) as HTMLElement | null;
+}
+
+function selectOptions(trigger: HTMLButtonElement) {
+  const list = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+  expect(list).not.toBeNull();
+  return [...list!.querySelectorAll<HTMLElement>('[role="option"]')];
+}
+
+async function chooseSelectOption(trigger: HTMLButtonElement, matches: (label: string) => boolean) {
+  await act(async () => trigger.click());
+  const option = selectOptions(trigger).find(item => matches(item.textContent ?? ''));
+  expect(option).toBeDefined();
+  await act(async () => {
+    option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+  });
 }
 
 async function editColor(value: string) {
@@ -96,6 +115,111 @@ describe('FilamentRack runtime interaction', () => {
     useProjectStore.getState().reset();
     useSettingsStore.setState({ filamentCatalog: [], modifiedPresets: { printer: [], filament: [] } });
     useDeviceSelectionStore.setState({ currentPrinterId: null, connection: null, materials: null, connectionOwner: null });
+  });
+
+  it('keeps the mix preview in place while a new slider ratio is being validated', async () => {
+    const pending = new Map<number, (preview: MixedFilamentPreview) => void>();
+    const rendered = renderRack({
+      getFilamentSessionSnapshot: async () => makeSnapshot(),
+      getMixRecommendations: async () => [],
+      previewMixedFilament: async ({ ratios }: MixedFilamentRecipe) => ratios[0] === 50
+        ? { colour: '#112233', ramp: [], samples: [] }
+        : new Promise<MixedFilamentPreview>(resolve => pending.set(ratios[0], resolve)),
+    });
+    root = rendered.root;
+    const button = (label: string) => [...document.querySelectorAll('button')].find(item => item.textContent === label)!;
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => button('Mixes (0)').click());
+    await act(async () => button('Create').click());
+    const swatch = () => document.querySelector<HTMLElement>('[aria-label="Mix preview"] > span');
+    const initialSwatch = swatch();
+    const save = button('Save mix');
+    const slider = document.querySelector<HTMLInputElement>('[role="dialog"] input[type="range"]')!;
+    const press = (key: string) => act(async () => {
+      slider.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+    expect(initialSwatch?.style.backgroundColor).toBe('rgb(17, 34, 51)');
+    expect(save.disabled).toBe(false);
+    await press('Home');
+    expect(slider.value).toBe('10');
+    expect(swatch()).toBe(initialSwatch);
+    expect(save.disabled).toBe(true);
+    await press('End');
+    expect(slider.value).toBe('90');
+    await act(async () => pending.get(10)!({ colour: '#ff0000', ramp: [], samples: [] }));
+    expect(swatch()).toBe(initialSwatch);
+    expect(swatch()?.style.backgroundColor).toBe('rgb(17, 34, 51)');
+    expect(save.disabled).toBe(true);
+    await act(async () => pending.get(90)!({ colour: '#445566', ramp: [], samples: [] }));
+    expect(swatch()).toBe(initialSwatch);
+    expect(swatch()?.style.backgroundColor).toBe('rgb(68, 85, 102)');
+    expect(save.disabled).toBe(false);
+  });
+
+  it('offers the project palette for PLA and PLA Basic together and reserves standard palettes for PLA Basic', async () => {
+    const template = makeSnapshot().slots[0];
+    const snapshot = makeSnapshot({ slots: ['PETG', 'Generic PLA', 'Bambu PLA Basic'].map((name, i) => ({
+      ...template, slot: i + 1, logicalId: `slot-${i + 1}`, materialType: i === 0 ? 'PETG' : 'PLA',
+      preset: { ...template.preset, name },
+    })) });
+    const preview = vi.fn(async () => ({ error: 'fixture' }));
+    const rendered = renderRack({ getFilamentSessionSnapshot: async () => snapshot, previewColorDecomposition: preview });
+    root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    await openSlotMenu(rendered.container, 1);
+    const decompose = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find(item => item.textContent === 'Decompose Color')!;
+    await act(async () => decompose.click());
+    const [material, palette] = document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [role="combobox"]');
+    await act(async () => palette.click());
+    expect(selectOptions(palette)[0]?.getAttribute('aria-disabled')).toBe('true'); // source PETG is excluded
+    await act(async () => palette.click());
+    for (const choice of ['PLA', 'PLA Basic']) {
+      await chooseSelectOption(material, text => text === choice);
+      expect(palette.querySelector('[data-slot="select-value"]')?.textContent).toBe('Project materials');
+      await act(async () => palette.click());
+      const options = selectOptions(palette);
+      expect(options[0]?.getAttribute('aria-disabled')).not.toBe('true');
+      expect(options.map(option => option.textContent)).toEqual(choice === 'PLA' ? ['Project materials'] : ['Project materials', 'CMYW', 'RYBW']);
+      await act(async () => palette.click());
+      expect(preview).toHaveBeenLastCalledWith({ source: 1, material: choice, method: 'project' });
+    }
+  });
+
+  it('keeps a missing component editable at the creation limit and resets the tab for a new project', async () => {
+    const base = makeSnapshot();
+    const physical = Array.from({ length: 31 }, (_, i) => ({
+      ...base.slots[0], slot: i + 1, logicalId: `physical-${i}`,
+    }));
+    const mix = { components: [1, 0], ratios: [60, 40], gradient: false, reverse: false, perPart: false,
+      storage: { filament_mixed_components: '1,0', filament_mixed_sublayer_ratios: '60,40', filament_mixed_gradient_range: '',
+        filament_mixed_gradient_curve: '', filament_mixed_gradient: false, filament_mixed_gradient_per_part: false },
+      points: [], error: 'Replace the missing filament.', ramp: [] };
+    const snapshot = makeSnapshot({ slots: [...physical, { ...base.slots[0], logicalId: 'mix', slot: 32, mix }] });
+    const rendered = renderRack({ getFilamentSessionSnapshot: async () => snapshot,
+      getMixRecommendations: async () => [], previewMixedFilament: async (recipe: MixedFilamentRecipe) =>
+        recipe.components.includes(0) ? {error: mix.error} : {colour:'#112233', ramp:[], samples:[]} });
+    root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const button = (title:string) => [...document.querySelectorAll('button')].find(b => b.textContent === title)!;
+    await act(async () => button('Mixes (1)').click());
+    expect(button('Create').disabled).toBe(true);
+    expect(rendered.container.textContent).toContain('Missing filament · 40%');
+    await act(async () => rendered.container.querySelector<HTMLButtonElement>('[aria-label="Edit mix in slot 32"]')!.click());
+    expect(button('Save mix').disabled).toBe(true);
+    const select = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Component 2"]')!;
+    const value = select.querySelector('[data-slot="select-value"]')!;
+    expect(value.textContent).toBe('Missing filament');
+    expect(value.querySelector('[aria-hidden="true"]')).toBeNull();
+    const replacement = `2 - ${physical[1].preset.name}`;
+    await chooseSelectOption(select, text => text === replacement);
+    expect(value.textContent).toBe(replacement);
+    expect(value.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    expect(button('Save mix').disabled).toBe(false);
+    await act(async () => button('Cancel').click());
+    expect(rendered.container.textContent).toContain('Missing filament · 40%');
+    act(() => useProjectStore.getState().reset());
+    expect(button('Material (31)').getAttribute('aria-selected')).toBe('true');
   });
 
   it.each(['solid', 'gradient', 'multicolor'] as const)('uses shared alpha swatches for installed %s materials', async mode => {
@@ -298,7 +422,7 @@ describe('FilamentRack runtime interaction', () => {
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
     const initial = makeSnapshot();
     const returned = makeSnapshot({
-      slots: [...initial.slots, { logicalId: 'filament-3', slot: 3, preset: { isProjectEmbedded: false, isUser: false, id: 'abs', name: 'ABS', label: 'ABS', vendor: '' }, colour: { effective: '#778899', provenance: 'preset', native: { representative: '#778899', multiColour: '#778899', type: '1' }, display: { mode: 'solid' as const, colors: ['#778899'] } } }],
+      slots: [...initial.slots, { logicalId: 'filament-3', slot: 3, materialType: 'PLA', mix: null, preset: { isProjectEmbedded: false, isUser: false, id: 'abs', name: 'ABS', label: 'ABS', vendor: '' }, colour: { effective: '#778899', provenance: 'preset', native: { representative: '#778899', multiColour: '#778899', type: '1' }, display: { mode: 'solid' as const, colors: ['#778899'] } } }],
       revisions: { ...initial.revisions, session: 5 },
     });
     const add = vi.fn(async () => mutation(returned));

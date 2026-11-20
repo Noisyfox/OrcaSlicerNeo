@@ -34,6 +34,7 @@ export interface ProjectOperation {
 }
 
 export interface ProjectSessionState {
+  projectGeneration: number;
   /** Base name only; host paths never enter this store. */
   projectName: string;
   /** Actual opened/saved display filename; null for an unsaved new session.
@@ -66,6 +67,7 @@ export const DEFAULT_PROJECT_PRESETS: ProjectPresetSelections = {
 };
 
 const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'beginProjectMutation' | 'endProjectMutation' | 'setOperation' | 'resetOperation' | 'reset'> => ({
+  projectGeneration: 0,
   projectName: 'Untitled',
   projectFileName: null,
   location: undefined,
@@ -92,7 +94,7 @@ export const useProjectStore = create<ProjectSessionState>((set) => ({
     },
   })),
   resetOperation: () => set({ operation: { phase: 'idle', progress: 0, cancellable: false } }),
-  reset: () => set(initialSession()),
+  reset: () => set(state => ({ ...initialSession(), projectGeneration: state.projectGeneration + 1 })),
 }));
 
 export function projectPresetSelections(snapshot: { printer: { name: string }; print: { name: string } }): ProjectPresetSelections {

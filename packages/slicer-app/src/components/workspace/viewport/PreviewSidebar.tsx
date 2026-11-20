@@ -144,8 +144,9 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
           <div id="preview-legend-content">
           {descriptor?.kind === 'categorical' && descriptor.items.map((item) => {
             const enabled = visibility[item.id] !== false;
-            const statistics = activeScheme === 'feature' ? featureStatistics.get(item.id) : undefined;
-            const time = statistics?.timeSeconds;
+            const feature = activeScheme === 'feature' ? featureStatistics.get(item.id) : undefined;
+            const statistics = activeScheme === 'filament' ? data.extruderPalette?.find(entry => entry.id === item.id) : feature;
+            const time = feature?.timeSeconds;
             const percentage = time !== undefined && Number.isFinite(time) && totalTime !== undefined && Number.isFinite(totalTime) && totalTime > 0
               ? formatTimePercentage(time, totalTime) : '—';
             const usage = [
@@ -156,10 +157,11 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
               <Button variant="ghost" size="xs" key={item.id} aria-pressed={enabled}
                 data-testid={activeScheme === 'feature' ? `preview-feature-visibility-${item.id}` : `preview-scheme-visibility-${activeScheme}-${item.id}`}
                 onClick={() => setSchemeVisibility(activeScheme, item.id, !enabled)}
-                className={`sidebar-list-row grid w-full px-1 text-left ${activeScheme === 'feature' ? 'grid-cols-[12px_10px_minmax(0,1fr)_40px_24px_60px]' : 'grid-cols-[12px_10px_minmax(0,1fr)]'}`}>
+                className={`sidebar-list-row grid w-full px-1 text-left ${activeScheme === 'feature' ? 'grid-cols-[12px_10px_minmax(0,1fr)_40px_24px_60px]' : 'grid-cols-[12px_10px_minmax(0,1fr)_auto]'}`}>
                 {enabled ? <Eye className="size-3 shrink-0 text-muted-foreground" /> : <EyeOff className="size-3 shrink-0 text-muted-foreground" />}
                 <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})` }} />
                 <span className="truncate text-[10px]" title={item.label}>{item.label}</span>
+                {activeScheme === 'filament' && <span className="text-right text-[10px]">{usage}</span>}
                 {activeScheme === 'feature' && <>
                   <span className="text-right text-[10px] tabular-nums">{formatPreviewTime(time)?.replaceAll(' ', '') ?? '—'}</span>
                   <span className="text-right text-[10px] tabular-nums">{percentage}</span>

@@ -3,15 +3,18 @@ import { useCommittedCallback, type PresetComboItem, PresetCombobox } from './Pr
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useState } from 'react';
 import { MAX_GRADIENT_COLORS, colorValueKey, normalizeHexColor, usePlatform, type ColorValue } from '@orca/platform-contract';
+import { ColorDecomposeDialog } from './mixes/ColorDecomposeDialog';
+import { MixesPanel } from './mixes/MixesPanel';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore, readFlushingVolumes } from '@/stores/useFilamentSessionStore';
 import { type FilamentMutationResultOrError, type FilamentSessionSlot } from '@slicer/client';
-import { filamentSwatchTitle } from './FilamentSwatch';
-import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
+import { FilamentChoiceContent, filamentSlotChoice, filamentSlotNumberStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FlushingVolumesDialog, flushingModified } from './FlushingVolumesDialog';
 import { renderDeviceFilamentMenu, useDeviceFilaments, selectDeviceFilament, type DeviceFilaments } from './synchronization/DeviceFilamentMenu';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
@@ -27,7 +30,7 @@ import {
 
 const FILAMENT_TRIGGER_STYLE = { borderTopLeftRadius: 0, borderBottomLeftRadius: 0 };
 
-type PendingImpact = { kind: 'delete' | 'merge'; summary: FilamentImpactSummary } | null;
+type PendingImpact = { kind: 'delete' | 'merge'; summary: FilamentImpactSummary; losesComponent?: boolean; revision:number } | null;
 
 function editorValue(slot: FilamentSessionSlot): ColorValue {
   const { mode, colors } = slot.colour.display;
@@ -60,6 +63,7 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
         <p className="mt-2 text-xs text-muted-foreground" data-testid="filament-impact-summary">
           Slot {summary.slot} is referenced by {summary.assignmentCount} assignment{summary.assignmentCount === 1 ? '' : 's'} and {summary.mappingCount} native mapping{summary.mappingCount === 1 ? '' : 's'}.
           {summary.remapped ? ` References will be remapped to slot ${summary.destination}.` : ' References without a merge destination will fall back to Default.'}
+          {impact.losesComponent && ` Mix ${summary.destination} will lose its component from slot ${summary.slot} and will need repair.`}
           {impact.kind === 'merge' && ' Each plate keeps the destination filament’s nozzle mapping.'}
         </p>
         <div className="mt-4 flex justify-end gap-2">
@@ -71,18 +75,19 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
   );
 }
 
-function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
+function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDecompose, onDelete, onMerge }: {
   slot: FilamentSessionSlot;
   presetItems: readonly PresetComboItem[];
   deviceFilaments: DeviceFilaments | null;
   onDevicePreset: (option: DeviceFilaments['prepared']['options'][number]) => void;
-  mergeDestinations: readonly number[];
+  mergeDestinations: readonly FilamentSessionSlot[];
   canDelete: boolean;
   canMerge: boolean;
   pending: boolean;
   onPreset: (name: string) => void;
   onColour: (colour: ColorValue) => void;
   onEdit?: () => void;
+  onDecompose?: () => void;
   onDelete: () => void;
   onMerge: (destination: number) => void;
 }) {
@@ -95,11 +100,10 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
   }, [colourSignature]);
   const draft = editorValue(slot);
   const displayedColour = (draft.kind === 'solid' ? draft.color : draft.colors[0]).toLowerCase();
-  const numberColour = colorSwatchForeground(slot.colour.effective);
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<article />}
-        className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
+        className="filament-slot-item"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
         <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen}
           title={`Slot ${slot.slot} color`} value={draft}
@@ -112,11 +116,10 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
               ? { kind: 'solid', color: normalizeHexColor(next.color)!.toLowerCase() }
               : { kind: 'linear-gradient', colors: next.colors.map(color => normalizeHexColor(color)!.toLowerCase()) };
             if (!matchesCanonicalColour(slot, colour)) onColour(colour);
-          }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0"
+          }} trigger={<Button variant="ghost" size="icon-sm" className="filament-slot-number"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
             title={filamentSwatchTitle(slot.colour.display)}
-            style={{ ...colorSwatchStyle(slot.colour.display), color: numberColour,
-              border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
+            style={filamentSlotNumberStyle(slot.colour.display, slot.colour.effective)}>{slot.slot}</Button>} />
         <PresetCombobox mode="grouped" modified={modified} items={presetItems}
           value={slot.preset.name} onValue={selectPreset} disabled={pending}
           ariaLabel={`Filament preset for slot ${slot.slot}`} testId={`filament-preset-${slot.slot}`}
@@ -126,12 +129,15 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
       </ContextMenuTrigger>
       <ContextMenuContent>
         {onEdit && <ContextMenuItem data-testid={`filament-edit-${slot.slot}`} disabled={pending} onClick={onEdit}>Edit</ContextMenuItem>}
+        <ContextMenuItem disabled={pending || !onDecompose} onClick={onDecompose}>Decompose Color</ContextMenuItem>
         <ContextMenuSub>
           <ContextMenuSubTrigger data-testid={`filament-merge-${slot.slot}`} disabled={pending || !canMerge}>Merge with…</ContextMenuSubTrigger>
           <ContextMenuSubContent>
-            {mergeDestinations.filter((destination) => destination !== slot.slot).map((destination) => (
-              <ContextMenuItem key={destination} data-testid={`filament-merge-${slot.slot}-to-${destination}`}
-                onClick={() => { if (paintingCommandAllowed()) onMerge(destination); }}>Slot {destination}</ContextMenuItem>
+            {mergeDestinations.filter(destination => destination.slot !== slot.slot).map(destination => (
+              <ContextMenuItem key={destination.logicalId} data-testid={`filament-merge-${slot.slot}-to-${destination.slot}`}
+                onClick={() => { if (paintingCommandAllowed()) onMerge(destination.slot); }}>
+                <FilamentChoiceContent {...filamentSlotChoice(destination)} />
+              </ContextMenuItem>
             ))}
           </ContextMenuSubContent>
         </ContextMenuSub>
@@ -152,12 +158,17 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   const run = useFilamentSessionStore((state) => state.run);
   const clearRejected = useFilamentSessionStore((state) => state.clearRejected);
   const filamentCatalog = useSettingsStore((state) => state.filamentCatalog);
+  const generation = useProjectStore(state=>state.projectGeneration);
+  const [mixGeneration,setMixGeneration] = useState<number>();
+  const showMixes = mixGeneration === generation;
+  const physical = snapshot?.slots.filter(s=>!s.mix) ?? [];
   const [expanded, setExpanded] = useState(true);
+  const [decomposition,setDecomposition] = useState<{slot:FilamentSessionSlot;revision:number;generation:number}>();
   const [impact, setImpact] = useState<PendingImpact>(null);
   const [flushingOpen, setFlushingOpen] = useState(false);
   const [flushModified, setFlushModified] = useState(false);
   // Orca Sidebar::show_SEMM_buttons: SEMM/Bambu capability and >1 material.
-  const showFlushing = !!snapshot?.capabilities.flexible && snapshot.slots.length > 1;
+  const showFlushing = !!snapshot?.capabilities.flexible && physical.length > 1;
   useEffect(() => {
     if (!snapshot || !showFlushing) { setFlushModified(false); setFlushingOpen(false); return; }
     let active = true;
@@ -204,6 +215,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
       // round trip; the helper serializes background writes per printer.
       void publishRememberedFilamentRack(platform.preferences, useSettingsStore.getState().selectedPrinter, result.result.snapshot);
     }
+    return result;
   }
 
   function revision() { return useFilamentSessionStore.getState().snapshot?.revisions.session ?? 0; }
@@ -211,16 +223,19 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   function askOrRun(kind: 'delete' | 'merge', slot: number, destination: number | null) {
     if (!snapshot || !paintingCommandAllowed()) return;
     const summary = filamentImpactSummary(snapshot, slot, destination);
-    if (kind === 'merge' || summary.assignmentCount > 0 || summary.mappingCount > 0) setImpact({ kind, summary });
+    if (kind === 'merge' || summary.assignmentCount > 0 || summary.mappingCount > 0) {
+      const losesComponent = destination !== null && snapshot.slots[destination - 1]?.mix?.components.includes(slot);
+      setImpact({ kind, summary, revision: revision(), losesComponent });
+    }
     else void confirmMutation(kind, slot, destination);
   }
 
-  async function confirmMutation(kind: 'delete' | 'merge', slot: number, destination: number | null) {
+  async function confirmMutation(kind: 'delete' | 'merge', slot: number, destination: number | null, expected = revision()) {
     setImpact(null);
     if (kind === 'delete') {
-      await updateSlot(() => platform.runtime.deleteFilamentSlot({ version: 1, revision: revision(), slot }));
+      await updateSlot(() => platform.runtime.deleteFilamentSlot({ version: 1, revision: expected, slot }));
     } else if (destination !== null) {
-      await updateSlot(() => platform.runtime.mergeFilamentSlots({ version: 1, revision: revision(), source: slot, destination }));
+      await updateSlot(() => platform.runtime.mergeFilamentSlots({ version: 1, revision: expected, source: slot, destination }));
     }
   }
 
@@ -241,52 +256,71 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
     <>
       {showFlushing && flushingOpen && <FlushingVolumesDialog onClose={() => setFlushingOpen(false)} />}
       <section data-testid="filament-rack" className="px-2 pb-2" aria-busy={pending}>
-        <div className="sidebar-section-header -mx-2">
-          <h2 className="sidebar-section-title">Material ({snapshot.slots.length})</h2>
-          <Button className="absolute right-0 bottom-0" variant="panel-toggle" size="icon-xs"
-            data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)}
-            aria-label={expanded ? 'Collapse materials' : 'Expand materials'} aria-expanded={expanded}>
-            {expanded ? <ChevronDown /> : <ChevronUp />}
-          </Button>
-        </div>
-        {expanded && <div className="flex h-8 items-center gap-1">
-          <Button variant="secondary" size="icon-xs" data-testid="filament-sync" aria-label="Sync Filament" title="Sync Filament"
-            disabled={pending || syncPending} onClick={() => requestPrepareSynchronization('filament')}><RefreshCw /></Button>
-          {showFlushing && <Button variant="secondary" size="xs" className="flushing-volumes-button"
-            data-modified={flushModified} data-testid="flushing-volumes-open" disabled={pending}
-            title={flushModified ? 'Flushing volumes differ from automatic calculation' : 'Edit flushing volumes'}
-            onClick={() => setFlushingOpen(true)}>Flushing Volumes</Button>}
-          <span className="flex-1" />
-          <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-remove"
-            aria-label="Remove last filament slot" disabled={pending || !snapshot.capabilities.canDelete || snapshot.slots.length === 0}
-            onClick={() => askOrRun('delete', snapshot.slots[snapshot.slots.length - 1].slot, null)}><Minus /></Button>
-          <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-add"
-            aria-label="Add filament slot" disabled={pending || !snapshot.capabilities.canAdd}
-            onClick={() => void updateSlot(() => platform.runtime.addFilamentSlot({ version: 1, revision: revision() }))}><Plus /></Button>
-        </div>}
-        {rejected && <div className="mt-2 flex items-center gap-2 rounded border border-destructive/50 p-2 text-xs text-destructive" role="alert" data-testid="filament-rejected"><span className="min-w-0 flex-1">{rejected}</span><Button variant="ghost" size="icon-xs" onClick={clearRejected} aria-label="Dismiss rejection">×</Button></div>}
-        {expanded && <div className="filament-slot-grid grid grid-cols-2 gap-x-2 gap-y-1.5" data-testid="filament-slot-grid">
-          {snapshot.slots.map((slot) => (
-            <SlotCard
-              key={slot.slot}
-              slot={slot}
-              presetItems={presetItems}
-              deviceFilaments={deviceFilaments}
-              onDevicePreset={option => { if (deviceFilaments) void updateSlot(() => selectDeviceFilament(platform, deviceFilaments, slot.slot, option)); }}
-              canDelete={snapshot.capabilities.canDelete}
-              canMerge={snapshot.capabilities.canMerge}
-              mergeDestinations={snapshot.slots.map((entry) => entry.slot)}
-              pending={pending}
-              onPreset={(preset) => void updateSlot(() => platform.runtime.selectFilamentSlotPreset({ version: 1, revision: revision(), slot: slot.slot, preset }))}
-              onColour={(colour) => void updateSlot(() => platform.runtime.setFilamentSlotColour({ version: 1, revision: revision(), slot: slot.slot, colour }))}
-              onEdit={onEditPreset ? () => onEditPreset(slot.preset.name) : undefined}
-              onDelete={() => askOrRun('delete', slot.slot, null)}
-              onMerge={(destination) => askOrRun('merge', slot.slot, destination)}
-            />
-          ))}
-        </div>}
+        <Tabs value={showMixes ? 'mixes' : 'material'} onValueChange={value => setMixGeneration(value === 'mixes' ? generation : undefined)} className="flex-col gap-0">
+          <div className="sidebar-section-header -mx-2">
+            <TabsList aria-label="Filaments" activateOnFocus className="h-5! gap-1 bg-transparent p-0">
+              <TabsTrigger className="sidebar-section-title" value="material">Material ({physical.length})</TabsTrigger>
+              <TabsTrigger className="sidebar-section-title" value="mixes">Mixes ({snapshot.slots.length - physical.length})</TabsTrigger>
+            </TabsList>
+            <Button className="absolute right-0 bottom-0" variant="panel-toggle" size="icon-xs"
+              data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)}
+              aria-label={expanded ? 'Collapse materials' : 'Expand materials'} aria-expanded={expanded}>
+              {expanded ? <ChevronDown /> : <ChevronUp />}
+            </Button>
+          </div>
+          {rejected && <div className="mt-2 flex items-center gap-2 rounded border border-destructive/50 p-2 text-xs text-destructive" role="alert" data-testid="filament-rejected"><span className="min-w-0 flex-1">{rejected}</span><Button variant="ghost" size="icon-xs" onClick={clearRejected} aria-label="Dismiss rejection">×</Button></div>}
+          <TabsContent value="material" keepMounted className={expanded ? 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring' : 'hidden'}>
+            {expanded && !showMixes && <div className="flex h-8 items-center gap-1">
+              <Button variant="secondary" size="icon-xs" data-testid="filament-sync" aria-label="Sync Filament" title="Sync Filament"
+                disabled={pending || syncPending} onClick={() => requestPrepareSynchronization('filament')}><RefreshCw /></Button>
+              {showFlushing && <Button variant="secondary" size="xs" className="flushing-volumes-button"
+                data-modified={flushModified} data-testid="flushing-volumes-open" disabled={pending}
+                title={flushModified ? 'Flushing volumes differ from automatic calculation' : 'Edit flushing volumes'}
+                onClick={() => setFlushingOpen(true)}>Flushing Volumes</Button>}
+              <span className="flex-1" />
+              <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-remove"
+                aria-label="Remove last filament slot" disabled={pending || !snapshot.capabilities.canDelete || snapshot.slots.length === 0}
+                onClick={() => askOrRun('delete', physical[physical.length - 1].slot, null)}><Minus /></Button>
+              <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-add"
+                aria-label="Add filament slot" disabled={pending || !snapshot.capabilities.canAdd}
+                onClick={() => void updateSlot(() => platform.runtime.addFilamentSlot({ version: 1, revision: revision() }))}><Plus /></Button>
+            </div>}
+            {expanded && !showMixes && <div className="filament-slot-grid grid grid-cols-2 gap-x-2 gap-y-1.5" data-testid="filament-slot-grid">
+              {physical.map((slot) => (
+                <SlotCard
+                  key={slot.logicalId}
+                  slot={slot}
+                  presetItems={presetItems}
+                  deviceFilaments={deviceFilaments}
+                  onDevicePreset={option => { if (deviceFilaments) void updateSlot(() => selectDeviceFilament(platform, deviceFilaments, slot.slot, option)); }}
+                  canDelete={snapshot.capabilities.canDelete}
+                  canMerge={snapshot.capabilities.canMerge}
+                  mergeDestinations={snapshot.slots}
+                  pending={pending}
+                  onPreset={(preset) => void updateSlot(() => platform.runtime.selectFilamentSlotPreset({ version: 1, revision: revision(), slot: slot.slot, preset }))}
+                  onColour={(colour) => void updateSlot(() => platform.runtime.setFilamentSlotColour({ version: 1, revision: revision(), slot: slot.slot, colour }))}
+                  onEdit={onEditPreset ? () => onEditPreset(slot.preset.name) : undefined}
+                  onDecompose={physical.length>=2 ? ()=>setDecomposition({slot,revision:revision(),generation}) : undefined}
+                  onDelete={() => askOrRun('delete', slot.slot, null)}
+                  onMerge={(destination) => askOrRun('merge', slot.slot, destination)}
+                />
+              ))}
+            </div>}
+          </TabsContent>
+          <TabsContent value="mixes" keepMounted className={expanded ? 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring' : 'hidden'}>
+            {expanded && showMixes && <MixesPanel slots={snapshot.slots} revision={snapshot.revisions.session} pending={pending}
+              mutate={request=>updateSlot(()=>platform.runtime.editMixedFilament(request))}
+              onMerge={(slot,destination)=>askOrRun('merge',slot,destination)} onDelete={slot=>askOrRun('delete',slot,null)} />}
+          </TabsContent>
+        </Tabs>
       </section>
-      <ImpactDialog impact={impact} onCancel={() => setImpact(null)} onConfirm={() => impact && void confirmMutation(impact.kind, impact.summary.slot, impact.summary.destination)} />
+      {decomposition?.generation===generation && decomposition && <ColorDecomposeDialog source={decomposition.slot} slots={snapshot.slots}
+        onClose={()=>setDecomposition(undefined)} onApply={async decompose=>{
+          const r=await updateSlot(()=>platform.runtime.editMixedFilament({version:1,revision:decomposition.revision,decompose}));
+          if(r.ok)setMixGeneration(generation);
+          return r.ok?null:r.error;
+        }}/>}
+      <ImpactDialog impact={impact} onCancel={() => setImpact(null)} onConfirm={() => impact && void confirmMutation(impact.kind, impact.summary.slot, impact.summary.destination, impact.revision)} />
     </>
   );
 }

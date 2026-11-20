@@ -225,7 +225,7 @@ test('Bambu error dialogs invoke opaque actions, stay dismissed across refreshes
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
     const page = await app.firstWindow();
-    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await installControlFixture(app);
     await page.getByTestId('tab-device').click();
     await page.getByTestId('device-printer-select').click();

@@ -98,10 +98,7 @@ json metadata(const Slic3r::Neo::Painting::Session& session) {
     if (session.preview) {
         json preview_parts = json::array();
         for (std::size_t i = 0; i < session.parts.size(); ++i) {
-            std::array<std::size_t, 17> counts{};
-            for (int state = 0; state <= 16; ++state)
-                counts[state] = session.preview->selectors[i]->num_facets(static_cast<Slic3r::EnforcerBlockerType>(state));
-            preview_parts.push_back({{"volumeId", session.parts[i].volume_id}, {"facetCounts", counts}});
+            preview_parts.push_back({{"volumeId", session.parts[i].volume_id}, {"facetCounts", session.preview->selectors[i]->facet_counts()}});
         }
         std::size_t gap_regions = 0;
         for (const auto& regions : session.preview->gap_regions) gap_regions += regions.size();
@@ -130,7 +127,7 @@ Settings settings(const json& value, Channel channel) {
     Settings out;
     if (value.contains("state")) {
         const double state = number(value["state"]);
-        if (state < 0 || state > 16 || std::floor(state) != state) throw std::invalid_argument("invalid painting state");
+        if (state < 0 || state > max_state(channel) || std::floor(state) != state) throw std::invalid_argument("invalid painting state");
         out.state = int(state);
     }
     if (value.contains("erase")) {

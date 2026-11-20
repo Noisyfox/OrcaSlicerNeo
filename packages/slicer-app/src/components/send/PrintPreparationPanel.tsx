@@ -3,6 +3,7 @@ import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/componen
 import { useEffect, useId, type ReactNode } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { MaterialSourcePicker } from './MaterialSourcePicker';
+import { PrintThumbnail } from './PrintThumbnail';
 import { PrintJobSummary } from './PrintJobSummary';
 import type * as D from '@orca/platform-contract';
 import type { SliceResultReceipt } from '@slicer/client';
@@ -20,7 +21,8 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
   const state = usePrintPreparation(platform, printer, route, receipt, () => {
     useDeviceSelectionStore.getState().showPrinter(printer.identity.id); onClose();
   });
-  return <PrintPreparationView state={state} printer={printer} onClose={onClose} onBusyChange={onBusyChange} printerControl={printerControl} />;
+  return <PrintPreparationView state={state} printer={printer} onClose={onClose} onBusyChange={onBusyChange} printerControl={printerControl}
+    thumbnail={<PrintThumbnail requirements={state.requirements} bindings={state.bindings} candidates={state.prepared?.candidates} runtime={platform.runtime} />} />;
 }
 
 export type PrintPreparationViewState = Omit<ReturnType<typeof usePrintPreparation>, 'operation' | 'autoMatch' | 'changeCalibration' | 'retryableFailure'> & {

@@ -33,6 +33,7 @@ export function rememberedRackFromSnapshot(snapshot: FilamentSessionSnapshot): R
       colour: /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(slot.colour.effective)
         ? slot.colour.effective : slot.colour.display.colors.find((value) => /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(value)) ?? '#26A69A',
       native: { ...slot.colour.native },
+      ...(slot.mix && { mix: slot.mix.storage }),
     })),
   };
 }

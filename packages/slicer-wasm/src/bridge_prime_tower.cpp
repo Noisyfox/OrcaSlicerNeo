@@ -30,7 +30,9 @@
 #include "bridge_state.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/GCode/WipeTower.hpp"
+#include "libslic3r/GCode/WipeTowerEstimate.hpp"
 #include "libslic3r/Print.hpp"
+#include "libslic3r/FilamentMixer.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/ClipperUtils.hpp"
 
@@ -319,6 +321,19 @@ struct UsedSlotContext {
     }
 };
 
+// Tower placement and nozzle mapping both operate on actual tool changes.
+std::vector<int> physical_used_slots(std::vector<int> slots)
+{
+    const auto& bundle = state().presets;
+    if (bundle.num_mixed_filaments() == 0) return slots;
+    slots = expand_mixed_filament_ids(slots, bundle.project_config);
+    const auto count = Filament::State::material_slot_count(bundle.project_config);
+    slots.erase(std::remove_if(slots.begin(), slots.end(), [&](int slot) {
+        return slot < 1 || static_cast<size_t>(slot) > count || bundle.is_mixed_filament(slot - 1);
+    }), slots.end());
+    return slots;
+}
+
 std::vector<int> used_slots(const Model& model, const DynamicPrintConfig& config,
                             std::size_t slot_count, int plate_index)
 {
@@ -345,7 +360,7 @@ std::vector<int> used_slots(const Model& model, const DynamicPrintConfig& config
             }
         }
     }
-    return {slots.begin(), slots.end()};
+    return physical_used_slots({slots.begin(), slots.end()});
 }
 
 struct UsedSlotSummary {
@@ -480,7 +495,7 @@ std::vector<int> used_slots_incremental(const BridgeState::PlateSessionPlate& pl
 #ifdef NEO_PROJECT_HISTORY_TEST
         record_used_slot_lookup(plate.id, kind);
 #endif
-        return summary.slots;
+        return physical_used_slots(summary.slots);
     }
 
     kind = UsedSlotLookupKind::Delta;
@@ -509,7 +524,7 @@ std::vector<int> used_slots_incremental(const BridgeState::PlateSessionPlate& pl
     }
     summary.object_ids = std::move(object_ids);
     refresh_summary_slots(summary, context, config, plate_index);
-    return summary.slots;
+    return physical_used_slots(summary.slots);
 }
 
 double model_height(const Model& model)
@@ -650,9 +665,10 @@ std::optional<double> direct_wipe_tower_depth(const DynamicPrintConfig& config,
 }
 
 Placement placement_for(const DynamicPrintConfig& config, const Model* model,
-                        std::size_t slot_count, int plate_index,
+                        const std::vector<int>& slots,
                         ProjectionPlateTimings* timings = nullptr)
 {
+    const size_t slot_count = slots.size();
     Placement placement;
     placement.width = std::max(2., config.opt_float("prime_tower_width"));
     if (model != nullptr) {
@@ -666,6 +682,22 @@ Placement placement_for(const DynamicPrintConfig& config, const Model* model,
     placement.brim = config.opt_float("prime_tower_brim_width");
     if (model != nullptr) {
         const auto estimate = [&]() {
+            if (state().presets.num_mixed_filaments() > 0) {
+                std::vector<unsigned> tools;
+                for (int slot : slots) tools.push_back(static_cast<unsigned>(slot - 1));
+                const double default_height = config.opt_float("layer_height");
+                double layer_height = std::numeric_limits<double>::max();
+                for (const auto* object : model->objects) {
+                    const auto* local = object->config.option("layer_height");
+                    layer_height = std::min(layer_height, local ? local->getFloat() : default_height);
+                }
+                const auto footprint = estimate_wipe_tower_footprint(config, resolve_wipe_tower_type(config),
+                    tools, layer_height, placement.height);
+                placement.width = footprint.width;
+                placement.depth = footprint.depth;
+                placement.brim = footprint.brim_width;
+                return true;
+            }
             const auto depth = direct_wipe_tower_depth(config, placement.height, slot_count);
             if (!depth) return false;
             placement.depth = *depth;
@@ -707,9 +739,14 @@ Placement placement_for(const DynamicPrintConfig& config, const Model* model,
     }
     placement.rotation = config.opt_float("wipe_tower_rotation_angle");
     const double radians = placement.rotation * M_PI / 180.;
-    const std::array<Vec2d, 4> corners = {{{0., 0.}, {placement.width, 0.},
-                                           {placement.width, placement.depth},
-                                           {0., placement.depth}}};
+    std::vector<Vec2d> corners = {{0., 0.}, {placement.width, 0.},
+                                  {placement.width, placement.depth}, {0., placement.depth}};
+    if (state().presets.num_mixed_filaments() > 0 && placement.depth > 0.) {
+        const auto outline = estimate_wipe_tower_first_layer_outline(config, resolve_wipe_tower_type(config),
+            placement.width, placement.depth, placement.height);
+        corners.clear();
+        for (const auto& pt : outline.points) corners.emplace_back(unscaled(pt.x()), unscaled(pt.y()));
+    }
     placement.min_offset_x = placement.min_offset_y = std::numeric_limits<double>::infinity();
     placement.max_offset_x = placement.max_offset_y = -std::numeric_limits<double>::infinity();
     for (const Vec2d& corner : corners) {
@@ -743,11 +780,19 @@ bool finite_coordinate(const json& value)
 
 double clamp_axis(const double requested, const double min_offset, const double max_offset,
                   const double brim, const double bed_min, const double bed_max,
-                  bool& too_large)
+                  bool& too_large, bool automatic = false)
 {
     const double lower = bed_min - min_offset + brim;
     const double upper = bed_max - max_offset - brim;
-    if (lower <= upper) return std::clamp(requested, lower, upper);
+    if (lower <= upper) {
+        if (state().presets.num_mixed_filaments() > 0 && upper - lower >= 2. * WIPE_TOWER_MARGIN) {
+            const bool outside = requested < lower + WIPE_TOWER_MARGIN || requested > upper - WIPE_TOWER_MARGIN;
+            const double margin = automatic && outside && upper - lower >= 2. * WIPE_TOWER_AUTO_MARGIN
+                ? WIPE_TOWER_AUTO_MARGIN : WIPE_TOWER_MARGIN;
+            return std::clamp(requested, lower + margin, upper - margin);
+        }
+        return std::clamp(requested, lower, upper);
+    }
     too_large = true;
     return (bed_min + bed_max - min_offset - max_offset) / 2.;
 }
@@ -825,7 +870,7 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
         (!by_object || printable_instances == 1);
 
     const Placement placement = placement_for(config, model ? &*model : nullptr,
-                                              slots.size(), static_cast<int>(plate.display_index), timings);
+                                              slots, timings);
     const double width = placement.width;
     const double depth = placement.depth;
     const double height = placement.height;
@@ -976,15 +1021,14 @@ bool normalize_coordinate_positions()
         if (!config.opt_bool("enable_prime_tower") || slots.empty() || (slots.size() < 2 && !forced) ||
             (by_object && printable_instances != 1)) continue;
 
-        const Placement placement = placement_for(config, &*model, slots.size(),
-                                                  static_cast<int>(plate.display_index));
+        const Placement placement = placement_for(config, &*model, slots);
         const double old_x = indexed_float(config, "wipe_tower_x", index, 15.);
         const double old_y = indexed_float(config, "wipe_tower_y", index, 220.);
         bool too_large = false;
         const double x = clamp_axis(old_x, placement.min_offset_x, placement.max_offset_x,
-                                    placement.brim, bounds.min_x, bounds.max_x, too_large);
+                                    placement.brim, bounds.min_x, bounds.max_x, too_large, true);
         const double y = clamp_axis(old_y, placement.min_offset_y, placement.max_offset_y,
-                                    placement.brim, bounds.min_y, bounds.max_y, too_large);
+                                    placement.brim, bounds.min_y, bounds.max_y, too_large, true);
         if (std::abs(old_x - x) <= 1e-12 && std::abs(old_y - y) <= 1e-12) continue;
         set_coordinate_settings(state().presets.project_config, index, x, y, old_x, old_y);
         changed = true;
@@ -1036,7 +1080,7 @@ json slice_warnings_for_plate(const std::string& plate_id)
     if (!config.opt_bool("enable_prime_tower") || slots.empty() || (slots.size() < 2 && !forced) ||
         (by_object && printable_instances != 1)) return json::array();
 
-    const Placement placement = placement_for(config, &*model, slots.size(), static_cast<int>(plate->display_index));
+    const Placement placement = placement_for(config, &*model, slots);
     const double x = indexed_float(config, "wipe_tower_x", index, 15.);
     const double y = indexed_float(config, "wipe_tower_y", index, 220.);
     const json footprint = placement_footprint(placement, x, y);
@@ -1156,7 +1200,7 @@ json move_position_json(const char* request_cstr)
         (slots.size() >= 2 || forced) && (!by_object || printable_instances == 1);
     if (!eligible) return move_error("ineligible_target", "prime tower is not available on this plate");
 
-    const Placement placement = placement_for(config, &*model, slots.size(), static_cast<int>(plate->display_index));
+    const Placement placement = placement_for(config, &*model, slots);
     const PlateBounds bounds = selected_plate_bounds();
     const double requested_x = request["x"].get<double>();
     const double requested_y = request["y"].get<double>();

@@ -1,36 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Box, Clock3, Pencil, Printer, RefreshCw, Weight } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { Clock3, Pencil, Printer, RefreshCw, Weight } from 'lucide-react';
 import type { PrintRequirements, SavedPrinter } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useObjectListStore } from '../workspace/objectList/useObjectListStore';
-import { glVolumeCollection } from '../workspace/viewport/GLVolume';
-import { projectPlateThumbnail } from '../workspace/plateThumbnailScene';
-import { createThumbnailRenderer, PlateThumbnailService } from '../workspace/plateThumbnailService';
-
-/** One retained plate preview per modal; the modal prevents project edits. */
-function PrintThumbnail({ plateId }: { plateId: string | undefined }) {
-  const [image, setImage] = useState<{ plateId: string; url: string }>();
-  const session = usePlateSessionStore(s => s.snapshot);
-  useEffect(() => {
-    if (!plateId || !session) return;
-    const projection = projectPlateThumbnail(plateId, glVolumeCollection.volumes,
-      useObjectListStore.getState().structure, session, useFilamentSessionStore.getState().snapshot);
-    if (!projection.parts.length) return;
-    const renderer = createThumbnailRenderer(), service = new PlateThumbnailService(renderer.render);
-    let active = true;
-    void service.request(plateId, projection.key, projection.parts, 256).then(url => {
-      if (active && url) setImage({ plateId, url });
-    });
-    return () => { active = false; service.dispose(); renderer.dispose(); };
-  }, [plateId, session]);
-  return <div className="flex aspect-square w-full items-center justify-center" data-testid="print-job-thumbnail">
-    {image?.plateId === plateId && image ? <img src={image.url} alt="Print model preview" className="size-full object-contain" />
-      : <Box className="size-24 text-muted-foreground/40" aria-label="Model preview unavailable" strokeWidth={1} />}
-  </div>;
-}
 
 export function PrintJobSummary({ requirements, printer, printerControl, name, onNameChange, disabled, onRefresh, route, thumbnail, nameReadOnly = false }: {
   requirements: PrintRequirements | null; printer: SavedPrinter; printerControl?: ReactNode;
@@ -46,7 +20,7 @@ export function PrintJobSummary({ requirements, printer, printerControl, name, o
   const commit = () => { if (draft.trim()) onNameChange(draft.trim()); setEditing(false); };
   const minutes = requirements ? Math.ceil(requirements.durationSeconds / 60) : 0;
   return <div className="grid grid-cols-[120px_minmax(0,1fr)] items-center gap-5 sm:grid-cols-[180px_minmax(0,1fr)]" data-testid="print-job-summary">
-    {thumbnail !== undefined ? thumbnail : <PrintThumbnail plateId={requirements?.plateId} />}
+    {thumbnail}
     <div className="min-w-0 space-y-5">
       <div className="space-y-2">
         {editing ? <Input autoFocus aria-label="Print job name" value={draft} disabled={disabled}

@@ -429,6 +429,9 @@ json mutate(const json& request)
         for (const auto& target : change["filamentMap"])
             if (!target.is_number_unsigned() || target.get<std::uint64_t>() < 1 || target.get<std::uint64_t>() > nozzles)
                 return failure("invalid_request", "Mapping targets an unavailable nozzle");
+        for (std::size_t i = 0; i < count; ++i)
+            if (bridge.presets.is_mixed_filament(i) && change["filamentMap"][i] != before["effective"]["filamentMap"][i])
+                return failure("invalid_request", "Map the physical components of a mixed filament.");
         const bool mapping_changed = change["filamentMap"] != before["effective"]["filamentMap"];
         if (mapping_changed && mode == fmmNozzleManual) mode = fmmManual;
         changed = mapping_changed || before["effective"]["mode"] != mode;

@@ -1,5 +1,5 @@
 import type { AccountProvider } from './serviceProvider';
-import type { BuildInfo, SlicerClient } from '@slicer/client';
+import type { BuildInfo, SlicerClient, StoredMixedFilament } from '@slicer/client';
 import type { HistoryRuntimeMethods } from '@slicer/client';
 import type { PrinterService } from './printer';
 import type { PrinterConfigurationDocument } from './printer';
@@ -209,6 +209,7 @@ export function normalizeArrangementPreferences(value: unknown): ArrangementPref
 export interface RememberedFilamentRack {
   version: 1;
   slots: Array<{
+    mix?: StoredMixedFilament;
     preset: string;
     colour: string;
     native: { representative: string | null; multiColour: string | null; type: string | null };
@@ -344,14 +345,19 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
       if (rack.version !== 1 || !Array.isArray(rack.slots) || rack.slots.length === 0 || rack.slots.length > 64) continue;
       const slots = rack.slots.map((slot) => {
         if (!slot || typeof slot !== 'object') return null;
-        const item = slot as { preset?: unknown; colour?: unknown; native?: unknown };
+        const item = slot as { preset?: unknown; colour?: unknown; native?: unknown; mix?: unknown };
         if (typeof item.preset !== 'string' || !item.preset || typeof item.colour !== 'string' ||
             !/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(item.colour)) return null;
         if (!item.native || typeof item.native !== 'object' || Array.isArray(item.native)) return null;
         const native = item.native as Record<string, unknown>;
         if (!(['representative', 'multiColour', 'type'] as const).every((key) =>
           Object.hasOwn(native, key) && (native[key] === null || typeof native[key] === 'string'))) return null;
-        return { preset: item.preset, colour: item.colour,
+        const mix = item.mix as Partial<StoredMixedFilament> | undefined;
+        if (mix !== undefined && (!mix || typeof mix !== 'object' ||
+          typeof mix.filament_mixed_components !== 'string' || typeof mix.filament_mixed_sublayer_ratios !== 'string' ||
+          typeof mix.filament_mixed_gradient_curve !== 'string' || typeof mix.filament_mixed_gradient_range !== 'string' ||
+          typeof mix.filament_mixed_gradient !== 'boolean' || typeof mix.filament_mixed_gradient_per_part !== 'boolean')) return null;
+        return { preset: item.preset, colour: item.colour, ...(mix && { mix }),
           native: { representative: native.representative as string | null,
             multiColour: native.multiColour as string | null, type: native.type as string | null } };
       });

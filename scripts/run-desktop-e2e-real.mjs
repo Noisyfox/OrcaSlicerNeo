@@ -30,7 +30,7 @@ const functionalTestRuns = [
   ['e2e/plate-list.e2e.ts'],
   ['e2e/app.e2e.ts', '-g', 'real DRC flow'],
   ['e2e/app.e2e.ts', '-g', 'real STEP flow'],
-  ['e2e/multi-filament.e2e.ts', '-g', 'filament rack remains enabled during history restore'],
+  ['e2e/multi-filament.e2e.ts', '-g', 'filament rack remains enabled during history restore|mixed filament with the real utility worker'],
   ['e2e/project-load-proof.e2e.ts', '-g', 'commits the requested multi-plate project'],
   ['e2e/prepare-colour-project.e2e.ts', '-g', 'imported opaque RGBA slots colour Prepare models like the filament rack'],
   ['e2e/prime-tower-project.e2e.ts', '-g', 'opened project keeps prime-tower UI'],

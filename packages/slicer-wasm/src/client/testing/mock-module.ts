@@ -129,6 +129,9 @@ export interface MockModuleOptions {
   nozzleMappingMutation?: unknown;
   /** Optional raw mutation response override for client normalization tests. */
   filamentMutation?: unknown;
+  mixedFilamentPreview?: unknown;
+  mixTrianglePalette?: { width: number; height: number; pixels: Uint8Array };
+  mixRecommendations?: unknown;
   /** Optional raw project-configuration response override for normalization tests. */
   nativeScopedConfigOverride?: unknown;
   /** Optional raw Prime Tower projection override for normalization tests. */
@@ -1643,7 +1646,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         explicit_slot: 0, effective_slot: 1, inherited: true }))) : [];
     return {
       ok: true, version: 1,
-      slots: [{ logical_id: 'filament-1', slot: 1, preset: { is_project_embedded: false, is_user: false, id: 'Generic PLA @System', name: 'Generic PLA @System', label: 'Generic PLA', vendor: 'Generic' },
+      slots: [{ material_type: 'PLA', mix: null, logical_id: 'filament-1', slot: 1, preset: { is_project_embedded: false, is_user: false, id: 'Generic PLA @System', name: 'Generic PLA @System', label: 'Generic PLA', vendor: 'Generic' },
         colour: { effective: '#F2754E', provenance: 'preset',
           native: { representative: '#F2754E', multi_colour: '', type: '1' },
           display: { mode: 'solid', colors: ['#F2754E'] } } }],
@@ -1732,7 +1735,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const color = source.colour;
         const representative = color ? color.kind === 'solid' ? color.color : color.colors[0] : old?.colour.effective ?? '#26A69A';
         const multiple = color && color.kind !== 'solid';
-        return { logical_id: old?.logical_id ?? `filament-${nextFilamentIdentity++}`, slot: i + 1,
+        return { material_type: 'PLA', mix: null, logical_id: old?.logical_id ?? `filament-${nextFilamentIdentity++}`, slot: i + 1,
           preset: { is_user: false, is_project_embedded: false, id: preset, name: preset, label: filamentLabel(preset), vendor: filamentVendor(preset) },
           colour: color ? { effective: representative, provenance: 'user', native: { representative, multi_colour: multiple ? color.colors.join(' ') : representative, type: color.kind === 'linear-gradient' ? '0' : '1' },
             display: multiple ? { mode: color.kind === 'linear-gradient' ? 'gradient' : 'multicolor', colors: color.colors } : { mode: 'solid', colors: [representative] } } : old?.colour };
@@ -1808,7 +1811,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (next.slots.length >= next.capabilities.max_slots || !next.capabilities.flexible)
         return fail('filament slot capacity or capability rejected', 'capability_rejected');
       const colour = next.slots.at(-1)?.colour?.effective ?? '#26A69A';
-      next.slots.push({ logical_id: `filament-${nextFilamentIdentity++}`, slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: {
+      next.slots.push({ material_type: 'PLA', mix: null, logical_id: `filament-${nextFilamentIdentity++}`, slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: {
         effective: colour, provenance: 'preset',
         native: { representative: colour, multi_colour: colour, type: '1' },
         display: { mode: 'solid', colors: [colour] } } });
@@ -2390,7 +2393,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (selected.printer !== previousPrinter) {
         const memory = preparedWizardMemory.remembered_filament_racks[selected.printer];
         if (memory) rack.slots = memory.slots.map((slot: any, index: number) => ({ slot: index + 1,
-          logical_id: rack.slots[index]?.logical_id ?? `filament-${nextFilamentIdentity++}`,
+          material_type: 'PLA', mix: null, logical_id: rack.slots[index]?.logical_id ?? `filament-${nextFilamentIdentity++}`,
           preset: { is_project_embedded: false, is_user: false, id: slot.preset, name: slot.preset, label: filamentLabel(slot.preset), vendor: filamentVendor(slot.preset) },
           colour: rememberedSlotColour(slot) }));
         const capabilities = (snapshot() as any).bed_type;
@@ -2707,6 +2710,22 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_filament_slot_colour(requestJson: string) {
       return filamentMutation(requestJson, 'set-colour');
     },
+    orc_edit_mixed_filament() {
+      return opts.filamentMutation ?? { ok: false, version: 1, error: 'Missing mixed filament fixture',
+        error_code: 'invalid_command', status: {state: 'error', error: 'Missing mixed filament fixture'} };
+    },
+    orc_preview_mixed_filament(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      if (request.recommendations) return opts.mixRecommendations ?? [];
+      if (request.triangleColours) {
+        const palette = opts.mixTrianglePalette;
+        if (!palette) return { error: 'Missing mixed filament triangle fixture' };
+        const pointer = malloc(palette.pixels.length);
+        HEAPU8.set(palette.pixels, pointer);
+        return { width: palette.width, height: palette.height, pixels_ptr: pointer, pixels_length: palette.pixels.length };
+      }
+      return opts.mixedFilamentPreview ?? { error: 'Missing mixed filament preview fixture' };
+    },
     orc_add_filament_slot(requestJson: string) {
       return filamentMutation(requestJson, 'add');
     },
@@ -2727,7 +2746,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (request.slots.some((slot: any) => !rememberedSlotColour(slot)))
         return { ok: false, version: 1, error: 'invalid remembered filament slot', error_code: 'invalid_command', status: { state: 'error', error: 'invalid remembered filament slot' } };
       const next: any = clone(current);
-      next.slots = request.slots.map((slot: any, index: number) => ({ logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
+      next.slots = request.slots.map((slot: any, index: number) => ({ material_type: 'PLA', mix: null, logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
         preset: { is_project_embedded: false, is_user: false, id: slot.preset, name: slot.preset, label: filamentLabel(slot.preset), vendor: filamentVendor(slot.preset) }, colour: rememberedSlotColour(slot) }));
       const slotCount = next.slots.length;
       next.mappings.filament = Array(slotCount).fill(1);
@@ -3297,7 +3316,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ? request.remembered_rack.slots : undefined;
       if (requestedSlots?.length) {
         const slots = requestedSlots.map((item: any, index: number) => ({
-          logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
+          material_type: 'PLA', mix: null, logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
           preset: { is_project_embedded: false, is_user: false, id: item.preset, name: item.preset, label: filamentLabel(item.preset), vendor: filamentVendor(item.preset) },
           colour: rememberedSlotColour(item),
         }));
@@ -4383,7 +4402,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   });
   Object.assign(bridge, painting);
   for (const name of ['orc_history_begin', 'orc_history_session_open', 'orc_history_session_close', 'orc_history_undo', 'orc_history_redo', 'orc_history_jump',
-    'orc_delete_filament_slot', 'orc_merge_filament_slots', 'orc_add_filament_slot', 'orc_set_filament_slot_colour']) {
+    'orc_delete_filament_slot', 'orc_merge_filament_slots', 'orc_add_filament_slot', 'orc_edit_mixed_filament', 'orc_set_filament_slot_colour']) {
     const operation = bridge[name];
     bridge[name] = (...args) => paintingBusy ? { error: 'painting stroke is busy' } : operation(...args);
   }
@@ -4455,6 +4474,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_device_material_context: { ret: 'number', args: ['string'] },
     orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },
     orc_set_filament_slot_colour: { ret: 'number', args: ['string'] },
+    orc_edit_mixed_filament: { ret: 'number', args: ['string'] },
+    orc_preview_mixed_filament: { ret: 'number', args: ['string'] },
     orc_add_filament_slot: { ret: 'number', args: ['string'] },
     orc_delete_filament_slot: { ret: 'number', args: ['string'] },
     orc_merge_filament_slots: { ret: 'number', args: ['string'] },

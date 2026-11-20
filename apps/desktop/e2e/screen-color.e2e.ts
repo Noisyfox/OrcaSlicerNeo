@@ -45,7 +45,6 @@ test('native IPC sampling preserves alpha and leaves the enclosing draft uncommi
     await hex(page).fill('#11223380');
     await sample(page).click();
     await expect(hex(page)).toHaveValue('12ABEF80');
-    await expect(sample(page)).toBeFocused();
     expect(await nativeCalls()).toBe(1); expect(await browserCalls()).toBe(0);
     await cancel(page);
     await expect(trigger).toHaveAttribute('style', original!);

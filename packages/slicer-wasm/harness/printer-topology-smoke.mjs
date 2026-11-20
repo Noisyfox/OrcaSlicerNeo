@@ -16,7 +16,8 @@ function call(name, types = [], args = []) {
 const must = result => { assert.equal(result.ok, true, JSON.stringify(result)); return result; };
 must(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 must(call('orc_add_shape', ['string', 'string'], ['Cube', 'Topology']));
-let printer = 'Snapmaker U1 (0.4+0.6 nozzle)';
+// U1 supports independent materials. Use a fixed, four-head printer for rack resizing.
+let printer = 'Flashforge Creator 5 Pro 0.4 nozzle';
 const select = name => {
   must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ history_context: context, printer: name, remembered_rack: null, remembered_bed_type: null })]));
   printer = name;
@@ -50,7 +51,7 @@ assert.equal(beforeScoped.objects[String(objectId)].extruder, '4');
 setCount(2);
 assert.equal(count(), 2);
 assert.deepEqual(read().editor_vectors.nozzle_diameter.effective_values, [0.5,0.4]);
-assert.equal(read().editor_vectors.retraction_length.index_count, 4);
+assert.equal(read().editor_vectors.retraction_length.index_count, initial.editor_vectors.retraction_length.index_count / 2);
 assert.equal(rack().slots.length, 2);
 assert.equal(scoped().objects[String(objectId)].extruder, '1');
 assert.equal(scoped().project.support_filament, '0');
@@ -69,7 +70,7 @@ assert.equal(count(), 2);
 setCount(4);
 assert.equal(count(), 4);
 assert.equal(rack().slots.length, 4);
-assert.equal(read().editor_vectors.retraction_length.index_count, 8);
+assert.equal(read().editor_vectors.retraction_length.index_count, initial.editor_vectors.retraction_length.index_count);
 assert.equal(read().editor_vectors.nozzle_diameter.effective_values[0], 0.5);
 const stable = read();
 for (const value of ['0','65','-1','2.5','NaN','1e1',''])
@@ -106,6 +107,58 @@ mutate({action:'set',key:'extruders_count',value:'64'}, true, inactive);
 assert.equal(read(inactive).editor_vectors.nozzle_diameter.effective_values.length, 64);
 mutate({action:'reset-preset'}, true, inactive);
 
+// Fixed nozzles each need their own physical slot. Virtual recipes retain
+// their identity and assignments as physical slots are added and removed.
+select('DeltaMaker 2 0.35 nozzle');
+setCount(2);
+const filamentCommand = (name, fields) => must(call(name, ['string'], [JSON.stringify({
+  version: 1, revision: rack().revisions.session, ...fields,
+})])).result.snapshot;
+const recipe = { components: [1, 2], ratios: [60, 40], gradient: false, perPart: false, reverse: false, points: [] };
+const fixedMix = filamentCommand('orc_edit_mixed_filament', { recipe }).slots[2];
+filamentCommand('orc_assign_filament', { targets: [{ kind: 'object', id: objectId }], slot: 3 });
+must(call('orc_set_auto_flush_policy', ['string'], ['disabled']));
+const flush = () => must(call('orc_get_flushing_volumes', ['string'], [JSON.stringify({
+  version: 1, revision: rack().revisions.session,
+})]));
+const matrix = flush();
+matrix.matrix[2] = 321; // first physical slot -> virtual recipe in plane zero
+filamentCommand('orc_set_flushing_volumes', { matrix: matrix.matrix, multipliers: matrix.multipliers });
+function checkFixedRack(physical, components) {
+  const snapshot = rack();
+  assert.equal(snapshot.slots.length, physical + 1);
+  assert.ok(snapshot.slots.slice(0, physical).every(slot => slot.mix === null));
+  assert.equal(snapshot.slots[physical].logical_id, fixedMix.logical_id);
+  assert.deepEqual(snapshot.slots[physical].mix.components, components);
+  assert.deepEqual(snapshot.slots[physical].mix.ratios, recipe.ratios);
+  assert.equal(snapshot.assignments.objects[0].explicit_slot, physical + 1);
+}
+setCount(3);
+checkFixedRack(3, [1, 2]);
+assert.equal(flush().matrix[3], 321, 'the retained flush entry follows the virtual slot');
+const grownSlots = rack().slots;
+setCount(1);
+checkFixedRack(1, [1, 0]);
+must(call('orc_history_undo'));
+assert.deepEqual(rack().slots, grownSlots);
+checkFixedRack(3, [1, 2]);
+mutate({ action: 'set', key: 'extruders_count', value: '64' }, false);
+checkFixedRack(3, [1, 2]);
+const fixedPrinter = printer;
+const remembered = rack().slots.map(slot => ({ preset: slot.preset.name, colour: slot.colour.effective,
+  native: slot.colour.native, ...(slot.mix && { mix: slot.mix.storage }) }));
+select('Bambu Lab P1P 0.4 nozzle');
+must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({
+  history_context: context, printer: fixedPrinter, remembered_bed_type: null,
+  remembered_rack: { version: 1, slots: remembered },
+})]));
+printer = fixedPrinter;
+assert.equal(count(), 3);
+assert.equal(rack().slots.length, 4);
+assert.deepEqual(rack().slots[3].mix.storage, fixedMix.mix.storage);
+filamentCommand('orc_edit_mixed_filament', { operation: 'delete-all' });
+mutate({ action: 'reset-preset' });
+
 // Bambu SEMM and physical head count are independent, including after toggles.
 select('Bambu Lab H2D 0.4 nozzle');
 assert.equal(count(), 2);
@@ -120,7 +173,12 @@ assert.deepEqual(rack().slots, bambuRack);
 mutate({action:'reset-preset'});
 assert.equal(count(), 2);
 assert.equal(read().effective_values.single_extruder_multi_material, '1');
+// Round-trip and slice the editable fixed topology. The H2D profiles
+// above target specific left/right hardware and filament mappings.
+select('DeltaMaker 2 0.35 nozzle');
 setCount(3);
+must(call('orc_clear_model'));
+must(call('orc_add_shape', ['string', 'string'], ['Cube', 'Fixed topology']));
 const exported = must(call('orc_export_project', ['string'], ['{}']));
 console.log('topology export passed');
 const archive = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
@@ -132,8 +190,8 @@ finally { Module._free(pointer); }
 printer = must(call('orc_get_preset_snapshot')).printer.name;
 console.log('topology 3MF reload passed');
 assert.equal(count(), 3, '3MF retains a structural draft differing from its installed source');
-assert.equal(read().effective_values.single_extruder_multi_material, '1');
-const prepared = must(call('orc_prepare_user_preset', ['string'], [JSON.stringify({history_context:context,action:'save-as',kind:'printer',canonical_name:printer,name:'Topology H2D',expected_revision:read().revision})]));
+assert.equal(read().effective_values.single_extruder_multi_material, '0');
+const prepared = must(call('orc_prepare_user_preset', ['string'], [JSON.stringify({history_context:context,action:'save-as',kind:'printer',canonical_name:printer,name:'Topology DeltaMaker',expected_revision:read().revision})]));
 assert.equal(JSON.parse(prepared.changes.find(change => change.content !== null).content).nozzle_diameter.length, 3);
 must(call('orc_finish_user_preset', ['string'], [JSON.stringify({token:prepared.token,commit:true})]));
 printer = must(call('orc_get_preset_snapshot')).printer.name;

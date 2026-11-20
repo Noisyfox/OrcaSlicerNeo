@@ -15,7 +15,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('PointerEvent', MouseEvent);
   mocked.state = { phase: 'idle', channel: 'mmu', session: null, tool: 'circle', settings: { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0, overhangAngle: 0, restrictToOverhangs: false }, error: null, display: null, epoch: 0 };
-  useFilamentSessionStore.setState({ snapshot: { slots: Array.from({ length: 18 }, (_, i) => ({ slot: i + 1, preset: { name: 'PLA', label: 'PLA', vendor: '', id: `${i}` }, colour: { effective: '#ff0000', provenance: 'user', native: { representative: '#ff0000', multiColour: '#ff0000', type: '1' }, display: { mode: 'solid', colors: ['#ff0000'] } } })) } as unknown as FilamentSessionSnapshot });
+  useFilamentSessionStore.setState({ snapshot: { slots: Array.from({ length: 33 }, (_, i) => ({ slot: i + 1, preset: { name: 'PLA', label: 'PLA', vendor: '', id: `${i}` }, colour: { effective: '#ff0000', provenance: 'user', native: { representative: '#ff0000', multiColour: '#ff0000', type: '1' }, display: { mode: 'solid', colors: ['#ff0000'] } } })) } as unknown as FilamentSessionSnapshot });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); useFilamentSessionStore.getState().reset(); vi.unstubAllGlobals(); });
@@ -31,12 +31,26 @@ describe('surface painting panel', () => {
     expect([...choice.querySelectorAll<HTMLElement>('span[style]')].map((span) => span.style.backgroundImage))
       .toContain('linear-gradient(90deg, #ff0000, #0000ff)');
   });
-  it('offers all six tools, first sixteen palette entries and the limit explanation', async () => {
+  it('uses the native recipe ramp and assigns its virtual slot', async () => {
+    const snapshot = useFilamentSessionStore.getState().snapshot!;
+    const ramp = ['#aa1111', '#996644', '#1111aa'];
+    useFilamentSessionStore.setState({ snapshot: { ...snapshot, slots: snapshot.slots.map(slot => slot.slot !== 3 ? slot :
+      { ...slot, mix: {components:[1,2], ratios:[50,50], gradient:true, perPart:false, reverse:false, points:[], storage: { filament_mixed_components: '1,2', filament_mixed_sublayer_ratios: '50,50',
+        filament_mixed_gradient: true, filament_mixed_gradient_per_part: false, filament_mixed_gradient_range: '', filament_mixed_gradient_curve: '' }, error:'', ramp} }) } });
+    await render();
+    const choice = container.querySelectorAll<HTMLElement>('[aria-label="Painting filament"] label')[2];
+    expect(choice.title).toContain(ramp.join(' → '));
+    await act(async () => choice.querySelector<HTMLElement>('[role="radio"]')!.click());
+    expect(mocked.controller.setSettings).toHaveBeenCalledWith({state:3});
+  });
+  it('offers all six tools, first 32 palette entries and the limit explanation', async () => {
     await render();
     expect(container.querySelectorAll('[aria-label="Painting tool"] [role="radio"]')).toHaveLength(6);
     const palette = container.querySelector('[aria-label="Painting filament"]')!;
-    expect(palette.querySelectorAll('[role="radio"]')).toHaveLength(16); expect(palette.textContent).toContain('Paint filament 16');
-    expect(container.textContent).toContain('supports filaments 1–16');
+    expect(palette.querySelectorAll('[role="radio"]')).toHaveLength(32); expect(palette.textContent).toContain('Paint filament 32');
+    await act(async () => palette.querySelectorAll<HTMLElement>('[role="radio"]')[31].click());
+    expect(mocked.controller.setSettings).toHaveBeenCalledWith({ state: 32 });
+    expect(container.textContent).toContain('supports filaments 1–32');
     await act(async () => (container.querySelector('[data-testid="painting-tool-region"]') as HTMLElement).click());
     expect(mocked.controller.setTool).toHaveBeenCalledWith('region');
   });

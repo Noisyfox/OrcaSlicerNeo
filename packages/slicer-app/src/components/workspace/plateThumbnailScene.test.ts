@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
+import { mappedThumbnailRack } from '../send/PrintThumbnail';
+import type { FilamentSessionSnapshot } from '@slicer/client';
 import { createPlateThumbnailScene, projectPlateThumbnail } from './plateThumbnailScene';
 import type { GLVolume } from './viewport/GLVolume';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 
 describe('plate thumbnail scene', () => {
-  it('filters auxiliary/unprintable/outside parts and preserves image identity through plate grid reflow', () => {
+  it('filters unavailable parts, preserves grid identity and renders mapped mix colours', async () => {
     const transform = { offset: [10, 20, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
     const geometry = new THREE.BoxGeometry();
     const volume = { kind: 'model', buffer: { objectId: 1, volumeId: 2, instanceId: 3, objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },
@@ -14,6 +16,20 @@ describe('plate thumbnail scene', () => {
     const session = { plates: [{ plateId: 'a', origin: [0, 0, 0] }], instances: [{ instanceId: 3, objectIndex: 0, instanceIndex: 0, member: true, plateId: 'a' }] } as unknown as PlateSessionSnapshot;
     const first = projectPlateThumbnail('a', [volume], structure, session, null);
     expect(first.parts).toHaveLength(1);
+    const rack = { slots: ['#ff0000', '#0000ff', '#880077'].map((effective, i) => ({
+      slot: i + 1, colour: { effective }, mix: i === 2 ? { components: [1, 2], ratios: [60, 40], error: '' } : null,
+    })), assignments: { objects: [{ id: 1, effectiveSlot: 3 }], parts: [] } } as unknown as FilamentSessionSnapshot;
+    const previewMixedFilament = vi.fn(async () => ({ colour: '#ffaaaa', ramp: [], samples: [] }));
+    const mapped = await mappedThumbnailRack(rack, { requirements: { materials: [{ index: 1, key: 'blue' }] },
+      bindings: [{ materialKey: 'blue', pathId: 'white-tray' }],
+      candidates: [{ materialKey: 'blue', pathId: 'white-tray', color: '#ffffff' }],
+      runtime: { previewMixedFilament } } as unknown as Parameters<typeof mappedThumbnailRack>[1]);
+    expect(previewMixedFilament).toHaveBeenCalledWith(rack.slots[2].mix, ['#ff0000', '#ffffff']);
+    const image = projectPlateThumbnail('a', [volume], structure, session, mapped);
+    expect(image.parts[0].materials[0].colour.toLowerCase()).toBe('#ffaaaa');
+    expect(image.key).not.toBe(projectPlateThumbnail('a', [volume], structure, session, rack).key);
+    expect(rack.slots[1].colour.effective).toBe('#0000ff');
+    expect(rack.slots[2].colour.effective).toBe('#880077');
     const moved = { ...volume, instanceTransform: { ...transform, offset: [274, 20, 0] } } as GLVolume;
     const reflowed = { ...session, plates: [{ ...session.plates[0], origin: [264, 0, 0] }] } as PlateSessionSnapshot;
     expect(projectPlateThumbnail('a', [moved], structure, reflowed, null).key).toBe(first.key);

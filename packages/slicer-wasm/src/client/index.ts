@@ -11,6 +11,7 @@ export type {
   ArrangementRequest, ArrangementResult, ArrangementParkingReason, ArrangementPlateSessionMutation,
   ModelMutationResult, ModelPlateSessionMutation, InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot, PrinterPicker, BedTypeCapabilities,
   FilamentColourProvenance, FilamentNativeColour, FilamentColourDisplay,
+  ColorDecomposeQuery, ColorDecomposeProposal, MixedFilamentRecipe, StoredMixedFilament, MixedFilamentPoint, MixedFilamentPreview, MixedFilamentRequest, MixedFilamentRecommendation, MixedFilamentTrianglePalette,
   FilamentSessionSlot, FilamentNativeMapping,
   AutoFlushPolicy, FlushingVolumesSnapshot, FlushingVolumesSnapshotResult, FlushingVolumesRequest, FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,
   FilamentAssignmentProjection, FilamentAssignmentProjectionSet,
@@ -85,6 +86,7 @@ export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSes
   PaintingSessionRequest, PaintingTargetRequest, PaintingPartMetadata, PaintingSessionMetadata,
   PaintingSessionResult, PaintingSessionCloseResult } from './painting';
 
+export { PAINTING_MAX_STATE } from './painting';
 export type * from './painting';
 export type * from './measure';
 

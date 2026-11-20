@@ -28,7 +28,7 @@ import { ADD_VOLUME_MENUS, addVolumeAnchor, addVolumeInList } from './addVolumeA
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { PRIMITIVE_TYPES } from '../actions/sceneActions';
 import { PRIMITIVE_ICONS } from '../primitiveIcons';
-import { FilamentSwatch } from '../FilamentSwatch';
+import { FilamentChoiceContent, filamentSlotChoice } from '../FilamentSwatch';
 
 export type ObjectListCtxTarget =
   | { kind: 'list' }
@@ -109,7 +109,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
         : [];
     if (targets.length === 0) return [];
     const slotChoices = filamentSnapshot.slots.map((slot) => ({
-      slot: slot.slot, label: `${slot.slot} - ${slot.preset.name}`, display: slot.colour.display,
+      slot: slot.slot, ...filamentSlotChoice(slot),
     }));
     const choices = target.kind === 'part'
       ? [{ slot: 0, label: 'Default', display: null }, ...slotChoices]
@@ -117,10 +117,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
     const entries = choices.map(({ slot, label, display }) => (
       <MenuItem
         key={`filament-${slot}`}
-        label={<>
-          {display !== null && <FilamentSwatch display={display} className="size-3.5 shrink-0 rounded-xs border border-foreground/20" />}
-          {label}
-        </>}
+        label={<FilamentChoiceContent display={display} label={label} />}
         testid={`objectlist-change-filament-${slot === 0 ? 'default' : slot}`}
         onClick={() => {
           void assignFilamentInList(runtime, targets, slot);

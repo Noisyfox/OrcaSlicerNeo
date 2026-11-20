@@ -69,7 +69,7 @@ The reusable architecture separates:
 
 | Feature | Native annotation | State semantics |
 | --- | --- | --- |
-| Multi-material | `mmu_segmentation_facets` | 0 default; 1–16 explicit material slots |
+| Multi-material | `mmu_segmentation_facets` | 0 default; 1–32 explicit material slots |
 | Support | `supported_facets` | 0 default; 1 enforce; 2 block |
 | Seam | `seam_facets` | 0 default; 1 enforce; 2 block |
 | Fuzzy skin | `fuzzy_skin_facets` | 0 unpainted; 1 enabled; no blocker state |
@@ -250,7 +250,7 @@ MMU. Expose each entry only when its complete boundary passes
 acceptance.
 
 All three new channels permit single-filament projects. MMU retains its
-at-least-two-slot entry gate and 1–16 explicit palette. Support and seam panels
+at-least-two-slot entry gate and 1–32 explicit palette. Support and seam panels
 provide explicit Enforce, Block and Erase choices; fuzzy provides Enable and
 Erase. Left-button painting applies that choice; Shift plus left locally erases.
 Retain Neo middle/right-drag pan and Ctrl/Cmd plus wheel controls. Do not import
@@ -422,20 +422,16 @@ gizmo open and permits continued painting with the remaining slot. Do not reuse
 the entry gate as an ongoing-session closure condition. Reopening after closure
 still requires at least two slots.
 
-The project retains its existing 64-slot capability, but the first-release
-multi-material painter permits explicit painting only with slots 1 through 16,
-matching Orca's supported facet-state range. Projects with more than 16 slots
-may still open the gizmo; show an explanation and expose only the first 16 as
-explicit paint choices. Do not extend the native painting format to 64 states
-as part of this release. Unpainted state zero continues to resolve through the
-part's effective project material assignment. Enforce the 16-state upper limit
-at native write and remapping boundaries, not only in the palette. A slot
-operation that would produce an explicit facet state greater than 16 after
-remapping and renumbering is rejected atomically before applying any slot,
-annotation, or history changes. Report the blocking painting reference; do not
-clear painting or partially apply the operation to fit the limit. Check actual
-affected explicit facet references: a project with more than 16 slots or an
-unpainted part assigned to a higher slot is not itself an invalid paint state.
+Projects support up to 64 material slots. The MMU painter offers slots 1–32,
+matching Orca's native facet encoding. When a project has more than 32 slots,
+the panel explains the limit. Unpainted facets (state zero) inherit the part's
+effective material assignment across the full project slot range.
+
+Validate explicit facet states on native writes and after slot renumbering.
+A merge whose final destination exceeds 32 is valid when its source has no
+explicitly painted facets. If it would move painted facets beyond slot 32,
+report the blocking reference and reject the transaction before changing the
+rack, annotations, or history.
 
 Painting mode displays only the active editing instance. Other objects and
 other instances of the same object are hidden through the shared
@@ -1144,12 +1140,12 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   and explicit-mode local erasing, and whole-object Erase all.
 - Tool parameters survive gizmo closure/reopening and object changes within
   the application run, reset on restart, and never enter project persistence or
-  history. Projects above 16 slots can open painting, with explicit paint choices
-  restricted to slots 1-16 and an explanation of that restriction.
+  history. Projects above 32 slots can open painting, with explicit paint choices
+  restricted to slots 1-32 and an explanation of that restriction.
 - The selected painting filament survives same-project closure/reopening and
   object changes, follows slot remapping, and falls back to slot 1 when no longer
   selectable. New/opened projects start at slot 1 without a history mutation.
-- Native writes reject explicit paint states above 16. Slot remapping validates
+- Native writes reject explicit paint states above 32. Slot remapping validates
   the final renumbered references and rejects an unsupported result atomically,
   preserving all annotations, slots, and history. State-zero inheritance from a
   higher project slot remains valid.

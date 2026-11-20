@@ -20,8 +20,20 @@ export function rawFlushVolume(display: number, ratio: number): number {
   return ratio === 0 ? 0 : Math.round(display / ratio);
 }
 
-export function flushingModified(editor: FlushingVolumesSnapshot): boolean {
-  return editor.multipliers.some(value => value !== 1) || editor.matrix.some((value, i) => value !== editor.defaults[i]);
+type RackFlushSnapshot = FlushingVolumesSnapshot & { slots?: readonly { mix: object | null }[] };
+
+function physicalPair(editor: RackFlushSnapshot, index: number) {
+  return !editor.slots?.[Math.floor(index / editor.dimension) % editor.dimension]?.mix &&
+    !editor.slots?.[index % editor.dimension]?.mix;
+}
+
+export function recalculateFlushPlane(editor: RackFlushSnapshot, matrix: number[], plane: number) {
+  return matrix.map((value, i) => Math.floor(i / (editor.dimension ** 2)) === plane && physicalPair(editor, i)
+    ? editor.defaults[i] : value);
+}
+
+export function flushingModified(editor: RackFlushSnapshot): boolean {
+  return editor.multipliers.some(value => value !== 1) || editor.matrix.some((value, i) => physicalPair(editor, i) && value !== editor.defaults[i]);
 }
 
 function MaterialHeader({ slot }: { slot: FilamentSessionSlot }) {
@@ -49,7 +61,7 @@ export function FlushingVolumesDialog({ onClose }: { onClose: () => void }) {
       const result = await readFlushingVolumes(runtime);
       if (!active) return;
       if (!result.ok) { setError(result.error); return; }
-      setSlots(result.slots); setEditor(result); setMatrix([...result.matrix]); setMultipliers([...result.multipliers]);
+      setSlots(result.slots.filter(slot => !slot.mix)); setEditor(result); setMatrix([...result.matrix]); setMultipliers([...result.multipliers]);
     })().catch(e => { if (active) setError(String(e)); });
     return () => { active = false; };
   }, [runtime]);
@@ -67,7 +79,7 @@ export function FlushingVolumesDialog({ onClose }: { onClose: () => void }) {
     try {
       const result = await readFlushingVolumes(runtime, editor.revision);
       if (!result.ok) { setError(result.error); return; }
-      setMatrix(previous => previous.map((value, i) => Math.floor(i / (n * n)) === plane ? result.defaults[i] : value));
+      setMatrix(previous => recalculateFlushPlane(result, previous, plane));
       setInputEpoch(previous => previous + 1);
       setInvalidInputs(previous => new Set([...previous].filter(key => key === 'multiplier' || Math.floor(Number(key) / (n * n)) !== plane)));
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
@@ -103,9 +115,10 @@ export function FlushingVolumesDialog({ onClose }: { onClose: () => void }) {
             <TableHead className="sticky left-0 bg-card">From / To</TableHead>
             {slots.map(slot => <TableHead key={slot.logicalId}><MaterialHeader slot={slot} /></TableHead>)}
           </TableRow></TableHeader><TableBody>
-            {slots.map((slot, from) => <TableRow key={slot.logicalId}>
+            {slots.map(slot => <TableRow key={slot.logicalId}>
               <TableHead className="sticky left-0 bg-card"><MaterialHeader slot={slot} /></TableHead>
-              {slots.map((target, to) => {
+              {slots.map(target => {
+                const from = slot.slot - 1, to = target.slot - 1;
                 const index = plane * n * n + from * n + to;
                 const value = from === to ? 0 : displayedFlushVolume(matrix[index], ratio, editor.maximum);
                 const expected = displayedFlushVolume(editor.defaults[index], ratio, editor.maximum);

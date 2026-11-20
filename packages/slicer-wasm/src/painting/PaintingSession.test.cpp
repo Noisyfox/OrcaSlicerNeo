@@ -453,10 +453,10 @@ void engine_tests() {
     settings.radius = .8;
     const auto unrelated_selector = f.s().parts[1].selector;
     f.begin(Tool::Circle, settings, top(1, 5));
-    settings.state = 16; settings.radius = .5;
+    settings.state = 17; settings.radius = .5;
     f.sample(settings, top(9, 5));
     CHECK(f.s().parts[1].selector == unrelated_selector);
-    CHECK(f.s().parts[0].facet_counts()[1] > 0 && f.s().parts[0].facet_counts()[16] > 0);
+    CHECK(f.s().parts[0].facet_counts()[1] > 0 && f.s().parts[0].facet_counts()[17] > 0);
     const auto center_hit = *f.sessions.pick(f.s(), top(5.2, 5.1));
     const int center_facet = center_hit.original_facet;
     const Vec3f center_point = center_hit.local.cast<float>();
@@ -465,7 +465,7 @@ void engine_tests() {
     TriangleSelector expected(*f.s().parts[0].mesh);
     expected.deserialize(f.s().parts[0].selector->serialize());
     expected.bucket_fill_select_triangles(center_point, center_facet, {}, -1, false, true);
-    expected.seed_fill_apply_on_triangles(EnforcerBlockerType::Extruder16);
+    expected.seed_fill_apply_on_triangles(EnforcerBlockerType::Extruder17);
     CHECK(expected.serialize() == f.s().parts[0].selector->serialize());
     f.cancel();
     f.begin(Tool::Circle, settings, top(1, 5));
@@ -595,23 +595,23 @@ void engine_tests() {
 
     Fixture gap;
     gap.part->set_mesh(TriangleMesh(its_make_cube(2.,2.,2.)));
-    NativeSelector painted(gap.part->mesh()); painted.set_facet(0, EnforcerBlockerType::Extruder16);
+    NativeSelector painted(gap.part->mesh()); painted.set_facet(0, EnforcerBlockerType::Extruder32);
     painted.set_facet(1, EnforcerBlockerType::Extruder2); // Competes with state zero as a neighbor.
     gap.part->mmu_segmentation_facets.set(painted);
     auto* gap_second = gap.object->add_volume(TriangleMesh(its_make_cube(2.,2.,2.)));
     gap_second->mmu_segmentation_facets.set(painted);
     gap.open(); settings.gap_area = 2.;
     gap.preview(Tool::Gap, settings);
-    CHECK(gap.s().preview->selectors[0]->num_facets(EnforcerBlockerType::Extruder16) == 1); // strict <
+    CHECK(gap.s().preview->selectors[0]->num_facets(EnforcerBlockerType::Extruder32) == 1); // strict <
     settings.gap_area = 2.01;
     gap.preview(Tool::Gap, settings);
-    CHECK(gap.s().preview->selectors[0]->num_facets(EnforcerBlockerType::Extruder16) == 0);
-    CHECK(gap.s().parts[0].facet_counts()[16] == 1);
+    CHECK(gap.s().preview->selectors[0]->num_facets(EnforcerBlockerType::Extruder32) == 0);
+    CHECK(gap.s().parts[0].facet_counts()[32] == 1);
     auto gap_expected = gap.s().preview->selectors[0]->serialize();
     gap.sessions.publish(gap.sessions.prepare_begin(gap.s().id, gap.s().revision, Tool::Gap, settings, {}, gap.s().revision));
     CHECK(gap.s().phase == Phase::Finished && gap.s().changed_parts.size() == 2);
     CHECK(gap.s().parts[0].selector->serialize() == gap_expected);
-    CHECK(gap.s().parts[1].facet_counts()[16] == 0); gap.cancel();
+    CHECK(gap.s().parts[1].facet_counts()[32] == 0); gap.cancel();
     gap.begin(Tool::EraseAll, settings); CHECK(gap.s().changed_parts.size() == 2); gap.cancel();
     CHECK(gap.part->mmu_segmentation_facets.get_data() == painted.serialize());
     settings.gap_area = 5.01; THROWS(gap.sessions.prepare_preview(gap.s().id, gap.s().revision, Tool::Gap, settings, {}));
@@ -915,7 +915,7 @@ int main() {
     instance->printable = false;
     instance->set_offset(Vec3d(10000, -10000, 0));
     TriangleSelector painted(part->mesh());
-    painted.set_facet(0, EnforcerBlockerType::Extruder16);
+    painted.set_facet(0, EnforcerBlockerType::Extruder32);
     part->mmu_segmentation_facets.set(painted);
     const auto annotation_time = part->mmu_segmentation_facets.timestamp();
     const auto data = part->mmu_segmentation_facets.get_data();
@@ -928,7 +928,7 @@ int main() {
     CHECK(!sessions.current()); // Preparation does not publish on allocation failure.
     const auto id = candidate->id;
     CHECK(candidate->parts.size() == 2);
-    CHECK(candidate->parts[0].facet_counts()[16] == 1);
+    CHECK(candidate->parts[0].facet_counts()[32] == 1);
     CHECK(candidate->parts[0].facet_counts()[0] == 11);
     CHECK(candidate->parts[1].volume_id == second->id().id);
     sessions.publish(std::move(candidate));
@@ -939,9 +939,9 @@ int main() {
     THROWS(sessions.require(id + 1, 1));
     THROWS(sessions.require(id, 2));
     THROWS(validate_state(Channel::Mmu, -1));
-    THROWS(validate_state(Channel::Mmu, 17));
+    THROWS(validate_state(Channel::Mmu, 33));
     validate_state(Channel::Mmu, 0);
-    validate_state(Channel::Mmu, 16);
+    validate_state(Channel::Mmu, 32);
     THROWS(sessions.prepare_target(model, id, 1, 999999, instance_id));
     CHECK(sessions.current()->revision == 1);
     auto rebound = sessions.prepare_target(model, id, 1, object_id, another_instance->id().id);

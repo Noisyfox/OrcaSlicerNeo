@@ -44,6 +44,7 @@ import type {
   PreviewAnalysis, PreviewMetricKey,
   PreviewTextChunk, PreviewTextChunkRequest,
   PreviewTextLines, PreviewTextLinesRequest,
+  ColorDecomposeQuery, ColorDecomposeProposal, MixedFilamentRecipe, MixedFilamentRequest, MixedFilamentRecommendation,
   FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
   FilamentAssignmentProjection, FilamentRoutingProjection,
   FilamentMutationResultOrError, FilamentMutationResult,
@@ -352,6 +353,12 @@ function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrEr
   return result as NativeScopedConfigResultOrError;
 }
 
+function encodeRememberedSlot({ preset, colour, native, mix }: import('./types').RememberedFilamentSlot) {
+  return { preset, colour, mix, native: {
+    representative: native.representative, multi_colour: native.multiColour, type: native.type,
+  } };
+}
+
 function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult;
 function normalizeFilamentSessionResult(raw: unknown, includeReferences: false): FilamentSessionOrdinaryEdit | FilamentSessionSnapshotError;
 function normalizeFilamentSessionResult(raw: unknown, includeReferences = true): FilamentSessionSnapshotResult | FilamentSessionOrdinaryEdit {
@@ -407,7 +414,21 @@ function normalizeFilamentSessionResult(raw: unknown, includeReferences = true):
         (d.mode === 'solid' && d.colors.length !== 1)) return null;
     if (typeof p.is_project_embedded !== 'boolean' || typeof p.is_user !== 'boolean' || typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.label !== 'string' || typeof p.vendor !== 'string' || typeof c.effective !== 'string' ||
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
+    if (typeof item.material_type !== 'string') return null;
+    const mix = item.mix;
+    const storage = isRecord(mix) && isRecord(mix.storage) ? mix.storage : null;
+    if (mix !== null && (!isRecord(mix) || !storage ||
+        !['filament_mixed_components', 'filament_mixed_sublayer_ratios', 'filament_mixed_gradient_curve',
+          'filament_mixed_gradient_range'].every(key => typeof storage[key] === 'string') ||
+        typeof storage.filament_mixed_gradient !== 'boolean' || typeof storage.filament_mixed_gradient_per_part !== 'boolean' ||
+        !integerArray(mix.components) || !integerArray(mix.ratios) ||
+        typeof mix.gradient !== 'boolean' || typeof mix.reverse !== 'boolean' || typeof mix.perPart !== 'boolean' ||
+        typeof mix.error !== 'string' || !Array.isArray(mix.ramp) || !mix.ramp.every(validHex) ||
+        !Array.isArray(mix.points) || !mix.points.every(p => isRecord(p) && Number.isFinite(p.x) &&
+          Number.isFinite(p.y) && (p.in === null || Number.isFinite(p.in)) && (p.out === null || Number.isFinite(p.out)))))
+      return null;
     return { logicalId: item.logical_id as string, slot: item.slot as number,
+      mix: mix as FilamentSessionSlot['mix'], materialType: item.material_type,
       preset: { isProjectEmbedded: p.is_project_embedded, isUser: p.is_user, id: p.id, name: p.name, label: p.label, vendor: p.vendor },
       colour: { effective: c.effective, provenance: c.provenance,
         native: { representative: n.representative as string | null,
@@ -461,7 +482,7 @@ function normalizeFilamentSessionResult(raw: unknown, includeReferences = true):
   if (maxSlots !== 64 || slotCount < minSlots || slotCount > maxSlots ||
       (flexible
         ? (minSlots !== 1 || cap.can_add !== (slotCount < maxSlots) ||
-           cap.can_delete !== (slotCount > 1) || cap.can_merge !== (slotCount > 1))
+           cap.can_delete !== (orderedSlots.filter(slot => !slot.mix).length > 1) || cap.can_merge !== (slotCount > 1))
         : (minSlots !== nozzleCount || slotCount < nozzleCount ||
            cap.can_add !== false || cap.can_delete !== false || cap.can_merge !== false)))
     return { ok: false, error: 'inconsistent filament session capabilities' };
@@ -605,7 +626,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     return { ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' };
   if (historyStatus.revision !== mutation.revision_after || historyStatus.dirty !== mutation.dirty)
     return { ok: false, version: 1, error: 'filament mutation history status does not match receipt', errorCode: 'invalid_response' };
-  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing', 'flushing', 'synchronize']);
+  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing', 'flushing', 'synchronize', 'save-mix', 'delete-mixes']);
   if (!validMutationKinds.has(String(mutation.kind)))
     return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
   const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
@@ -614,6 +635,8 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     'select-preset': [...baseKeys, 'slot', 'preset'],
     'set-colour': [...baseKeys, 'slot', 'colour'],
     add: [...baseKeys, 'slot'],
+    'save-mix': [...baseKeys, 'slot'],
+    'delete-mixes': baseKeys,
     delete: [...baseKeys, 'source', 'destination', 'slot_count'],
     merge: [...baseKeys, 'source', 'destination', 'slot_count'],
     flushing: baseKeys,
@@ -628,14 +651,18 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     return { ok: false, version: 1, error: 'missing filament mutation field', errorCode: 'invalid_response' };
   if (mutation.kind !== 'assign' && mutation.kind !== 'routing' && mutation.all_plate_results_invalidated !== !noChange)
     return { ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' };
-  const requireSlot = mutation.kind === 'select-preset' || mutation.kind === 'set-colour' || mutation.kind === 'add' ||
+  const requireSlot = mutation.kind === 'save-mix' || mutation.kind === 'select-preset' || mutation.kind === 'set-colour' || mutation.kind === 'add' ||
     mutation.kind === 'assign' || mutation.kind === 'routing';
   const minimumSlot = mutation.kind === 'assign' || mutation.kind === 'routing' ? 0 : 1;
   if (requireSlot && (!Number.isSafeInteger(mutation.slot) || Number(mutation.slot) < minimumSlot))
     return { ok: false, version: 1, error: 'invalid filament mutation slot', errorCode: 'invalid_response' };
   if (requireSlot && Number(mutation.slot) > snapshot.slots.length)
     return { ok: false, version: 1, error: 'invalid filament mutation slot range', errorCode: 'invalid_response' };
-  if (mutation.kind === 'add' && Number(mutation.slot) !== snapshot.slots.length)
+  if (mutation.kind === 'save-mix' && !snapshot.slots[Number(mutation.slot) - 1].mix)
+    return { ok: false, version: 1, error: 'missing saved recipe', errorCode: 'invalid_response' };
+  if (mutation.kind === 'delete-mixes' && snapshot.slots.some(slot => slot.mix))
+    return { ok: false, version: 1, error: 'incomplete mixed filament deletion', errorCode: 'invalid_response' };
+  if (mutation.kind === 'add' && Number(mutation.slot) !== snapshot.slots.filter(s => !s.mix).length)
     return { ok: false, version: 1, error: 'invalid filament add slot', errorCode: 'invalid_response' };
   if (mutation.kind === 'select-preset' && (!has('preset') || typeof mutation.preset !== 'string' || mutation.preset.length === 0))
     return { ok: false, version: 1, error: 'invalid filament mutation preset', errorCode: 'invalid_response' };
@@ -2449,6 +2476,57 @@ export function createClient(
       return normalizeFilamentMutationResult(callJson(m, 'orc_set_filament_slot_colour', ['string'], [JSON.stringify(request)]));
     },
 
+    async editMixedFilament(request: MixedFilamentRequest) {
+      return normalizeFilamentMutationResult(callJson(await module(), 'orc_edit_mixed_filament', ['string'], [JSON.stringify(request)]));
+    },
+
+    async previewMixedFilament(request: MixedFilamentRecipe, componentColours?: readonly string[]) {
+      const raw = callJson(await module(), 'orc_preview_mixed_filament', ['string'], [JSON.stringify({ ...request, componentColours })]);
+      if (isRecord(raw) && typeof raw.error === 'string') return { error: raw.error };
+      if (!isRecord(raw) || !Array.isArray(raw.samples) || !raw.samples.every(Number.isFinite) ||
+          typeof raw.colour !== 'string' || !Array.isArray(raw.ramp) || !raw.ramp.every(c => typeof c === 'string'))
+        throw new Error('Invalid mixed filament preview');
+      return { colour: raw.colour, ramp: raw.ramp as string[], samples:raw.samples as number[] };
+    },
+
+    async getMixTrianglePalette(colours: readonly [string, string, string]) {
+      const m = await module();
+      const raw = callJson(m, 'orc_preview_mixed_filament', ['string'], [JSON.stringify({ triangleColours: colours })]);
+      if (isRecord(raw) && typeof raw.error === 'string') throw new Error(raw.error);
+      if (!isRecord(raw) || typeof raw.pixels_ptr !== 'number' ||
+          !Number.isSafeInteger(raw.pixels_ptr) || raw.pixels_ptr <= 0 || raw.pixels_ptr >= m.HEAPU8.length)
+        throw new Error('Invalid mixed filament triangle palette');
+      const pointer = raw.pixels_ptr;
+      const { width, height, pixels_length: length } = raw;
+      if (typeof width !== 'number' || typeof height !== 'number' || typeof length !== 'number' ||
+          !Number.isSafeInteger(width) || width <= 0 || !Number.isSafeInteger(height) || height <= 0 ||
+          length !== width * height * 4 || length > m.HEAPU8.length - pointer) {
+        m._free(pointer);
+        throw new Error('Invalid mixed filament triangle palette dimensions');
+      }
+      return { width, height, pixels: new Uint8ClampedArray(readBytes(m, pointer, length).buffer) };
+    },
+
+    async previewColorDecomposition(query: ColorDecomposeQuery) {
+      const raw = callJson(await module(), 'orc_preview_mixed_filament', ['string'], [JSON.stringify({decompose:query})]);
+      if (!isRecord(raw) || typeof raw.error !== 'string') throw new Error('Invalid colour decomposition response');
+      if (!('recipe' in raw)) return { error: raw.error };
+      if (!isRecord(raw.recipe) || !Array.isArray(raw.recipe.components) || !Array.isArray(raw.recipe.ratios) ||
+          typeof raw.target !== 'string' || typeof raw.matched !== 'string' || !Array.isArray(raw.additions) ||
+          !raw.additions.every(a=>isRecord(a) && typeof a.name === 'string' && typeof a.colour === 'string' && typeof a.preset === 'string'))
+        throw new Error('Invalid colour decomposition proposal');
+      return raw as unknown as ColorDecomposeProposal;
+    },
+
+    async getMixRecommendations(size: 2 | 3) {
+      const raw = callJson(await module(), 'orc_preview_mixed_filament', ['string'], [JSON.stringify({ recommendations: size })]);
+      if (!Array.isArray(raw) || !raw.every(r => isRecord(r) && typeof r.colour === 'string' &&
+          Array.isArray(r.components) && r.components.length === size && r.components.every(Number.isSafeInteger) &&
+          Array.isArray(r.ratios) && r.ratios.length === size && r.ratios.every(Number.isSafeInteger)))
+        throw new Error('Invalid mixed filament recommendations');
+      return raw as MixedFilamentRecommendation[];
+    },
+
     async addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError> {
       const m = await module();
       return normalizeFilamentMutationResult(callJson(m, 'orc_add_filament_slot', ['string'], [JSON.stringify(request)]));
@@ -2468,9 +2546,7 @@ export function createClient(
       const m = await module();
       return normalizeFilamentSessionResult(callJson(m, 'orc_apply_remembered_filament_rack', ['string'], [JSON.stringify({
         version: request.version, revision: request.revision,
-        slots: request.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
-          representative: native.representative, multi_colour: native.multiColour, type: native.type,
-        } })),
+        slots: request.slots.map(encodeRememberedSlot),
       })]));
     },
 
@@ -2680,9 +2756,7 @@ export function createClient(
       linkProfileVendors(m, request.activation);
       const result = callJson(m, 'orc_prepare_profile_activation', ['string'], [JSON.stringify({ activation: request.activation, remembered_bed_types: request.rememberedBedTypes,
         remembered_filament_racks: Object.fromEntries(Object.entries(request.rememberedFilamentRacks).map(([printer, rack]) => [printer, {
-          version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
-            representative: native.representative, multi_colour: native.multiColour, type: native.type,
-          } })),
+          version: rack.version, slots: rack.slots.map(encodeRememberedSlot),
         }])) })]) as ProfileActivationPreparationResult;
       if (result.ok) preparedActivation = structuredClone(result.activation);
       return result;
@@ -2728,9 +2802,7 @@ export function createClient(
         remembered_bed_type: rememberedBedType,
         remembered_rack: rememberedRack === null ? null : {
           version: rememberedRack.version,
-          slots: rememberedRack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
-            representative: native.representative, multi_colour: native.multiColour, type: native.type,
-          } })),
+          slots: rememberedRack.slots.map(encodeRememberedSlot),
         },
       };
       return normalizePrinterTransition(
@@ -2811,8 +2883,7 @@ export function createClient(
     async synchronizePrinter(request: import('./types').PrinterSynchronizationRequest): Promise<PrinterTransitionResult> {
       const m = await module();
       const rackMemory = Object.fromEntries(Object.entries(request.rackMemory).map(([name, rack]) => [name, {
-        version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour,
-          native: { representative: native.representative, multi_colour: native.multiColour, type: native.type } })),
+        version: rack.version, slots: rack.slots.map(encodeRememberedSlot),
       }]));
       return normalizePrinterTransition(callJson(m, 'orc_synchronize_printer', ['string'], [JSON.stringify({
         expected_revision: request.revision,

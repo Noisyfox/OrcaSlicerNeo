@@ -97,8 +97,9 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
   }
   async function prepareFilament(next: SynchronizationSource, preserve = false) {
     const signal = controller.current.signal;
-    const snapshot = await platform.runtime.getFilamentSessionSnapshot();
-    if (!snapshot.ok) throw new Error(snapshot.error);
+    const session = await platform.runtime.getFilamentSessionSnapshot();
+    if (!session.ok) throw new Error(session.error);
+    const snapshot = { ...session, slots: session.slots.filter(slot => !slot.mix) };
     const result = await platform.runtime.prepareMaterialImport({ version: 1, revision: snapshot.revisions.session,
       identity: next.identity, sources: materialImportSources(next), mapping: null });
     if (!live.current || signal.aborted) return;
