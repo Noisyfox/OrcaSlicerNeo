@@ -1,10 +1,14 @@
 import type { FilamentSessionSlot } from '@slicer/client';
-import { colorSwatchStyle } from '@/components/ui/color-swatch';
+import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 
 type Display = FilamentSessionSlot['colour']['display'];
 
 export function filamentSwatchTitle(display: Display): string {
   return `${display.mode === 'multicolor' ? 'Multicolor' : display.mode === 'gradient' ? 'Gradient' : 'Solid'}: ${display.colors.join(' → ')}`;
+}
+
+export function filamentSlotNumberStyle(display: Display, effectiveColour: string) {
+  return { ...colorSwatchStyle(display), color: colorSwatchForeground(effectiveColour) };
 }
 
 export function FilamentSwatch({ display, className = '' }: { display: Display; className?: string }) {

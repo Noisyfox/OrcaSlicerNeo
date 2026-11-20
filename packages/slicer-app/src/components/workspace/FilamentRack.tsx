@@ -9,8 +9,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore, readFlushingVolumes } from '@/stores/useFilamentSessionStore';
 import { type FilamentMutationResultOrError, type FilamentSessionSlot } from '@slicer/client';
-import { filamentSwatchTitle } from './FilamentSwatch';
-import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
+import { filamentSlotNumberStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus, RefreshCw } from 'lucide-react';
@@ -101,11 +100,10 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
   }, [colourSignature]);
   const draft = editorValue(slot);
   const displayedColour = (draft.kind === 'solid' ? draft.color : draft.colors[0]).toLowerCase();
-  const numberColour = colorSwatchForeground(slot.colour.effective);
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<article />}
-        className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
+        className="filament-slot-item"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
         <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen}
           title={`Slot ${slot.slot} color`} value={draft}
@@ -118,11 +116,10 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
               ? { kind: 'solid', color: normalizeHexColor(next.color)!.toLowerCase() }
               : { kind: 'linear-gradient', colors: next.colors.map(color => normalizeHexColor(color)!.toLowerCase()) };
             if (!matchesCanonicalColour(slot, colour)) onColour(colour);
-          }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0"
+          }} trigger={<Button variant="ghost" size="icon-sm" className="filament-slot-number"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
             title={filamentSwatchTitle(slot.colour.display)}
-            style={{ ...colorSwatchStyle(slot.colour.display), color: numberColour,
-              border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
+            style={filamentSlotNumberStyle(slot.colour.display, slot.colour.effective)}>{slot.slot}</Button>} />
         <PresetCombobox mode="grouped" modified={modified} items={presetItems}
           value={slot.preset.name} onValue={selectPreset} disabled={pending}
           ariaLabel={`Filament preset for slot ${slot.slot}`} testId={`filament-preset-${slot.slot}`}

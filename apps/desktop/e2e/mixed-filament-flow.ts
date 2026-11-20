@@ -19,6 +19,9 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await material.click();
   await rack.getByTestId('filament-add').click();
   await expect(rack.getByTestId('filament-slot-2')).toBeVisible();
+  const materialSlot = rack.getByTestId('filament-slot-1');
+  const materialSlotHeight = await materialSlot.evaluate(element => getComputedStyle(element).height);
+  const materialNumberWidth = await rack.getByTestId('filament-colour-1').evaluate(element => getComputedStyle(element).width);
   await mixes.click();
   await rack.getByRole('button', { name: 'Create', exact: true }).click();
   const editor = page.getByRole('dialog');
@@ -43,6 +46,10 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await editor.getByRole('button', { name: 'Save mix' }).click();
   const recipe = rack.getByRole('button', { name: 'Edit mix in slot 3' });
   await expect(recipe).toBeVisible();
+  await expect(recipe).toHaveCSS('height', materialSlotHeight);
+  const mixNumber = recipe.locator('.filament-slot-number');
+  await expect(mixNumber).toHaveCSS('width', materialNumberWidth);
+  await expect(mixNumber).toHaveCSS('background-image', /^linear-gradient/);
   await rack.getByTestId('filament-rack-toggle').click();
   await rack.getByTestId('filament-rack-toggle').click();
   await expect(recipe).toBeVisible();
@@ -64,6 +71,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await mixes.click();
   const damaged = rack.getByRole('button', { name: 'Edit mix in slot 3' });
   await expect(damaged).toContainText('missing filament', { ignoreCase: true });
+  await expect(damaged).toHaveAccessibleDescription(/Missing filament/);
   await damaged.click();
   const secondComponent = editor.getByRole('combobox', { name: 'Component 2', exact: true });
   await expect(secondComponent.locator('[data-slot="select-value"]')).toHaveText('Missing filament');

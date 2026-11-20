@@ -372,6 +372,15 @@
   pointer-events: none;
 }
 
+.filament-slot-item {
+  @apply flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background;
+}
+.filament-slot-number {
+  @apply inline-flex h-full w-6 shrink-0 items-center justify-center border-0 text-xs font-medium;
+  background-clip: border-box;
+  border-radius: 4px 0 0 4px;
+}
+
 /* Match Orca's modified-option label color across configuration editors. */
 .config-override-label {
   color: var(--color-config-override);

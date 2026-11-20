@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Pencil, TriangleAlert } from 'lucide-react';
 import type {
   FilamentSessionSlot,
   MixedFilamentRequest,
@@ -15,8 +16,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
-import { FilamentSwatch } from '../FilamentSwatch';
+import { FilamentSwatch, filamentSlotNumberStyle } from '../FilamentSwatch';
 import { MixEditor, mixSwatchDisplay } from './MixEditor';
 
 export function MixesPanel({
@@ -72,40 +72,48 @@ export function MixesPanel({
           (mix.points.length ? mix.points[0].y < mix.points[mix.points.length - 1].y : mix.reverse)
         )
           order.reverse();
+        const components = order.map(({ id, i }) => ({
+          id,
+          display: slots[id - 1]?.colour.display,
+          ratio: mix.gradient ? '' : ` · ${mix.ratios[i]}%`,
+        }));
+        const summary = components.map(({ id, ratio }) => `${id ? `Slot ${id}` : 'Missing filament'}${ratio}`)
+          .join(mix.gradient ? ' → ' : ', ');
+        const description = mix.error ? `${summary}. ${mix.error}` : summary;
         return (
           <ContextMenu key={s.logicalId}>
             <ContextMenuTrigger
               render={<button type="button" disabled={pending} />}
-              className="flex items-center gap-2 rounded bg-control-background p-1 text-left outline-none hover:bg-button-hover focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+              className="filament-slot-item w-full text-left focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring disabled:opacity-50"
               aria-label={`Edit mix in slot ${s.slot}`}
+              aria-description={description}
+              title={description}
               onClick={() => setEditor({ slot: s, revision })}
             >
               <span
-                className="grid h-7 min-w-9 shrink-0 place-items-center rounded-sm border"
-                style={{
-                  ...colorSwatchStyle(mixSwatchDisplay(s.colour.effective, mix.ramp)),
-                  color: colorSwatchForeground(s.colour.effective),
-                }}
+                className="filament-slot-number"
+                style={filamentSlotNumberStyle(mixSwatchDisplay(s.colour.effective, mix.ramp), s.colour.effective)}
               >
                 {s.slot}
               </span>
-              <span className="min-w-0">
-                <span className="flex flex-wrap items-center gap-1">
-                  {order.map(({ id, i }, j) => (
-                    <span key={i} className="inline-flex items-center gap-1">
+              <span className="sidebar-dropdown flex-1 rounded-l-none!">
+                <span className="min-w-0 flex-1 truncate">
+                  {components.map(({ id, display, ratio }, j) => (
+                    <span key={j} className="mr-2 inline-flex items-center gap-1 last:mr-0">
                       {j > 0 && mix.gradient && '→'}
-                      {slots[id - 1] && (
+                      {display && (
                         <FilamentSwatch
-                          className="size-2.5 rounded-sm border"
-                          display={{ mode: 'solid', colors: [slots[id - 1].colour.effective] }}
+                          className="size-2.5 shrink-0 rounded-sm border"
+                          display={display}
                         />
                       )}
-                      {id ? `Slot ${id}` : 'Missing filament'}
-                      {!mix.gradient && ` · ${mix.ratios[i]}%`}
+                      <span className={id ? undefined : 'text-destructive'}>{id || 'Missing filament'}{ratio}</span>
                     </span>
                   ))}
                 </span>
-                {mix.error && <span className="text-destructive">{mix.error}</span>}
+                {mix.error
+                  ? <TriangleAlert className="sidebar-dropdown-arrow text-destructive!" aria-hidden="true" />
+                  : <Pencil className="sidebar-dropdown-arrow" aria-hidden="true" />}
               </span>
             </ContextMenuTrigger>
             <ContextMenuContent>
