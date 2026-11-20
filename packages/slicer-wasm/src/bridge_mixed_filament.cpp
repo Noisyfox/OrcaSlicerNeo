@@ -20,7 +20,16 @@ std::string material_type(const PresetBundle& bundle, size_t index)
     if (index >= bundle.filament_presets.size()) return {};
     const auto* preset = bundle.filaments.find_preset(bundle.filament_presets[index], false);
     if (!preset) return {};
-    return read<ConfigOptionStrings>(preset->config, "filament_type", 0);
+    // Orca asks the edited filament config for its mixing type, including
+    // its support-material suffix. Neo keeps edits in the draft registry.
+    DynamicPrintConfig config;
+    const auto& drafts = state().preset_drafts;
+    if (drafts.contains(Preset::TYPE_FILAMENT, preset->name))
+        config = PresetDrafts::effective_preset_config(bundle, drafts, Preset::TYPE_FILAMENT, preset->name);
+    else
+        config.apply_only(preset->config, {"filament_type", "filament_is_support", "filament_id"}, true);
+    std::string display_type;
+    return config.get_filament_type(display_type);
 }
 
 static std::string component_error(const PresetBundle& bundle, const std::vector<unsigned>& ids)

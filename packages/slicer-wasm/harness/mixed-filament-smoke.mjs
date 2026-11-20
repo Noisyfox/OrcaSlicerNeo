@@ -165,6 +165,22 @@ async function sliceMix(overrides = {}) {
   const slice = await awaitAsyncTask(call, acceptance, 120000, batch => events.push(...batch));
   return { slice, events };
 }
+// The type used by the sidebar and slice validation must follow unsaved
+// changes on the physical preset, including when another preset is selected.
+const secondPreset = 'Generic PLA High Speed @BBL P1P';
+edit('orc_select_filament_slot_preset', { slot: 2, preset: secondPreset });
+const changedType = run('orc_mutate_preset_draft', {
+  history_context: context, action: 'set-element', kind: 'filament', canonical_name: secondPreset,
+  expected_revision: call('orc_history_status').revision, key: 'filament_type',
+  scalar_type: 'string', index: 0, value: 'PETG',
+});
+assert.equal(changedType.ok, true, JSON.stringify(changedType));
+assert.equal(changedType.filament_session.slots[1].material_type, 'PETG');
+assert.match(changedType.filament_session.slots[2].mix.error, /same material type/);
+assert.match((await sliceMix()).slice.error, /Repair mixed filament 3/);
+assert.equal(call('orc_history_undo').ok, true);
+assert.equal(rack().slots[2].mix.error, '');
+assert.equal(call('orc_history_undo').ok, true);
 const wholeLayer = await sliceMix({ enable_mixed_color_sublayer: false });
 assert.equal(wholeLayer.slice.ok, true, JSON.stringify(wholeLayer.slice));
 assert.match(JSON.stringify(wholeLayer.events), /gradient will not be printed/i);
