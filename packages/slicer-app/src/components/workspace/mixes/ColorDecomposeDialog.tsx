@@ -5,7 +5,14 @@ import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 
 function category(slot: FilamentSessionSlot) {
-  return slot.preset.name.includes('Bambu PLA Basic') ? 'PLA Basic' : slot.materialType;
+  if (slot.preset.name.includes('Bambu PLA Basic')) return 'PLA Basic';
+  if (slot.preset.name.includes('Bambu PETG Basic')) return 'PETG Basic';
+  return slot.materialType;
+}
+
+function matchesProjectMaterial(candidate: string, selected: string) {
+  return !!candidate && !!selected &&
+    (candidate === selected || candidate === `${selected} Basic` || selected === `${candidate} Basic`);
 }
 
 export function ColorDecomposeDialog({
@@ -24,7 +31,7 @@ export function ColorDecomposeDialog({
   const [method, setMethod] = useState<ColorDecomposeQuery['method']>('project');
   const physical = slots.filter((s) => !s.mix);
   const projectAvailable =
-    physical.filter((s) => s.slot !== source.slot && category(s) === material).length >= 2;
+    physical.filter((s) => s.slot !== source.slot && matchesProjectMaterial(category(s), material)).length >= 2;
   const effectiveMethod =
     material === 'PLA Basic' && !projectAvailable && method === 'project' ? 'CMYW' : method;
   const [result, setResult] = useState<{

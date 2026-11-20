@@ -323,5 +323,32 @@ assert.equal(call('orc_clear_model').ok, true);
 const restoredBroken = run('orc_apply_remembered_filament_rack', { slots: needsRepair });
 assert.equal(restoredBroken.ok, true, JSON.stringify(restoredBroken));
 assert.deepEqual(restoredBroken.slots[1].mix.storage, needsRepair[1].mix);
+// Desktop Orca finds the same project-material match with either PLA label.
+edit('orc_edit_mixed_filament', { operation: 'delete-all' });
+while (rack().slots.length < 3) edit('orc_add_filament_slot');
+for (const [index, [preset, color]] of [
+  ['Generic PETG HF @BBL P1P', '#FF8000'],
+  ['Generic PLA @BBL P1P', '#FF0000'],
+  ['Bambu PLA Basic @BBL P1P', '#FFFF00'],
+].entries()) {
+  edit('orc_select_filament_slot_preset', { slot: index + 1, preset });
+  edit('orc_set_filament_slot_colour', { slot: index + 1, colour: { kind: 'solid', color } });
+}
+for (const material of ['PLA', 'PLA Basic']) {
+  const query = { source: 1, material, method: 'project' };
+  const result = run('orc_preview_mixed_filament', { decompose: query });
+  assert.equal(result.error, '', JSON.stringify(result));
+  assert.deepEqual(result.additions, []);
+  assert.deepEqual(result.recipe.components, [2, 3]);
+  assert.deepEqual(result.recipe.ratios, [30, 70]);
+  const created = edit('orc_edit_mixed_filament', { decompose: query });
+  assert.deepEqual(created.slots[3].mix.components, [2, 3]);
+  assert.deepEqual(created.slots[3].mix.ratios, [30, 70]);
+  assert.equal(created.slots[0].material_type, 'PETG');
+  assert.equal(call('orc_history_undo').ok, true);
+}
+for (const method of ['CMYW', 'RYBW'])
+  assert.match(run('orc_preview_mixed_filament', { decompose: { source: 1, material: 'PLA', method } }).error,
+    /require PLA Basic/);
 console.log('Mixed filament transactions, insertion, history and 3MF round trip passed.');
 process.exit(0);

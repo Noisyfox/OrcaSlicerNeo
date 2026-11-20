@@ -66,13 +66,16 @@ function renderRack(runtime: Record<string, unknown>, onEditPreset?: (canonicalN
   return { container, root, platform };
 }
 
-async function openSlotAction(container: HTMLElement, slot: number, action: 'edit' | 'delete' | 'merge') {
+async function openSlotMenu(container: HTMLElement, slot: number) {
   await act(async () => {
     container.querySelector(`[data-testid="filament-slot-${slot}"]`)!.dispatchEvent(
       new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 }),
     );
     await Promise.resolve();
   });
+}
+async function openSlotAction(container: HTMLElement, slot: number, action: 'edit' | 'delete' | 'merge') {
+  await openSlotMenu(container, slot);
   return document.querySelector(`[data-testid="filament-${action}-${slot}"]`) as HTMLElement | null;
 }
 
@@ -96,6 +99,35 @@ describe('FilamentRack runtime interaction', () => {
     useProjectStore.getState().reset();
     useSettingsStore.setState({ filamentCatalog: [], modifiedPresets: { printer: [], filament: [] } });
     useDeviceSelectionStore.setState({ currentPrinterId: null, connection: null, materials: null, connectionOwner: null });
+  });
+
+  it('offers the project palette for PLA and PLA Basic together and reserves standard palettes for PLA Basic', async () => {
+    const template = makeSnapshot().slots[0];
+    const snapshot = makeSnapshot({ slots: ['PETG', 'Generic PLA', 'Bambu PLA Basic'].map((name, i) => ({
+      ...template, slot: i + 1, logicalId: `slot-${i + 1}`, materialType: i === 0 ? 'PETG' : 'PLA',
+      preset: { ...template.preset, name },
+    })) });
+    const preview = vi.fn(async () => ({ error: 'fixture' }));
+    const rendered = renderRack({ getFilamentSessionSnapshot: async () => snapshot, previewColorDecomposition: preview });
+    root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    await openSlotMenu(rendered.container, 1);
+    const decompose = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find(item => item.textContent === 'Decompose Color')!;
+    await act(async () => decompose.click());
+    const [material, palette] = document.querySelectorAll<HTMLSelectElement>('[role="dialog"] select');
+    const project = palette.querySelector<HTMLOptionElement>('option[value="project"]')!;
+    expect(project.disabled).toBe(true); // source PETG is excluded
+    for (const choice of ['PLA', 'PLA Basic']) {
+      await act(async () => {
+        material.value = choice;
+        material.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(project.disabled).toBe(false);
+      expect(palette.value).toBe('project');
+      expect([...palette.options].map(option => option.value)).toEqual(choice === 'PLA' ? ['project'] : ['project', 'CMYW', 'RYBW']);
+      expect(preview).toHaveBeenLastCalledWith({ source: 1, material: choice, method: 'project' });
+    }
   });
 
   it('keeps a missing component editable at the creation limit and resets the tab for a new project', async () => {

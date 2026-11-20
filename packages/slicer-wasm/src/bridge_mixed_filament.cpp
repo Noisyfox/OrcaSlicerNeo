@@ -185,10 +185,15 @@ json decompose(PresetBundle& bundle, const json& query)
         const auto& preset = bundle.filament_presets.at(i);
         auto category = material_type(bundle, i);
         if (preset.find("Bambu PLA Basic") != std::string::npos) category = "PLA Basic";
-        if (category != type) continue;
-        if (base_preset.empty()) base_preset = preset;
+        else if (preset.find("Bambu PETG Basic") != std::string::npos) category = "PETG Basic";
+        // Orca's project palette matches a material with its Basic variant.
+        // Standard base colours still come from the requested Basic preset.
+        const bool basic_alias = method == "project" && !category.empty() && !type.empty() &&
+            (category == type + " Basic" || type == category + " Basic");
+        if (category.empty() || (category != type && !basic_alias)) continue;
+        if (base_preset.empty() && category == type) base_preset = preset;
         if (i + 1 != source) candidates.push_back({read<ConfigOptionStrings>(cfg, "filament_colour", i),
-            preset, type, false, static_cast<unsigned>(i+1)});
+            preset, category, false, static_cast<unsigned>(i+1)});
     }
     ColorDecomposeRecipeResult result;
     if (method == "project") {
