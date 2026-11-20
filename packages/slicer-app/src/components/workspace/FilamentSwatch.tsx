@@ -17,7 +17,8 @@ export function FilamentSwatch({ display, className = '' }: { display: Display; 
 }
 
 export function filamentSlotChoice(slot: FilamentSessionSlot) {
-  return { label: `${slot.slot} - ${slot.preset.name}`, display: slot.colour.display };
+  const name = slot.mix ? 'Mix' : slot.preset.name;
+  return { label: `${slot.slot} - ${name}`, display: slot.colour.display };
 }
 
 export function FilamentChoiceContent({ label, display }: { label: ReactNode; display: Display | null }) {

@@ -2,10 +2,10 @@ import { expect, type Page } from '@playwright/test';
 
 import { addPrimitive } from './add-primitive';
 
-async function verifyMergeChoices(page: Page, source: number, destination: number) {
+async function verifyMergeChoices(page: Page, source: number, destination: number, label: string | RegExp) {
   await page.getByTestId(`filament-merge-${source}`).hover();
   const choice = page.getByTestId(`filament-merge-${source}-to-${destination}`);
-  await expect(choice).toHaveText(new RegExp(`^${destination} - .+`));
+  await expect(choice).toHaveText(label);
   await expect(choice.locator('span[aria-hidden="true"]')).toHaveCSS('width', '14px');
   await expect(page.getByTestId(`filament-merge-${source}-to-${source}`)).toHaveCount(0);
   await page.keyboard.press('Escape');
@@ -61,13 +61,16 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(mixNumber).toHaveCSS('width', materialNumberWidth);
   await expect(mixNumber).toHaveCSS('background-image', /^linear-gradient/);
   await recipe.click({ button: 'right' });
-  await verifyMergeChoices(page, 3, 1);
+  await verifyMergeChoices(page, 3, 1, /^1 - (?!Mix$).+/);
   await rack.getByTestId('filament-rack-toggle').click();
   await rack.getByTestId('filament-rack-toggle').click();
   await expect(recipe).toBeVisible();
   await recipe.click();
   await expect(editor.getByRole('checkbox', { name: 'Per-part gradient' })).toBeChecked();
   await expect(editor.getByLabel('First filament %')).toHaveCount(3);
+  await editor.getByRole('combobox', { name: 'Component 1', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await page.keyboard.press('Escape');
   await editor.getByRole('button', { name: 'Cancel' }).click();
   await material.click();
   await rack.getByTestId('filament-add').click();
@@ -76,7 +79,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toBeVisible();
   await material.click();
   await rack.getByTestId('filament-slot-2').click({ button: 'right' });
-  await verifyMergeChoices(page, 2, 4);
+  await verifyMergeChoices(page, 2, 4, '4 - Mix');
   await rack.getByTestId('filament-slot-2').click({ button: 'right' });
   await page.getByTestId('filament-delete-2').click();
   const confirm = page.getByTestId('filament-impact-confirm');
@@ -126,7 +129,8 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await page.getByTestId('config-mode-scoped').click();
   const assignment = page.locator('[data-testid^="filament-cell-object-"]').first();
   await assignment.click();
-  await page.getByRole('option', { name: /^4 - / }).click();
+  await expect(page.getByRole('option', { name: '5 - Mix', exact: true })).toBeVisible();
+  await page.getByRole('option', { name: '4 - Mix', exact: true }).click();
   await expect(assignment).toHaveText('4');
   const tower = await page.evaluate(() => (window as Window & {
     __orcaE2e?: { primeTowerStates?: () => unknown }
