@@ -16,7 +16,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120000 });
   await page.locator('#app-tab-prepare').click();
   const rack = page.getByTestId('filament-rack');
-  const mixes = rack.getByRole('tab', { name: 'Mixes', exact: true });
+  const mixes = rack.getByRole('tab', { name: /^Mixes \(\d+\)$/ });
   const material = rack.getByRole('tab', { name: /Material/ });
   await material.focus();
   await material.press('ArrowRight');
@@ -24,7 +24,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(mixes).toHaveAttribute('aria-selected', 'true');
   await expect(mixes).toHaveCSS('font-size', '11px');
   await expect(rack.locator('[data-slot="tabs"]')).toHaveCSS('flex-direction', 'column');
-  await expect(rack.getByRole('tabpanel', { name: 'Mixes' })).toBeVisible();
+  await expect(rack.getByRole('tabpanel', { name: 'Mixes (0)' })).toBeVisible();
   await expect(rack.getByRole('button', { name: 'Create', exact: true })).toBeDisabled();
   await material.click();
   await rack.getByTestId('filament-add').click();
@@ -56,6 +56,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await editor.getByRole('button', { name: 'Save mix' }).click();
   const recipe = rack.getByRole('button', { name: 'Edit mix in slot 3' });
   await expect(recipe).toBeVisible();
+  await expect(mixes).toHaveText('Mixes (1)');
   await expect(recipe).toHaveCSS('height', materialSlotHeight);
   const mixNumber = recipe.locator('.filament-slot-number');
   await expect(mixNumber).toHaveCSS('width', materialNumberWidth);
@@ -108,6 +109,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await rack.getByRole('button', { name: 'Delete all' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete all' }).click();
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toHaveCount(0);
+  await expect(mixes).toHaveText('Mixes (0)');
   await expect(rack.getByTestId('filament-rejected')).toHaveCount(0);
   await rack.getByRole('button', { name: 'Create', exact: true }).click();
   await componentCount.click();
@@ -125,6 +127,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await page.getByRole('option', { name: 'Project materials' }).click();
   await editor.getByRole('button', { name: 'Create mix', exact: true }).click();
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 5' })).toBeVisible();
+  await expect(mixes).toHaveText('Mixes (2)');
   await addPrimitive(page, 'cube');
   await page.getByTestId('config-mode-scoped').click();
   const assignment = page.locator('[data-testid^="filament-cell-object-"]').first();

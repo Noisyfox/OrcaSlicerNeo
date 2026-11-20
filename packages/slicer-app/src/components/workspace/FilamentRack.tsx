@@ -260,7 +260,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
           <div className="sidebar-section-header -mx-2">
             <TabsList aria-label="Filaments" activateOnFocus className="h-5! gap-1 bg-transparent p-0">
               <TabsTrigger className="sidebar-section-title" value="material">Material ({physical.length})</TabsTrigger>
-              <TabsTrigger className="sidebar-section-title" value="mixes">Mixes</TabsTrigger>
+              <TabsTrigger className="sidebar-section-title" value="mixes">Mixes ({snapshot.slots.length - physical.length})</TabsTrigger>
             </TabsList>
             <Button className="absolute right-0 bottom-0" variant="panel-toggle" size="icon-xs"
               data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)}

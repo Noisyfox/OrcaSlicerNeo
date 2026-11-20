@@ -163,7 +163,7 @@ describe('FilamentRack runtime interaction', () => {
     root = rendered.root;
     await act(async () => { await Promise.resolve(); });
     const button = (title:string) => [...document.querySelectorAll('button')].find(b => b.textContent === title)!;
-    await act(async () => button('Mixes').click());
+    await act(async () => button('Mixes (1)').click());
     expect(button('Create').disabled).toBe(true);
     expect(rendered.container.textContent).toContain('Missing filament · 40%');
     await act(async () => rendered.container.querySelector<HTMLButtonElement>('[aria-label="Edit mix in slot 32"]')!.click());
