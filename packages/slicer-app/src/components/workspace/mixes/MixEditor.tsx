@@ -46,6 +46,7 @@ export function MixEditor({
   const [draft, setDraft] = useState(initial ?? defaultRecipe);
   const [result, setResult] = useState<{
     draft: MixedFilamentRecipe;
+    slots: readonly FilamentSessionSlot[];
     preview: MixedFilamentPreview | { error: string };
   }>();
   const [suggestions, setSuggestions] = useState<MixedFilamentRecommendation[]>([]);
@@ -63,10 +64,10 @@ export function MixEditor({
     runtime
       .previewMixedFilament(draft)
       .then((preview) => {
-        if (active) setResult({ draft, preview });
+        if (active) setResult({ draft, slots, preview });
       })
       .catch((e) => {
-        if (active) setResult({ draft, preview: { error: String(e) } });
+        if (active) setResult({ draft, slots, preview: { error: String(e) } });
       });
     return () => {
       active = false;
@@ -90,7 +91,9 @@ export function MixEditor({
     setFailure('');
     setDraft((d) => ({ ...d, ...value }));
   }
-  const preview = result?.draft === draft ? result.preview : undefined;
+  const preview = result?.preview;
+  const validPreview = preview && 'colour' in preview ? preview : undefined;
+  const previewIsCurrent = result?.draft === draft && result.slots === slots;
   async function save() {
     setSaving(true);
     try {
@@ -224,7 +227,7 @@ export function MixEditor({
             {draft.gradient && (
               <GradientControls
                 recipe={draft}
-                samples={result && 'samples' in result.preview ? result.preview.samples : []}
+                samples={validPreview?.samples ?? []}
                 disabled={saving}
                 onChange={patch}
               />
@@ -253,14 +256,17 @@ export function MixEditor({
                 </div>
               </fieldset>
             )}
-            {preview &&
-              ('error' in preview ? (
+            <div aria-busy={!previewIsCurrent}>
+              {preview && 'error' in preview ? (
                 <p className="text-destructive" role="alert">{preview.error}</p>
-              ) : (
+              ) : validPreview ? (
                 <div role="img" aria-label="Mix preview">
-                  <FilamentSwatch className="block h-7 rounded border" display={mixSwatchDisplay(preview.colour, preview.ramp)} />
+                  <FilamentSwatch className="block h-7 rounded border" display={mixSwatchDisplay(validPreview.colour, validPreview.ramp)} />
                 </div>
-              ))}
+              ) : (
+                <div aria-hidden="true" className="h-7 rounded border bg-control-background" />
+              )}
+            </div>
           </fieldset>
           {failure && <p className="mt-2 text-destructive" role="alert">{failure}</p>}
         </div>
@@ -268,7 +274,7 @@ export function MixEditor({
           <Button variant="outline" disabled={saving} onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={saving || !preview || 'error' in preview} onClick={() => void save()}>
+          <Button disabled={saving || !previewIsCurrent || !validPreview} onClick={() => void save()}>
             Save mix
           </Button>
         </DialogFooter>

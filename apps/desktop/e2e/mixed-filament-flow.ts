@@ -42,6 +42,16 @@ export async function verifyMixedFilamentEditor(page: Page) {
   const ratio = editor.getByRole('slider', { name: 'Mix ratio' });
   await ratio.press('ArrowRight');
   await expect(editor.getByLabel('Percentage 1')).toHaveValue('51');
+  await expect(editor.getByRole('img', { name: 'Mix preview' })).toBeVisible();
+  const track = editor.locator('[data-slot="slider-track"]');
+  const bounds = (await track.boundingBox())!;
+  const y = bounds.y + bounds.height / 2;
+  await page.mouse.move(bounds.x + bounds.width * 0.51, y);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * 0.75, y, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await editor.getByLabel('Percentage 1').inputValue())).toBeGreaterThan(60);
+  await expect(editor.getByRole('img', { name: 'Mix preview' })).toBeVisible();
   await editor.getByRole('checkbox', { name: 'Z gradient' }).check();
   await editor.getByRole('button', { name: 'Add point' }).click();
   await editor.getByRole('checkbox', { name: 'Per-part gradient' }).check();

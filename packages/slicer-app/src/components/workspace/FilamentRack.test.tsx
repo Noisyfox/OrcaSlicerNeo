@@ -9,7 +9,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import type * as D from '@orca/platform-contract';
-import type { FilamentSessionSnapshot, HistoryStatus, MixedFilamentRecipe } from '@slicer/client';
+import type { FilamentSessionSnapshot, HistoryStatus, MixedFilamentPreview, MixedFilamentRecipe } from '@slicer/client';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const id = <K extends string>(value: string) => value as D.Id<K>;
@@ -115,6 +115,45 @@ describe('FilamentRack runtime interaction', () => {
     useProjectStore.getState().reset();
     useSettingsStore.setState({ filamentCatalog: [], modifiedPresets: { printer: [], filament: [] } });
     useDeviceSelectionStore.setState({ currentPrinterId: null, connection: null, materials: null, connectionOwner: null });
+  });
+
+  it('keeps the mix preview in place while a new slider ratio is being validated', async () => {
+    const pending = new Map<number, (preview: MixedFilamentPreview) => void>();
+    const rendered = renderRack({
+      getFilamentSessionSnapshot: async () => makeSnapshot(),
+      getMixRecommendations: async () => [],
+      previewMixedFilament: async ({ ratios }: MixedFilamentRecipe) => ratios[0] === 50
+        ? { colour: '#112233', ramp: [], samples: [] }
+        : new Promise<MixedFilamentPreview>(resolve => pending.set(ratios[0], resolve)),
+    });
+    root = rendered.root;
+    const button = (label: string) => [...document.querySelectorAll('button')].find(item => item.textContent === label)!;
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => button('Mixes (0)').click());
+    await act(async () => button('Create').click());
+    const swatch = () => document.querySelector<HTMLElement>('[aria-label="Mix preview"] > span');
+    const initialSwatch = swatch();
+    const save = button('Save mix');
+    const slider = document.querySelector<HTMLInputElement>('[role="dialog"] input[type="range"]')!;
+    const press = (key: string) => act(async () => {
+      slider.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+    expect(initialSwatch?.style.backgroundColor).toBe('rgb(17, 34, 51)');
+    expect(save.disabled).toBe(false);
+    await press('Home');
+    expect(slider.value).toBe('10');
+    expect(swatch()).toBe(initialSwatch);
+    expect(save.disabled).toBe(true);
+    await press('End');
+    expect(slider.value).toBe('90');
+    await act(async () => pending.get(10)!({ colour: '#ff0000', ramp: [], samples: [] }));
+    expect(swatch()).toBe(initialSwatch);
+    expect(swatch()?.style.backgroundColor).toBe('rgb(17, 34, 51)');
+    expect(save.disabled).toBe(true);
+    await act(async () => pending.get(90)!({ colour: '#445566', ramp: [], samples: [] }));
+    expect(swatch()).toBe(initialSwatch);
+    expect(swatch()?.style.backgroundColor).toBe('rgb(68, 85, 102)');
+    expect(save.disabled).toBe(false);
   });
 
   it('offers the project palette for PLA and PLA Basic together and reserves standard palettes for PLA Basic', async () => {
