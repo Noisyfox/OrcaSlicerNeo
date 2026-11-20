@@ -8,7 +8,13 @@ export async function verifyMixedFilamentEditor(page: Page) {
   const rack = page.getByTestId('filament-rack');
   const mixes = rack.getByRole('tab', { name: 'Mixes', exact: true });
   const material = rack.getByRole('tab', { name: /Material/ });
-  await mixes.click();
+  await material.focus();
+  await material.press('ArrowRight');
+  await expect(mixes).toBeFocused();
+  await expect(mixes).toHaveAttribute('aria-selected', 'true');
+  await expect(mixes).toHaveCSS('font-size', '11px');
+  await expect(rack.locator('[data-slot="tabs"]')).toHaveCSS('flex-direction', 'column');
+  await expect(rack.getByRole('tabpanel', { name: 'Mixes' })).toBeVisible();
   await expect(rack.getByRole('button', { name: 'Create', exact: true })).toBeDisabled();
   await material.click();
   await rack.getByTestId('filament-add').click();
@@ -16,10 +22,24 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await mixes.click();
   await rack.getByRole('button', { name: 'Create', exact: true }).click();
   const editor = page.getByRole('dialog');
+  const componentCount = editor.getByRole('combobox', { name: 'Components', exact: true });
+  await expect(componentCount).toHaveCSS('height', '24px');
+  await expect(componentCount).toHaveCSS('font-size', '13px');
   await expect(editor.getByLabel('Percentage 1')).toHaveValue('50');
-  await editor.getByLabel('Z gradient').check();
+  const ratio = editor.getByRole('slider', { name: 'Mix ratio' });
+  await ratio.press('ArrowRight');
+  await expect(editor.getByLabel('Percentage 1')).toHaveValue('51');
+  await editor.getByRole('checkbox', { name: 'Z gradient' }).check();
   await editor.getByRole('button', { name: 'Add point' }).click();
-  await editor.getByLabel('Per-part gradient').check();
+  await editor.getByRole('checkbox', { name: 'Per-part gradient' }).check();
+  const viewport = page.viewportSize();
+  if (viewport) {
+    await page.setViewportSize({ width: viewport.width, height: 400 });
+    const body = editor.locator(':scope > .overflow-y-auto');
+    await expect.poll(() => body.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await expect(editor.getByRole('button', { name: 'Save mix' })).toBeInViewport();
+    await page.setViewportSize(viewport);
+  }
   await editor.getByRole('button', { name: 'Save mix' }).click();
   const recipe = rack.getByRole('button', { name: 'Edit mix in slot 3' });
   await expect(recipe).toBeVisible();
@@ -27,7 +47,7 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await rack.getByTestId('filament-rack-toggle').click();
   await expect(recipe).toBeVisible();
   await recipe.click();
-  await expect(editor.getByLabel('Per-part gradient')).toBeChecked();
+  await expect(editor.getByRole('checkbox', { name: 'Per-part gradient' })).toBeChecked();
   await expect(editor.getByLabel('First filament %')).toHaveCount(3);
   await editor.getByRole('button', { name: 'Cancel' }).click();
   await material.click();
@@ -45,8 +65,10 @@ export async function verifyMixedFilamentEditor(page: Page) {
   const damaged = rack.getByRole('button', { name: 'Edit mix in slot 3' });
   await expect(damaged).toContainText('missing filament', { ignoreCase: true });
   await damaged.click();
-  await expect(editor.getByLabel('Component 2', { exact: true })).toHaveValue('0');
-  await editor.getByLabel('Component 2', { exact: true }).selectOption('2');
+  const secondComponent = editor.getByRole('combobox', { name: 'Component 2', exact: true });
+  await expect(secondComponent.locator('[data-slot="select-value"]')).toHaveText('Missing filament');
+  await secondComponent.click();
+  await page.getByRole('option', { name: /^2 · / }).click();
   await editor.getByRole('button', { name: 'Save mix' }).click();
   await expect(damaged).not.toContainText('missing filament', { ignoreCase: true });
   await material.click();
@@ -58,7 +80,8 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 4' })).toHaveCount(0);
   await expect(rack.getByTestId('filament-rejected')).toHaveCount(0);
   await rack.getByRole('button', { name: 'Create', exact: true }).click();
-  await editor.getByLabel('Components', { exact: true }).selectOption('3');
+  await componentCount.click();
+  await page.getByRole('option', { name: 'Three', exact: true }).click();
   await editor.getByLabel('Percentage 2').fill('35');
   await editor.getByLabel('Percentage 2').blur();
   await expect(editor.getByLabel('Percentage 2')).toHaveValue('35');
@@ -68,6 +91,8 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await rack.getByTestId('filament-slot-2').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Decompose Color' }).click();
   await expect(editor.getByRole('heading')).toContainText('Decompose Color');
+  await editor.getByRole('combobox', { name: 'Palette', exact: true }).click();
+  await page.getByRole('option', { name: 'Project materials' }).click();
   await editor.getByRole('button', { name: 'Create mix', exact: true }).click();
   await expect(rack.getByRole('button', { name: 'Edit mix in slot 5' })).toBeVisible();
   await addPrimitive(page, 'cube');

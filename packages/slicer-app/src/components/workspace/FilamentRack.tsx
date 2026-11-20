@@ -15,6 +15,7 @@ import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FlushingVolumesDialog, flushingModified } from './FlushingVolumesDialog';
 import { renderDeviceFilamentMenu, useDeviceFilaments, selectDeviceFilament, type DeviceFilaments } from './synchronization/DeviceFilamentMenu';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
@@ -256,63 +257,63 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
     <>
       {showFlushing && flushingOpen && <FlushingVolumesDialog onClose={() => setFlushingOpen(false)} />}
       <section data-testid="filament-rack" className="px-2 pb-2" aria-busy={pending}>
-        <div className="sidebar-section-header -mx-2">
-          <div role="tablist" aria-label="Filaments" className="flex items-center gap-3" onKeyDown={event => {
-            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-            event.preventDefault();
-            const next = event.key === 'Home' ? false : event.key === 'End' || !showMixes;
-            setMixGeneration(next ? generation : undefined);
-            event.currentTarget.querySelectorAll('button')[Number(next)]?.focus();
-          }}>
-            <button className="sidebar-section-title aria-selected:underline" role="tab" tabIndex={showMixes ? -1 : 0} aria-selected={!showMixes} onClick={()=>setMixGeneration(undefined)}>Material ({physical.length})</button>
-            <button className="sidebar-section-title aria-selected:underline" role="tab" tabIndex={showMixes ? 0 : -1} aria-selected={showMixes} onClick={()=>setMixGeneration(generation)}>Mixes</button>
+        <Tabs value={showMixes ? 'mixes' : 'material'} onValueChange={value => setMixGeneration(value === 'mixes' ? generation : undefined)} className="flex-col gap-0">
+          <div className="sidebar-section-header -mx-2">
+            <TabsList aria-label="Filaments" activateOnFocus className="h-5! gap-1 bg-transparent p-0">
+              <TabsTrigger className="sidebar-section-title" value="material">Material ({physical.length})</TabsTrigger>
+              <TabsTrigger className="sidebar-section-title" value="mixes">Mixes</TabsTrigger>
+            </TabsList>
+            <Button className="absolute right-0 bottom-0" variant="panel-toggle" size="icon-xs"
+              data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)}
+              aria-label={expanded ? 'Collapse materials' : 'Expand materials'} aria-expanded={expanded}>
+              {expanded ? <ChevronDown /> : <ChevronUp />}
+            </Button>
           </div>
-          <Button className="absolute right-0 bottom-0" variant="panel-toggle" size="icon-xs"
-            data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)}
-            aria-label={expanded ? 'Collapse materials' : 'Expand materials'} aria-expanded={expanded}>
-            {expanded ? <ChevronDown /> : <ChevronUp />}
-          </Button>
-        </div>
-        {expanded && !showMixes && <div className="flex h-8 items-center gap-1">
-          <Button variant="secondary" size="icon-xs" data-testid="filament-sync" aria-label="Sync Filament" title="Sync Filament"
-            disabled={pending || syncPending} onClick={() => requestPrepareSynchronization('filament')}><RefreshCw /></Button>
-          {showFlushing && <Button variant="secondary" size="xs" className="flushing-volumes-button"
-            data-modified={flushModified} data-testid="flushing-volumes-open" disabled={pending}
-            title={flushModified ? 'Flushing volumes differ from automatic calculation' : 'Edit flushing volumes'}
-            onClick={() => setFlushingOpen(true)}>Flushing Volumes</Button>}
-          <span className="flex-1" />
-          <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-remove"
-            aria-label="Remove last filament slot" disabled={pending || !snapshot.capabilities.canDelete || snapshot.slots.length === 0}
-            onClick={() => askOrRun('delete', physical[physical.length - 1].slot, null)}><Minus /></Button>
-          <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-add"
-            aria-label="Add filament slot" disabled={pending || !snapshot.capabilities.canAdd}
-            onClick={() => void updateSlot(() => platform.runtime.addFilamentSlot({ version: 1, revision: revision() }))}><Plus /></Button>
-        </div>}
-        {rejected && <div className="mt-2 flex items-center gap-2 rounded border border-destructive/50 p-2 text-xs text-destructive" role="alert" data-testid="filament-rejected"><span className="min-w-0 flex-1">{rejected}</span><Button variant="ghost" size="icon-xs" onClick={clearRejected} aria-label="Dismiss rejection">×</Button></div>}
-        {expanded && !showMixes && <div className="filament-slot-grid grid grid-cols-2 gap-x-2 gap-y-1.5" data-testid="filament-slot-grid">
-          {physical.map((slot) => (
-            <SlotCard
-              key={slot.logicalId}
-              slot={slot}
-              presetItems={presetItems}
-              deviceFilaments={deviceFilaments}
-              onDevicePreset={option => { if (deviceFilaments) void updateSlot(() => selectDeviceFilament(platform, deviceFilaments, slot.slot, option)); }}
-              canDelete={snapshot.capabilities.canDelete}
-              canMerge={snapshot.capabilities.canMerge}
-              mergeDestinations={snapshot.slots.map((entry) => entry.slot)}
-              pending={pending}
-              onPreset={(preset) => void updateSlot(() => platform.runtime.selectFilamentSlotPreset({ version: 1, revision: revision(), slot: slot.slot, preset }))}
-              onColour={(colour) => void updateSlot(() => platform.runtime.setFilamentSlotColour({ version: 1, revision: revision(), slot: slot.slot, colour }))}
-              onEdit={onEditPreset ? () => onEditPreset(slot.preset.name) : undefined}
-              onDecompose={physical.length>=2 ? ()=>setDecomposition({slot,revision:revision(),generation}) : undefined}
-              onDelete={() => askOrRun('delete', slot.slot, null)}
-              onMerge={(destination) => askOrRun('merge', slot.slot, destination)}
-            />
-          ))}
-        </div>}
-        {expanded && showMixes && <MixesPanel slots={snapshot.slots} revision={snapshot.revisions.session} pending={pending}
-          mutate={request=>updateSlot(()=>platform.runtime.editMixedFilament(request))}
-          onMerge={(slot,destination)=>askOrRun('merge',slot,destination)} onDelete={slot=>askOrRun('delete',slot,null)} />}
+          {rejected && <div className="mt-2 flex items-center gap-2 rounded border border-destructive/50 p-2 text-xs text-destructive" role="alert" data-testid="filament-rejected"><span className="min-w-0 flex-1">{rejected}</span><Button variant="ghost" size="icon-xs" onClick={clearRejected} aria-label="Dismiss rejection">×</Button></div>}
+          <TabsContent value="material" keepMounted className={expanded ? 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring' : 'hidden'}>
+            {expanded && !showMixes && <div className="flex h-8 items-center gap-1">
+              <Button variant="secondary" size="icon-xs" data-testid="filament-sync" aria-label="Sync Filament" title="Sync Filament"
+                disabled={pending || syncPending} onClick={() => requestPrepareSynchronization('filament')}><RefreshCw /></Button>
+              {showFlushing && <Button variant="secondary" size="xs" className="flushing-volumes-button"
+                data-modified={flushModified} data-testid="flushing-volumes-open" disabled={pending}
+                title={flushModified ? 'Flushing volumes differ from automatic calculation' : 'Edit flushing volumes'}
+                onClick={() => setFlushingOpen(true)}>Flushing Volumes</Button>}
+              <span className="flex-1" />
+              <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-remove"
+                aria-label="Remove last filament slot" disabled={pending || !snapshot.capabilities.canDelete || snapshot.slots.length === 0}
+                onClick={() => askOrRun('delete', physical[physical.length - 1].slot, null)}><Minus /></Button>
+              <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-add"
+                aria-label="Add filament slot" disabled={pending || !snapshot.capabilities.canAdd}
+                onClick={() => void updateSlot(() => platform.runtime.addFilamentSlot({ version: 1, revision: revision() }))}><Plus /></Button>
+            </div>}
+            {expanded && !showMixes && <div className="filament-slot-grid grid grid-cols-2 gap-x-2 gap-y-1.5" data-testid="filament-slot-grid">
+              {physical.map((slot) => (
+                <SlotCard
+                  key={slot.logicalId}
+                  slot={slot}
+                  presetItems={presetItems}
+                  deviceFilaments={deviceFilaments}
+                  onDevicePreset={option => { if (deviceFilaments) void updateSlot(() => selectDeviceFilament(platform, deviceFilaments, slot.slot, option)); }}
+                  canDelete={snapshot.capabilities.canDelete}
+                  canMerge={snapshot.capabilities.canMerge}
+                  mergeDestinations={snapshot.slots.map((entry) => entry.slot)}
+                  pending={pending}
+                  onPreset={(preset) => void updateSlot(() => platform.runtime.selectFilamentSlotPreset({ version: 1, revision: revision(), slot: slot.slot, preset }))}
+                  onColour={(colour) => void updateSlot(() => platform.runtime.setFilamentSlotColour({ version: 1, revision: revision(), slot: slot.slot, colour }))}
+                  onEdit={onEditPreset ? () => onEditPreset(slot.preset.name) : undefined}
+                  onDecompose={physical.length>=2 ? ()=>setDecomposition({slot,revision:revision(),generation}) : undefined}
+                  onDelete={() => askOrRun('delete', slot.slot, null)}
+                  onMerge={(destination) => askOrRun('merge', slot.slot, destination)}
+                />
+              ))}
+            </div>}
+          </TabsContent>
+          <TabsContent value="mixes" keepMounted className={expanded ? 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring' : 'hidden'}>
+            {expanded && showMixes && <MixesPanel slots={snapshot.slots} revision={snapshot.revisions.session} pending={pending}
+              mutate={request=>updateSlot(()=>platform.runtime.editMixedFilament(request))}
+              onMerge={(slot,destination)=>askOrRun('merge',slot,destination)} onDelete={slot=>askOrRun('delete',slot,null)} />}
+          </TabsContent>
+        </Tabs>
       </section>
       {decomposition?.generation===generation && decomposition && <ColorDecomposeDialog source={decomposition.slot} slots={snapshot.slots}
         onClose={()=>setDecomposition(undefined)} onApply={async decompose=>{

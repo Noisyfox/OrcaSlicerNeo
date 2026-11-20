@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import type {
   FilamentSessionSlot,
@@ -6,8 +6,14 @@ import type {
   MixedFilamentPreview,
   MixedFilamentRecommendation,
 } from '@slicer/client';
-import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import { type ColorSwatchDisplay } from '@/components/ui/color-swatch';
+import { FilamentSwatch } from '../FilamentSwatch';
 import { GradientControls, PercentageInput, RatioTriangle, setRatio } from './RecipeControls';
 
 const defaultRecipe: MixedFilamentRecipe = {
@@ -18,9 +24,11 @@ const defaultRecipe: MixedFilamentRecipe = {
   perPart: false,
   points: [],
 };
-export function mixBackground(colour: string, ramp: readonly string[]) {
-  return ramp.length > 1 ? `linear-gradient(to right, ${ramp.join(', ')})` : colour;
+export function mixSwatchDisplay(colour: string, ramp: readonly string[]): ColorSwatchDisplay {
+  return ramp.length > 1 ? { mode: 'gradient', colors: ramp } : { mode: 'solid', colors: [colour] };
 }
+
+const componentCounts = [{ value: 2, label: 'Two' }, { value: 3, label: 'Three' }];
 
 export function MixEditor({
   slots,
@@ -34,6 +42,7 @@ export function MixEditor({
   onSave: (recipe: MixedFilamentRecipe) => Promise<string | null>;
 }) {
   const { runtime } = usePlatform();
+  const fieldsId = useId();
   const [draft, setDraft] = useState(initial ?? defaultRecipe);
   const [result, setResult] = useState<{
     draft: MixedFilamentRecipe;
@@ -43,6 +52,10 @@ export function MixEditor({
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState('');
   const physical = slots.filter((s) => !s.mix);
+  const physicalOptions = physical.map(slot => ({
+    value: slot.slot,
+    label: `${slot.slot} · ${slot.preset.label} (${slot.materialType})`,
+  }));
   const size = draft.components.length === 3 ? 3 : 2;
   useEffect(() => {
     let active = true;
@@ -96,130 +109,153 @@ export function MixEditor({
         if (!open && !saving) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto text-sm">
-        <DialogTitle>{initial ? 'Edit mix' : 'Create mix'}</DialogTitle>
-        <fieldset disabled={saving} className="grid gap-3">
-          <label>
-            Components{' '}
-            <select
-              aria-label="Components"
-              value={size}
-              onChange={(e) => {
-                const three = e.target.value === '3';
-                const ids = draft.components.slice(0, 2);
-                if (three) ids.push(physical.find((s) => !ids.includes(s.slot))?.slot ?? 0);
-                patch({ ...defaultRecipe, components: ids, ratios: three ? [50, 25, 25] : [50, 50] });
-              }}
-            >
-              <option value="2">Two</option>
-              <option value="3" disabled={physical.length < 3}>
-                Three
-              </option>
-            </select>
-          </label>
-          {draft.components.map((id, i) => (
-            <div key={i} className="flex gap-2">
-              <select
-                className="min-w-0 flex-1"
-                aria-label={`Component ${i + 1}`}
-                value={id}
-                onChange={(e) =>
-                  patch({
-                    components: draft.components.map((v, j) => (i === j ? Number(e.target.value) : v)),
-                  })
-                }
+      <DialogContent className="flex max-h-[85vh] w-[min(95vw,28rem)] flex-col text-xs">
+        <DialogHeader>
+          <DialogTitle>{initial ? 'Edit mix' : 'Create mix'}</DialogTitle>
+        </DialogHeader>
+        <div className="min-h-0 overflow-y-auto p-1">
+          <fieldset disabled={saving} className="grid min-w-0 gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor={`${fieldsId}-count`}>Components</Label>
+              <Select
+                items={componentCounts}
+                disabled={saving}
+                value={size}
+                onValueChange={(value) => {
+                  if (value === null) return;
+                  const three = value === 3;
+                  const ids = draft.components.slice(0, 2);
+                  if (three) ids.push(physical.find((s) => !ids.includes(s.slot))?.slot ?? 0);
+                  patch({ ...defaultRecipe, components: ids, ratios: three ? [50, 25, 25] : [50, 50] });
+                }}
               >
-                {!physical.some((s) => s.slot === id) && <option value={id}>Missing filament</option>}
-                {physical.map((s) => (
-                  <option key={s.logicalId} value={s.slot}>
-                    {s.slot} · {s.preset.label} ({s.materialType})
-                  </option>
-                ))}
-              </select>
-              {!draft.gradient && (
-                <label>
-                  <PercentageInput
-                    label={`Percentage ${i + 1}`}
-                    value={draft.ratios[i]}
-                    min={10}
-                    max={size === 2 ? 90 : 80}
-                    onChange={(n) => patch({ ratios: setRatio(draft.ratios, i, n) })}
-                  />{' '}
-                  %
-                </label>
-              )}
+                <SelectTrigger id={`${fieldsId}-count`} variant="sidebar" className="w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  <SelectGroup>
+                    {componentCounts.map(({ value, label }) => (
+                      <SelectItem key={value} value={value} disabled={value === 3 && physical.length < 3}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </div>
-          ))}
-          {!draft.gradient &&
-            (size === 2 ? (
-              <input
-                type="range"
-                aria-label="Mix ratio"
-                min="10"
-                max="90"
-                value={draft.ratios[0]}
-                onChange={(e) => patch({ ratios: setRatio(draft.ratios, 0, Number(e.target.value)) })}
-              />
-            ) : (
-              <RatioTriangle
-                ratios={draft.ratios}
-                colours={draft.components.map((id) => slots[id - 1]?.colour.effective ?? 'transparent')}
-                onChange={(ratios) => patch({ ratios })}
-              />
-            ))}
-          {size === 2 && (
-            <label>
-              <input
-                type="checkbox"
-                checked={draft.gradient}
-                onChange={(e) =>
-                  patch({ gradient: e.target.checked, points: [], perPart: false, reverse: false })
-                }
-              />{' '}
-              Z gradient
-            </label>
-          )}
-          {draft.gradient && (
-            <GradientControls
-              recipe={draft}
-              samples={result && 'samples' in result.preview ? result.preview.samples : []}
-              onChange={patch}
-            />
-          )}
-          {!!suggestions.length && (
-            <fieldset>
-              <legend>Recommended mixes</legend>
-              <div className="flex max-h-20 flex-wrap gap-1 overflow-auto">
-                {suggestions.map((s) => {
-                  const label = s.components.map((v, i) => `Slot ${v} · ${s.ratios[i]}%`).join(', ');
-                  return (
-                    <button
-                      key={label}
-                      type="button"
-                      className="size-6 rounded border"
-                      title={label}
-                      aria-label={label}
-                      style={{ background: s.colour }}
-                      onClick={() => patch({ ...defaultRecipe, components: s.components, ratios: s.ratios })}
+            {draft.components.map((id, i) => {
+              const missing = !physical.some((slot) => slot.slot === id);
+              const options = missing ? [{ value: id, label: 'Missing filament' }, ...physicalOptions] : physicalOptions;
+              return <div key={i} className="flex items-center gap-2">
+                <Select
+                  items={options}
+                  disabled={saving}
+                  value={id}
+                  onValueChange={(value) => {
+                    if (value === null) return;
+                    patch({ components: draft.components.map((slot, j) => i === j ? value : slot) });
+                  }}
+                >
+                  <SelectTrigger variant="sidebar" className="min-w-0 flex-1" aria-label={`Component ${i + 1}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="start">
+                    <SelectGroup>
+                      {options.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                {!draft.gradient && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <PercentageInput
+                      label={`Percentage ${i + 1}`}
+                      value={draft.ratios[i]}
+                      min={10}
+                      max={size === 2 ? 90 : 80}
+                      onChange={(n) => patch({ ratios: setRatio(draft.ratios, i, n) })}
                     />
-                  );
-                })}
+                    <span aria-hidden="true">%</span>
+                  </div>
+                )}
+              </div>;
+            })}
+            {!draft.gradient &&
+              (size === 2 ? (
+                <Slider
+                  aria-label="Mix ratio"
+                  min={10}
+                  max={90}
+                  value={[draft.ratios[0]]}
+                  disabled={saving}
+                  onValueChange={(value) => patch({
+                    ratios: setRatio(draft.ratios, 0, typeof value === 'number' ? value : value[0]),
+                  })}
+                />
+              ) : (
+                <RatioTriangle
+                  ratios={draft.ratios}
+                  colours={draft.components.map((id) => slots[id - 1]?.colour.effective ?? 'transparent')}
+                  disabled={saving}
+                  onChange={(ratios) => patch({ ratios })}
+                />
+              ))}
+            {size === 2 && (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id={`${fieldsId}-gradient`}
+                  checked={draft.gradient}
+                  disabled={saving}
+                  onCheckedChange={(gradient) =>
+                    patch({ gradient, points: [], perPart: false, reverse: false })
+                  }
+                />
+                <Label htmlFor={`${fieldsId}-gradient`}>Z gradient</Label>
               </div>
-            </fieldset>
-          )}
-          {preview &&
-            ('error' in preview ? (
-              <p role="alert">{preview.error}</p>
-            ) : (
-              <div
-                aria-label="Mix preview"
-                className="h-7 rounded border"
-                style={{ background: mixBackground(preview.colour, preview.ramp) }}
+            )}
+            {draft.gradient && (
+              <GradientControls
+                recipe={draft}
+                samples={result && 'samples' in result.preview ? result.preview.samples : []}
+                disabled={saving}
+                onChange={patch}
               />
-            ))}
-        </fieldset>
-        {failure && <p role="alert">{failure}</p>}
-        <DialogFooter>
+            )}
+            {!!suggestions.length && (
+              <fieldset>
+                <legend>Recommended mixes</legend>
+                <div className="flex max-h-20 flex-wrap gap-1 overflow-auto">
+                  {suggestions.map((s) => {
+                    const label = s.components.map((v, i) => `Slot ${v} · ${s.ratios[i]}%`).join(', ');
+                    return (
+                      <Button
+                        key={label}
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        className="p-0"
+                        title={label}
+                        aria-label={label}
+                        onClick={() => patch({ ...defaultRecipe, components: s.components, ratios: s.ratios })}
+                      >
+                        <FilamentSwatch className="size-full rounded-sm" display={{ mode: 'solid', colors: [s.colour] }} />
+                      </Button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            )}
+            {preview &&
+              ('error' in preview ? (
+                <p className="text-destructive" role="alert">{preview.error}</p>
+              ) : (
+                <div role="img" aria-label="Mix preview">
+                  <FilamentSwatch className="block h-7 rounded border" display={mixSwatchDisplay(preview.colour, preview.ramp)} />
+                </div>
+              ))}
+          </fieldset>
+          {failure && <p className="mt-2 text-destructive" role="alert">{failure}</p>}
+        </div>
+        <DialogFooter className="shrink-0">
           <Button variant="outline" disabled={saving} onClick={onClose}>
             Cancel
           </Button>

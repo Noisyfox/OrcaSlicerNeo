@@ -79,6 +79,22 @@ async function openSlotAction(container: HTMLElement, slot: number, action: 'edi
   return document.querySelector(`[data-testid="filament-${action}-${slot}"]`) as HTMLElement | null;
 }
 
+function selectOptions(trigger: HTMLButtonElement) {
+  const list = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+  expect(list).not.toBeNull();
+  return [...list!.querySelectorAll<HTMLElement>('[role="option"]')];
+}
+
+async function chooseSelectOption(trigger: HTMLButtonElement, matches: (label: string) => boolean) {
+  await act(async () => trigger.click());
+  const option = selectOptions(trigger).find(item => matches(item.textContent ?? ''));
+  expect(option).toBeDefined();
+  await act(async () => {
+    option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+  });
+}
+
 async function editColor(value: string) {
   const input = document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!;
   await act(async () => {
@@ -115,17 +131,18 @@ describe('FilamentRack runtime interaction', () => {
     const decompose = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
       .find(item => item.textContent === 'Decompose Color')!;
     await act(async () => decompose.click());
-    const [material, palette] = document.querySelectorAll<HTMLSelectElement>('[role="dialog"] select');
-    const project = palette.querySelector<HTMLOptionElement>('option[value="project"]')!;
-    expect(project.disabled).toBe(true); // source PETG is excluded
+    const [material, palette] = document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [role="combobox"]');
+    await act(async () => palette.click());
+    expect(selectOptions(palette)[0]?.getAttribute('aria-disabled')).toBe('true'); // source PETG is excluded
+    await act(async () => palette.click());
     for (const choice of ['PLA', 'PLA Basic']) {
-      await act(async () => {
-        material.value = choice;
-        material.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-      expect(project.disabled).toBe(false);
-      expect(palette.value).toBe('project');
-      expect([...palette.options].map(option => option.value)).toEqual(choice === 'PLA' ? ['project'] : ['project', 'CMYW', 'RYBW']);
+      await chooseSelectOption(material, text => text === choice);
+      expect(palette.querySelector('[data-slot="select-value"]')?.textContent).toBe('Project materials');
+      await act(async () => palette.click());
+      const options = selectOptions(palette);
+      expect(options[0]?.getAttribute('aria-disabled')).not.toBe('true');
+      expect(options.map(option => option.textContent)).toEqual(choice === 'PLA' ? ['Project materials'] : ['Project materials', 'CMYW', 'RYBW']);
+      await act(async () => palette.click());
       expect(preview).toHaveBeenLastCalledWith({ source: 1, material: choice, method: 'project' });
     }
   });
@@ -151,8 +168,9 @@ describe('FilamentRack runtime interaction', () => {
     expect(rendered.container.textContent).toContain('Missing filament · 40%');
     await act(async () => rendered.container.querySelector<HTMLButtonElement>('[aria-label="Edit mix in slot 32"]')!.click());
     expect(button('Save mix').disabled).toBe(true);
-    const select = document.querySelector<HTMLSelectElement>('select[aria-label="Component 2"]')!;
-    await act(async () => { select.value = '2'; select.dispatchEvent(new Event('change', {bubbles:true})); });
+    const select = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Component 2"]')!;
+    expect(select.querySelector('[data-slot="select-value"]')?.textContent).toBe('Missing filament');
+    await chooseSelectOption(select, text => text.startsWith('2 · '));
     expect(button('Save mix').disabled).toBe(false);
     await act(async () => button('Cancel').click());
     expect(rendered.container.textContent).toContain('Missing filament · 40%');

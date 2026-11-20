@@ -213,6 +213,14 @@
   font-weight: 400;
   line-height: 1;
 }
+.sidebar-section-title[role="tab"]:not([data-active]) {
+  background: transparent;
+  color: var(--color-muted-foreground);
+}
+.sidebar-section-title[role="tab"]:not([data-active]):hover {
+  background: var(--color-button-hover);
+  color: var(--color-foreground);
+}
 
 /* One compact dropdown surface for all sidebar preset and option selectors. */
 .sidebar-dropdown {

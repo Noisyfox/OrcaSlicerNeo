@@ -5,7 +5,7 @@ import type {
   FilamentMutationResultOrError,
 } from '@slicer/client';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -15,8 +15,9 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { colorSwatchForeground } from '@/components/ui/color-swatch';
-import { MixEditor, mixBackground } from './MixEditor';
+import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
+import { FilamentSwatch } from '../FilamentSwatch';
+import { MixEditor, mixSwatchDisplay } from './MixEditor';
 
 export function MixesPanel({
   slots,
@@ -75,14 +76,14 @@ export function MixesPanel({
           <ContextMenu key={s.logicalId}>
             <ContextMenuTrigger
               render={<button type="button" disabled={pending} />}
-              className="flex items-center gap-2 rounded bg-control-background p-1 text-left"
+              className="flex items-center gap-2 rounded bg-control-background p-1 text-left outline-none hover:bg-button-hover focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
               aria-label={`Edit mix in slot ${s.slot}`}
               onClick={() => setEditor({ slot: s, revision })}
             >
               <span
-                className="grid h-7 min-w-9 place-items-center rounded"
+                className="grid h-7 min-w-9 shrink-0 place-items-center rounded-sm border"
                 style={{
-                  background: mixBackground(s.colour.effective, mix.ramp),
+                  ...colorSwatchStyle(mixSwatchDisplay(s.colour.effective, mix.ramp)),
                   color: colorSwatchForeground(s.colour.effective),
                 }}
               >
@@ -94,9 +95,9 @@ export function MixesPanel({
                     <span key={i} className="inline-flex items-center gap-1">
                       {j > 0 && mix.gradient && '→'}
                       {slots[id - 1] && (
-                        <span
+                        <FilamentSwatch
                           className="size-2.5 rounded-sm border"
-                          style={{ background: slots[id - 1].colour.effective }}
+                          display={{ mode: 'solid', colors: [slots[id - 1].colour.effective] }}
                         />
                       )}
                       {id ? `Slot ${id}` : 'Missing filament'}
@@ -153,13 +154,15 @@ export function MixesPanel({
             if (!v) setDeleteRevision(undefined);
           }}
         >
-          <DialogContent>
-            <DialogTitle>
-              Delete all {mixes.length} {mixes.length === 1 ? 'mix' : 'mixes'}?
-            </DialogTitle>
-            <p>
-              Assignments will fall back to slot 1 and facets painted with these mixes will lose their paint.
-            </p>
+          <DialogContent className="w-[min(95vw,28rem)]">
+            <DialogHeader>
+              <DialogTitle>
+                Delete all {mixes.length} {mixes.length === 1 ? 'mix' : 'mixes'}?
+              </DialogTitle>
+              <DialogDescription>
+                Assignments will fall back to slot 1 and facets painted with these mixes will lose their paint.
+              </DialogDescription>
+            </DialogHeader>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDeleteRevision(undefined)}>
                 Cancel

@@ -1,6 +1,9 @@
-import { useRef, useState, type PointerEvent } from 'react';
+import { useId, useRef, useState, type PointerEvent } from 'react';
 import type { MixedFilamentPoint, MixedFilamentRecipe } from '@slicer/client';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 export function PercentageInput({
   value,
@@ -19,9 +22,9 @@ export function PercentageInput({
 }) {
   const [typing, setTyping] = useState<string>();
   return (
-    <input
+    <Input
       aria-label={label}
-      className="w-16"
+      className="h-6 w-16 tabular-nums"
       type="number"
       min={min}
       max={max}
@@ -63,10 +66,12 @@ export function setRatio(ratios: number[], index: number, value: number) {
 export function RatioTriangle({
   ratios,
   colours,
+  disabled,
   onChange,
 }: {
   ratios: number[];
   colours: string[];
+  disabled: boolean;
   onChange: (value: number[]) => void;
 }) {
   function move(e: PointerEvent<SVGSVGElement>) {
@@ -88,11 +93,12 @@ export function RatioTriangle({
       role="img"
       aria-label="Drag to set the three component percentages"
       onPointerDown={(e) => {
+        if (disabled) return;
         e.currentTarget.setPointerCapture(e.pointerId);
         move(e);
       }}
       onPointerMove={(e) => {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) move(e);
+        if (!disabled && e.currentTarget.hasPointerCapture(e.pointerId)) move(e);
       }}
     >
       <polygon points="50,1 1,79 99,79" className="fill-muted stroke-border" />
@@ -120,17 +126,20 @@ export function gradientPoints(recipe: MixedFilamentRecipe): MixedFilamentPoint[
 export function GradientControls({
   recipe,
   samples,
+  disabled,
   onChange,
 }: {
   recipe: MixedFilamentRecipe;
   samples: readonly number[];
+  disabled: boolean;
   onChange: (patch: Partial<MixedFilamentRecipe>) => void;
 }) {
   const points = gradientPoints(recipe);
+  const perPartId = useId();
   const dragging = useRef<number | null>(null);
   function drag(e: PointerEvent<SVGSVGElement>) {
     const i = dragging.current;
-    if (i === null) return;
+    if (i === null || disabled) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width,
       y = 1 - (e.clientY - rect.top) / rect.height;
@@ -204,6 +213,7 @@ export function GradientControls({
             ry="4"
             className="cursor-grab fill-primary"
             onPointerDown={(e) => {
+              if (disabled) return;
               dragging.current = i;
               e.currentTarget.ownerSVGElement?.setPointerCapture(e.pointerId);
             }}
@@ -211,28 +221,29 @@ export function GradientControls({
         ))}
       </svg>
       {points.map((p, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <label>
-            Height %{' '}
+        <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Label>
+            Height %
             <PercentageInput
               value={Number((100 * p.x).toFixed(2))}
               min={0}
               max={100}
               label="Height %"
-              disabled={!i || i === points.length - 1}
+              disabled={disabled || !i || i === points.length - 1}
               onChange={(v) => update(i, 'x', v)}
             />
-          </label>
-          <label>
-            First filament %{' '}
+          </Label>
+          <Label>
+            First filament %
             <PercentageInput
               value={Number((100 * p.y).toFixed(2))}
               min={10}
               max={90}
               label="First filament %"
+              disabled={disabled}
               onChange={(v) => update(i, 'y', v)}
             />
-          </label>
+          </Label>
           {i > 0 && i < points.length - 1 && (
             <Button
               size="xs"
@@ -266,14 +277,15 @@ export function GradientControls({
           Reverse direction
         </Button>
       </div>
-      <label>
-        <input
-          type="checkbox"
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={perPartId}
           checked={recipe.perPart}
-          onChange={(e) => onChange({ perPart: e.target.checked })}
-        />{' '}
-        Per-part gradient
-      </label>
+          disabled={disabled}
+          onCheckedChange={(perPart) => onChange({ perPart })}
+        />
+        <Label htmlFor={perPartId}>Per-part gradient</Label>
+      </div>
     </fieldset>
   );
 }
