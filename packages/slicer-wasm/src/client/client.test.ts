@@ -25,6 +25,21 @@ function wireColour(effective: string, provenance: 'preset' | 'user' = 'preset')
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('copies and releases the native mix triangle pixels', async () => {
+    const pixels = new Uint8Array([0, 0, 0, 0, 255, 80, 20, 255]);
+    const module = createMockModule({ mixTrianglePalette: { width: 2, height: 1, pixels } });
+    const client = createClient(async () => module);
+    await client.getBuildInfo();
+    const freedBefore = module._freedPointers.length;
+    const palette = await client.getMixTrianglePalette(['#FF0000', '#00FF00', '#0000FF']);
+    expect(palette).toEqual({ width: 2, height: 1, pixels: new Uint8ClampedArray(pixels) });
+    expect(module._freedPointers).toHaveLength(freedBefore + 2);
+    const pointer = module._freedPointers.at(-1)!;
+    expect(module.HEAPU8.slice(pointer, pointer + pixels.length)).toEqual(pixels);
+    module.HEAPU8.fill(0, pointer, pointer + pixels.length);
+    expect(palette.pixels).toEqual(new Uint8ClampedArray(pixels));
+  });
+
   it('reads the native build identity and rejects a foreign Neo release before initialization', async () => {
     const module = createMockModule();
     const client = createClient(async () => module);

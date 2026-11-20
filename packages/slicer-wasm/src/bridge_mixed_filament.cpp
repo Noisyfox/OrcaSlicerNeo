@@ -2,11 +2,59 @@
 
 #include "libslic3r/FilamentMixer.hpp"
 #include "libslic3r/ColorDecomposeRecipe.hpp"
+#include <array>
 #include <cmath>
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
 #include <numeric>
 #include <sstream>
 
 namespace Slic3r::Neo::Bridge::Filament::Mixes {
+
+json triangle_palette(const json& colours)
+{
+    if (!colours.is_array() || colours.size() != 3)
+        throw std::invalid_argument("Expected three triangle component colours.");
+    std::array<ColorDecomposeRgb, 3> rgb;
+    for (size_t i = 0; i < rgb.size(); ++i) {
+        const auto colour = colours.at(i).get<std::string>();
+        if (!color_decompose_hex_to_rgb(colour.substr(0, 7), rgb[i]))
+            throw std::invalid_argument("Invalid triangle component colour.");
+    }
+
+    // Match the picker's 100 by 80 viewBox and its one-unit inset vertices.
+    constexpr int width = 100;
+    constexpr int height = 80;
+    constexpr size_t length = width * height * 4;
+    std::unique_ptr<unsigned char[], decltype(&std::free)> pixels(
+        static_cast<unsigned char*>(std::calloc(length, 1)), std::free);
+    if (!pixels) throw std::bad_alloc();
+    for (int y = 1; y < height - 1; ++y) {
+        const double top = (height - 1.5 - y) / (height - 2);
+        for (int x = 1; x < width - 1; ++x) {
+            const double right = (x - 0.5) / (width - 2) - top / 2;
+            const double left = 1 - top - right;
+            if (left < 0 || right < 0) continue;
+
+            // Desktop Orca blends the top and left pigments first, then the right.
+            auto result = rgb[0];
+            filament_mixer_lerp(result.r, result.g, result.b, rgb[1].r, rgb[1].g, rgb[1].b,
+                static_cast<float>(left / (top + left)), &result.r, &result.g, &result.b);
+            filament_mixer_lerp(result.r, result.g, result.b, rgb[2].r, rgb[2].g, rgb[2].b,
+                static_cast<float>(right), &result.r, &result.g, &result.b);
+            const size_t index = (y * width + x) * 4;
+            pixels[index] = result.r;
+            pixels[index + 1] = result.g;
+            pixels[index + 2] = result.b;
+            pixels[index + 3] = 255;
+        }
+    }
+    json result = {{"width", width}, {"height", height},
+        {"pixels_ptr", reinterpret_cast<std::uintptr_t>(pixels.get())}, {"pixels_length", length}};
+    pixels.release();
+    return result;
+}
 
 template<class Option> static auto read(const DynamicPrintConfig& config, const char* key, size_t index)
 {

@@ -7,6 +7,19 @@ import { createMixedFilamentFixture } from './mixed-filament-fixture.mjs';
 const { module, call, rack, run, edit, printer } = await createMixedFilamentFixture(process.argv[2]);
 const initial = rack();
 const count = initial.slots.length;
+const triangle = run('orc_preview_mixed_filament', { triangleColours: ['#FF0000', '#00FF00', '#0000FF'] });
+assert.equal(triangle.pixels_length, triangle.width * triangle.height * 4);
+const trianglePixels = module.HEAPU8.slice(triangle.pixels_ptr, triangle.pixels_ptr + triangle.pixels_length);
+module._free(triangle.pixels_ptr);
+const trianglePixel = (x, y) => trianglePixels.slice((y * triangle.width + x) * 4, (y * triangle.width + x) * 4 + 4);
+assert.equal(trianglePixel(0, 0)[3], 0);
+assert.equal(trianglePixel(50, 52)[3], 255);
+for (const [channel, [x, y]] of [[49, 6], [6, 77], [94, 77]].entries()) {
+  const pixel = trianglePixel(x, y);
+  assert.equal(pixel[3], 255);
+  assert.equal(pixel[channel], Math.max(...pixel.slice(0, 3)));
+}
+assert.match(run('orc_preview_mixed_filament', { triangleColours: ['#FF0000', '', '#0000FF'] }).error, /Invalid triangle/);
 const draft = {
   components: [1, 2],
   ratios: [60, 40],

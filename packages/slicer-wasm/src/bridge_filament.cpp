@@ -3233,6 +3233,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_preview_mixed_filament(const char* request_
             return duplicate_json(Mixes::decompose(state().presets, request.at("decompose")).dump());
         if (request.contains("recommendations"))
             return duplicate_json(Mixes::recommendations(state().presets, request.at("recommendations").get<int>()).dump());
+        if (request.contains("triangleColours"))
+            return duplicate_json(Mixes::triangle_palette(request.at("triangleColours")).dump());
         return duplicate_json(Mixes::preview(state().presets, request, request.value("componentColours", json(nullptr))).dump());
     }
     catch (const std::exception& e) { return error_json(e.what()); }

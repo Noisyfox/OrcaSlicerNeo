@@ -1400,6 +1400,12 @@ export interface MixedFilamentPreview {
   ramp: string[];
 }
 
+export interface MixedFilamentTrianglePalette {
+  width: number;
+  height: number;
+  pixels: Uint8ClampedArray;
+}
+
 export interface MixedFilamentRecommendation {
   components: number[];
   ratios: number[];
@@ -1829,6 +1835,7 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
   editMixedFilament(request: MixedFilamentRequest): Promise<FilamentMutationResultOrError>;
   previewMixedFilament(request: MixedFilamentRecipe, componentColours?: readonly string[]): Promise<MixedFilamentPreview | { error: string }>;
+  getMixTrianglePalette(colours: readonly [string, string, string]): Promise<MixedFilamentTrianglePalette>;
   previewColorDecomposition(query: ColorDecomposeQuery): Promise<ColorDecomposeProposal | { error: string }>;
   getMixRecommendations(size: 2 | 3): Promise<MixedFilamentRecommendation[]>;
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;

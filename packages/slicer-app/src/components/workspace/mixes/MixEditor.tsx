@@ -206,7 +206,7 @@ export function MixEditor({
               ) : (
                 <RatioTriangle
                   ratios={draft.ratios}
-                  colours={draft.components.map((id) => slots[id - 1]?.colour.effective ?? 'transparent')}
+                  colours={draft.components.map((id) => slots[id - 1]?.colour.effective)}
                   disabled={saving}
                   onChange={(ratios) => patch({ ratios })}
                 />

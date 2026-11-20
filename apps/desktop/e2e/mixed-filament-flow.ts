@@ -126,6 +126,17 @@ export async function verifyMixedFilamentEditor(page: Page) {
   await rack.getByRole('button', { name: 'Create', exact: true }).click();
   await componentCount.click();
   await page.getByRole('option', { name: 'Three', exact: true }).click();
+  const triangle = editor.getByRole('img', { name: 'Drag to set the three component percentages' });
+  const palette = triangle.locator('..').locator('canvas');
+  await expect.poll(() => palette.evaluate((canvas: HTMLCanvasElement) => {
+    const context = canvas.getContext('2d')!;
+    const corners = [[49, 6], [6, 77], [94, 77]].map(([x, y]) => [...context.getImageData(x, y, 1, 1).data]);
+    return {
+      interiorAlpha: context.getImageData(50, 52, 1, 1).data[3],
+      exteriorAlpha: context.getImageData(0, 0, 1, 1).data[3],
+      distinctCorners: new Set(corners.map(pixel => pixel.join(','))).size,
+    };
+  })).toEqual({ interiorAlpha: 255, exteriorAlpha: 0, distinctCorners: 3 });
   await editor.getByLabel('Percentage 2').fill('35');
   await editor.getByLabel('Percentage 2').blur();
   await expect(editor.getByLabel('Percentage 2')).toHaveValue('35');

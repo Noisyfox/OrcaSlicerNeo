@@ -2489,6 +2489,24 @@ export function createClient(
       return { colour: raw.colour, ramp: raw.ramp as string[], samples:raw.samples as number[] };
     },
 
+    async getMixTrianglePalette(colours: readonly [string, string, string]) {
+      const m = await module();
+      const raw = callJson(m, 'orc_preview_mixed_filament', ['string'], [JSON.stringify({ triangleColours: colours })]);
+      if (isRecord(raw) && typeof raw.error === 'string') throw new Error(raw.error);
+      if (!isRecord(raw) || typeof raw.pixels_ptr !== 'number' ||
+          !Number.isSafeInteger(raw.pixels_ptr) || raw.pixels_ptr <= 0 || raw.pixels_ptr >= m.HEAPU8.length)
+        throw new Error('Invalid mixed filament triangle palette');
+      const pointer = raw.pixels_ptr;
+      const { width, height, pixels_length: length } = raw;
+      if (typeof width !== 'number' || typeof height !== 'number' || typeof length !== 'number' ||
+          !Number.isSafeInteger(width) || width <= 0 || !Number.isSafeInteger(height) || height <= 0 ||
+          length !== width * height * 4 || length > m.HEAPU8.length - pointer) {
+        m._free(pointer);
+        throw new Error('Invalid mixed filament triangle palette dimensions');
+      }
+      return { width, height, pixels: new Uint8ClampedArray(readBytes(m, pointer, length).buffer) };
+    },
+
     async previewColorDecomposition(query: ColorDecomposeQuery) {
       const raw = callJson(await module(), 'orc_preview_mixed_filament', ['string'], [JSON.stringify({decompose:query})]);
       if (!isRecord(raw) || typeof raw.error !== 'string') throw new Error('Invalid colour decomposition response');

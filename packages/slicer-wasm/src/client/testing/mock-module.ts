@@ -130,6 +130,7 @@ export interface MockModuleOptions {
   /** Optional raw mutation response override for client normalization tests. */
   filamentMutation?: unknown;
   mixedFilamentPreview?: unknown;
+  mixTrianglePalette?: { width: number; height: number; pixels: Uint8Array };
   mixRecommendations?: unknown;
   /** Optional raw project-configuration response override for normalization tests. */
   nativeScopedConfigOverride?: unknown;
@@ -2714,8 +2715,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         error_code: 'invalid_command', status: {state: 'error', error: 'Missing mixed filament fixture'} };
     },
     orc_preview_mixed_filament(requestJson: string) {
-      return JSON.parse(requestJson).recommendations ? opts.mixRecommendations ?? [] :
-        opts.mixedFilamentPreview ?? { error: 'Missing mixed filament preview fixture' };
+      const request = JSON.parse(requestJson);
+      if (request.recommendations) return opts.mixRecommendations ?? [];
+      if (request.triangleColours) {
+        const palette = opts.mixTrianglePalette;
+        if (!palette) return { error: 'Missing mixed filament triangle fixture' };
+        const pointer = malloc(palette.pixels.length);
+        HEAPU8.set(palette.pixels, pointer);
+        return { width: palette.width, height: palette.height, pixels_ptr: pointer, pixels_length: palette.pixels.length };
+      }
+      return opts.mixedFilamentPreview ?? { error: 'Missing mixed filament preview fixture' };
     },
     orc_add_filament_slot(requestJson: string) {
       return filamentMutation(requestJson, 'add');

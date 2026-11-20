@@ -1,4 +1,5 @@
-import { useId, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useId, useRef, useState, type PointerEvent } from 'react';
+import { usePlatform } from '@orca/platform-contract';
 import type { MixedFilamentPoint, MixedFilamentRecipe } from '@slicer/client';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -70,47 +71,77 @@ export function RatioTriangle({
   onChange,
 }: {
   ratios: number[];
-  colours: string[];
+  colours: (string | undefined)[];
   disabled: boolean;
   onChange: (value: number[]) => void;
 }) {
+  const { runtime } = usePlatform();
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [first, second, third] = colours;
+  useEffect(() => {
+    const surface = canvas.current;
+    if (!surface) return;
+    const context = surface.getContext('2d');
+    if (!context) return;
+    context.clearRect(0, 0, surface.width, surface.height);
+    if (!first || !second || !third) return;
+
+    let active = true;
+    void runtime.getMixTrianglePalette([first, second, third]).then(({ width, height, pixels }) => {
+      if (!active) return;
+      surface.width = width;
+      surface.height = height;
+      const image = context.createImageData(width, height);
+      image.data.set(pixels);
+      context.putImageData(image, 0, 0);
+    }).catch(() => {
+      // Keep the outline and component markers available if the palette fails.
+    });
+    return () => { active = false; };
+  }, [runtime, first, second, third]);
+
   function move(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
-    const top = 1 - (e.clientY - rect.top) / rect.height;
-    const right = (e.clientX - rect.left) / rect.width - top / 2;
+    const x = (e.clientX - rect.left) * 100 / rect.width;
+    const y = (e.clientY - rect.top) * 80 / rect.height;
+    const top = (79 - y) / 78;
+    const right = (x - 1) / 98 - top / 2;
     const weights = [top, 1 - top - right, right].map((w) => Math.max(0, w));
     const sum = weights.reduce((a, b) => a + b, 0);
     const [a, b] = weights.map((w) => Math.round((70 * w) / sum));
-    const c = Math.max(0, 70 - a - b);
-    onChange([10 + a, 80 - a - c, 10 + c]);
+    const left = Math.min(b, 70 - a);
+    onChange([10 + a, 10 + left, 80 - a - left]);
   }
   const y = (ratios[0] - 10) / 70;
   const x = (ratios[2] - 10) / 70 + y / 2;
   return (
-    <svg
-      viewBox="0 0 100 80"
-      className="mx-auto h-28 w-36 touch-none"
-      role="img"
-      aria-label="Drag to set the three component percentages"
-      onPointerDown={(e) => {
-        if (disabled) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        move(e);
-      }}
-      onPointerMove={(e) => {
-        if (!disabled && e.currentTarget.hasPointerCapture(e.pointerId)) move(e);
-      }}
-    >
-      <polygon points="50,1 1,79 99,79" className="fill-muted stroke-border" />
-      {[
-        [50, 3],
-        [3, 77],
-        [97, 77],
-      ].map(([cx, cy], i) => (
-        <circle key={i} cx={cx} cy={cy} r="3" fill={colours[i]} />
-      ))}
-      <circle cx={1 + 98 * x} cy={79 - 78 * y} r="4" className="fill-primary stroke-background" />
-    </svg>
+    <div className="relative mx-auto aspect-[5/4] w-36">
+      <canvas ref={canvas} aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" />
+      <svg
+        viewBox="0 0 100 80"
+        className="relative block size-full touch-none"
+        role="img"
+        aria-label="Drag to set the three component percentages"
+        onPointerDown={(e) => {
+          if (disabled) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          move(e);
+        }}
+        onPointerMove={(e) => {
+          if (!disabled && e.currentTarget.hasPointerCapture(e.pointerId)) move(e);
+        }}
+      >
+        <polygon points="50,1 1,79 99,79" className="fill-none stroke-border" />
+        {[
+          [50, 3],
+          [3, 77],
+          [97, 77],
+        ].map(([cx, cy], i) => (
+          <circle key={i} cx={cx} cy={cy} r="3" fill={colours[i] ?? 'transparent'} />
+        ))}
+        <circle cx={1 + 98 * x} cy={79 - 78 * y} r="4" className="fill-primary-foreground stroke-background" />
+      </svg>
+    </div>
   );
 }
 
