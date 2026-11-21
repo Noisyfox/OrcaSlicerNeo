@@ -347,17 +347,18 @@ int remap_filament_reference(const int value, const std::size_t removed,
     return static_cast<int>((current > removed ? current - 1 : current) + 1);
 }
 
+bool is_routing_key(const std::string& key)
+{
+    return std::any_of(routing_options.begin(), routing_options.end(),
+        [&key](const RoutingOption& option) { return key == option.key; });
+}
+
 bool is_filament_slot_reference_key(const std::string& key)
 {
     // Audited one-based slot references.  Do not infer references from a
     // substring: filament temperatures, purge settings, shrinkage, and other
     // numeric material properties must survive slot deletion unchanged.
-    static const std::set<std::string> keys = {
-        "extruder", "support_filament", "support_interface_filament", "wipe_tower_filament",
-        "outer_wall_filament_id", "inner_wall_filament_id", "sparse_infill_filament_id",
-        "internal_solid_filament_id", "top_surface_filament_id", "bottom_surface_filament_id",
-    };
-    return keys.find(key) != keys.end();
+    return key == "extruder" || key == "wipe_tower_filament" || is_routing_key(key);
 }
 
 int remap_filament_config_reference(const std::string& key, const int value,
@@ -367,11 +368,7 @@ int remap_filament_config_reference(const std::string& key, const int value,
     // Support/raft and feature routing use native zero as Default.  A plain
     // slot Delete therefore clears a deleted explicit route to Default, while
     // ordinary object/part assignments retain Orca's slot-1 fallback.
-    if (!replacement.has_value() && value == static_cast<int>(removed + 1) &&
-        (key == "support_filament" || key == "support_interface_filament" ||
-         key == "outer_wall_filament_id" || key == "inner_wall_filament_id" ||
-         key == "sparse_infill_filament_id" || key == "internal_solid_filament_id" ||
-         key == "top_surface_filament_id" || key == "bottom_surface_filament_id"))
+    if (!replacement.has_value() && value == static_cast<int>(removed + 1) && is_routing_key(key))
         return 0;
     return remap_filament_reference(value, removed, replacement);
 }
@@ -1623,8 +1620,9 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         }
         if (affected_plates.find(state().current_plate_id) != affected_plates.end()) {
             invalidate_preview_source();
+        } else {
+            Neo::Bridge::PrimeTower::invalidate_projection_cache_and_object_usage_summaries(affected_plates, changed_objects);
         }
-        Neo::Bridge::PrimeTower::invalidate_projection_cache_and_object_usage_summaries(affected_plates, changed_objects);
         mutation["history_entry_delta"] = 1;
         mutation["revision_before"] = request["revision"];
         mutation["revision_after"] = state().history_revision;
@@ -1726,18 +1724,6 @@ json assign_filament_command(const json& request, const Runtime& runtime)
     });
 }
 
-static const char* routing_key_for_selector(const std::string& selector)
-{
-    static const std::map<std::string, const char*> keys = {
-        {"support-base", "support_filament"}, {"support-interface", "support_interface_filament"},
-        {"outer-wall", "outer_wall_filament_id"}, {"inner-wall", "inner_wall_filament_id"},
-        {"sparse-infill", "sparse_infill_filament_id"}, {"internal-solid-infill", "internal_solid_filament_id"},
-        {"top-surface", "top_surface_filament_id"}, {"bottom-surface", "bottom_surface_filament_id"},
-    };
-    const auto it = keys.find(selector);
-    return it == keys.end() ? nullptr : it->second;
-}
-
 json set_filament_routing_command(const json& request, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
@@ -1746,9 +1732,12 @@ json set_filament_routing_command(const json& request, const Runtime& runtime)
         if (!request.contains("selector") || !request["selector"].is_string())
             throw FilamentCommandFailure("invalid_command", "routing selector is required");
         const std::string selector = request["selector"].get<std::string>();
-        const char* key = routing_key_for_selector(selector);
-        if (key == nullptr) throw FilamentCommandFailure("invalid_command", "unsupported filament routing selector");
-        const bool feature_selector = selector != "support-base" && selector != "support-interface";
+        const auto route = std::find_if(routing_options.begin(), routing_options.end(),
+            [&selector](const RoutingOption& option) { return selector == option.selector; });
+        if (route == routing_options.end())
+            throw FilamentCommandFailure("invalid_command", "unsupported filament routing selector");
+        const char* key = route->key;
+        const bool feature_selector = route->feature;
         const auto requested_slot = request.value("slot", json(-1));
         const bool inherit = feature_selector && requested_slot.is_null();
         const int slot = requested_slot.is_number_integer() ? requested_slot.get<int>() : -1;
@@ -2910,14 +2899,7 @@ json filament_session_snapshot_json(const bool include_references)
     json revisions = {{"session", state().history_revision}, {"project", state().history_revision},
                       {"result", current_result_generation}, {"plates", plate_revisions_json()}};
     json routing = json::array();
-    const std::array<std::pair<const char *, const char *>, 8> routing_keys = {{
-        {"support-base", "support_filament"}, {"support-interface", "support_interface_filament"},
-        {"outer-wall", "outer_wall_filament_id"}, {"inner-wall", "inner_wall_filament_id"},
-        {"sparse-infill", "sparse_infill_filament_id"}, {"internal-solid-infill", "internal_solid_filament_id"},
-        {"top-surface", "top_surface_filament_id"}, {"bottom-surface", "bottom_surface_filament_id"},
-    }};
-    const auto option_int = [](const auto& config, const char* key) {
-        const auto* option = config.option(key);
+    const auto option_int = [](const ConfigOption* option) {
         return option ? option->getInt() : 0;
     };
     auto append_routing = [&](const char* target, std::size_t id, std::size_t object_id,
@@ -2933,8 +2915,8 @@ json filament_session_snapshot_json(const bool include_references)
     // feature. Part material, layer ranges and painting can further specialize
     // the sliced paths.
     struct FeatureValue { int slot; bool overrides_base; };
-    const auto apply_route = [&](FeatureValue parent, const auto& config, const char* key, int base) {
-        if (const auto* option = config.option(key)) {
+    const auto apply_route = [](FeatureValue parent, const ConfigOption* option, int base) {
+        if (option) {
             const int slot = option->getInt();
             if (slot > 0) return FeatureValue{slot, true};
             parent.overrides_base = false;
@@ -2942,31 +2924,32 @@ json filament_session_snapshot_json(const bool include_references)
         if (!parent.overrides_base && base > 0) parent.slot = base;
         return parent;
     };
-    for (const auto& [selector, key] : routing_keys) {
-        const bool feature = std::string_view(selector).substr(0, 8) != "support-";
+    for (const auto& [selector, key, feature] : routing_options) {
         const auto* project_option = bundle.project_config.option(key);
-        const int project_slot = project_option ? project_option->getInt() :
-            feature ? option_int(bundle.prints.get_edited_preset().config, key) : 0;
+        if (!project_option && feature) project_option = bundle.prints.get_edited_preset().config.option(key);
+        const int project_slot = option_int(project_option);
         append_routing("project", 0, 0, selector, project_slot, project_slot, false, project_slot == 0);
         for (const auto* object : state().model.objects) {
             if (object == nullptr) continue;
             const auto object_id = object->id().id;
-            const int own = option_int(object->config, key);
+            const auto* object_option = object->config.option(key);
+            const int own = option_int(object_option);
             if (!feature) {
                 const int effective = own > 0 ? own : project_slot;
                 append_routing("object", object_id, object_id, selector, own, effective, own == 0, effective == 0);
                 continue;
             }
-            const auto object_route = apply_route({project_slot, project_slot > 0}, object->config, key,
+            const auto object_route = apply_route({project_slot, project_slot > 0}, object_option,
                                                   explicit_extruder(object->config));
-            const bool object_inherits = !object->config.has(key);
+            const bool object_inherits = object_option == nullptr;
             append_routing("object", object_id, object_id, selector, own, std::max(1, object_route.slot),
                            object_inherits, !object_inherits && own == 0);
             for (const auto* volume : object->volumes) {
                 if (volume == nullptr || !volume->is_model_part()) continue;
-                const int local = option_int(volume->config, key);
-                const bool inherits = !volume->config.has(key);
-                const auto part_route = apply_route(object_route, volume->config, key, explicit_extruder(volume->config));
+                const auto* part_option = volume->config.option(key);
+                const int local = option_int(part_option);
+                const bool inherits = part_option == nullptr;
+                const auto part_route = apply_route(object_route, part_option, explicit_extruder(volume->config));
                 append_routing("model-part", volume->id().id, object_id, selector, local, std::max(1, part_route.slot),
                                inherits, !inherits && local == 0);
             }

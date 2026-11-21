@@ -359,6 +359,9 @@ function encodeRememberedSlot({ preset, colour, native, mix }: import('./types')
   } };
 }
 
+const filamentRoutingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
+  'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
+
 function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult;
 function normalizeFilamentSessionResult(raw: unknown, includeReferences: false): FilamentSessionOrdinaryEdit | FilamentSessionSnapshotError;
 function normalizeFilamentSessionResult(raw: unknown, includeReferences = true): FilamentSessionSnapshotResult | FilamentSessionOrdinaryEdit {
@@ -494,8 +497,6 @@ function normalizeFilamentSessionResult(raw: unknown, includeReferences = true):
   let references: Pick<FilamentSessionSnapshot, 'routing' | 'assignments'> | undefined;
   if (includeReferences) {
     const routing: FilamentRoutingProjection[] = [];
-    const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
-      'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
     if (value.routing !== undefined) {
       if (!Array.isArray(value.routing)) return { ok: false, error: 'invalid filament session routing' };
       for (const candidate of value.routing) {
@@ -504,7 +505,7 @@ function normalizeFilamentSessionResult(raw: unknown, includeReferences = true):
         const support = item.selector === 'support-base' || item.selector === 'support-interface';
         if ((item.target !== 'project' && item.target !== 'object' && item.target !== 'model-part') ||
             !integer(item.id) || !integer(item.object_id) || typeof item.selector !== 'string' ||
-            !routingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
+            !filamentRoutingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
             !integer(item.effective_slot) || typeof item.inherited !== 'boolean' || typeof item.defaulted !== 'boolean' ||
             (item.target === 'project' && (item.id !== 0 || item.object_id !== 0 ||
               item.inherited || item.explicit_slot !== item.effective_slot)) ||
@@ -709,9 +710,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     if (!Array.isArray(mutation.accepted_targets) || mutation.accepted_targets.length === 0)
       return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
     const selector = mutation.kind === 'routing' ? mutation.selector : undefined;
-    const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
-      'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
-    if (mutation.kind === 'routing' && (typeof selector !== 'string' || !routingSelectors.has(selector)))
+    if (mutation.kind === 'routing' && (typeof selector !== 'string' || !filamentRoutingSelectors.has(selector)))
       return { ok: false, version: 1, error: 'invalid filament routing selector', errorCode: 'invalid_response' };
     let projectAccepted = false;
     for (const candidate of mutation.accepted_targets) {

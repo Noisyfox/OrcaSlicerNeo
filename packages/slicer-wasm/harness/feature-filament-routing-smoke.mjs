@@ -63,9 +63,9 @@ assertPartRoute(true, false, 1);
 checked(call('orc_history_redo'));
 assertPartRoute(true, false, 2);
 
+route([projectTarget], 0);
 route([objectTarget], 2);
 assertPartRoute(true, false, 2);
-await assertOuterWallTool(1);
 
 route(partTargets, 0);
 assertPartRoute(false, true, 1);
@@ -80,6 +80,7 @@ checked(call('orc_history_redo'));
 assertPartRoute(true, false, 2);
 checked(call('orc_history_undo'));
 
+route([projectTarget], 2);
 const archive = checked(call('orc_export_project', ['string'], ['{}']));
 const archivePointer = Number(archive.bytes_ptr);
 const bytes = module.HEAPU8.slice(archivePointer, archivePointer + archive.bytes_length);

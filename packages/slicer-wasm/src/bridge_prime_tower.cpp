@@ -275,10 +275,13 @@ struct UsedSlotContext {
             for (const int slot : volume->get_extruders()) append(slots, slot);
             // Prepare conservatively includes explicitly configured feature
             // slots, even before geometry determines which paths exist.
-            if (volume->is_model_part())
-                for (const char* key : Filament::feature_routing_keys)
-                    if (const auto* option = volume->config.option(key))
+            if (volume->is_model_part()) {
+                for (const auto& route : Filament::routing_options) {
+                    if (!route.feature) continue;
+                    if (const auto* option = volume->config.option(route.key))
                         append(slots, option->getInt());
+                }
+            }
         }
         for (const auto& layer_range : object.layer_config_ranges) {
             if (layer_range.second.has("extruder"))

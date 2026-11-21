@@ -745,11 +745,14 @@ json restore_timestamped_result(const Runtime& runtime,
                     old_volume.supported_facets.equals(new_volume.supported_facets) &&
                     old_volume.supported_facets.timestamp() == new_volume.supported_facets.timestamp();
                 if (usage_unchanged && old_volume.is_model_part()) {
-                    for (const char* key : Neo::Bridge::Filament::feature_routing_keys) {
-                        const auto* old_value = old_volume.config.option(key);
-                        const auto* new_value = new_volume.config.option(key);
-                        if ((old_value ? old_value->getInt() : 0) != (new_value ? new_value->getInt() : 0))
+                    for (const auto& route : Neo::Bridge::Filament::routing_options) {
+                        if (!route.feature) continue;
+                        const auto* old_value = old_volume.config.option(route.key);
+                        const auto* new_value = new_volume.config.option(route.key);
+                        if ((old_value ? old_value->getInt() : 0) != (new_value ? new_value->getInt() : 0)) {
                             usage_unchanged = false;
+                            break;
+                        }
                     }
                 }
             }

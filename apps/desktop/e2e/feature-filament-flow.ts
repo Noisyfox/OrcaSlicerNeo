@@ -53,7 +53,8 @@ export async function verifyFeatureFilamentRouting(page: Page) {
   const slotOption = page.getByRole('option', { name: /^2 - / });
   await expect(slotOption.locator('[aria-hidden="true"][style]')).toHaveCSS('width', '14px');
   const popup = page.locator('[data-slot="select-content"]').filter({ has: slotOption });
-  await expect.poll(() => popup.evaluate(element => element.offsetWidth)).toBeGreaterThanOrEqual(Math.max(128, outerBox.width));
+  await expect.poll(() => popup.evaluate(element => element.getBoundingClientRect().width))
+    .toBeGreaterThanOrEqual(Math.max(128, outerBox.width));
   await page.keyboard.press('Escape');
 
   await addPrimitive(page, 'cube');
