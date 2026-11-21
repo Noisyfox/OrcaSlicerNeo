@@ -10,8 +10,7 @@ export async function verifyFeatureFilamentRouting(page: Page) {
   const filament = page.getByTestId('config-input-outer_wall_filament_id');
   const selected = filament.locator('[data-slot="select-value"]');
   await page.getByTestId('config-page-Multi.').click();
-  await expect(group).toHaveAttribute('aria-expanded', 'false');
-  await group.click();
+  await expect(group).toHaveAttribute('aria-expanded', 'true');
   await expect(group).toHaveCSS('font-size', '11px');
   await expect(page.getByTestId('config-option-label-outer_wall_filament_id')).toHaveCSS('font-size', '13px');
   await expect(filament).toHaveCSS('height', '24px');
@@ -65,7 +64,7 @@ export async function verifyFeatureFilamentRouting(page: Page) {
   await row.click({ position: { x: 40, y: 12 } });
   await expect(page.getByTestId('scoped-target-label')).toContainText('Object:');
   await page.getByTestId('config-page-Multi.').click();
-  if (await group.getAttribute('aria-expanded') === 'false') await group.click();
+  await expect(group).toHaveAttribute('aria-expanded', 'true');
   await expect(selected).toHaveText('Inherit');
   await filament.click();
   await page.getByRole('option', { name: /^2 - / }).click();
@@ -78,6 +77,7 @@ export async function verifyFeatureFilamentRouting(page: Page) {
   if (await parts.count() === 0) await expand.click();
   await parts.first().locator('button.object-list-row').first().click({ position: { x: 40, y: 12 } });
   await expect(page.getByTestId('scoped-target-label')).toContainText('Part:');
+  await expect(group).toHaveAttribute('aria-expanded', 'true');
   await expect(selected).toHaveText('Inherit');
   await filament.click();
   await page.getByRole('option', { name: 'Default', exact: true }).click();
@@ -89,5 +89,10 @@ export async function verifyFeatureFilamentRouting(page: Page) {
   await page.getByTestId('config-mode-project').click();
   await expect(selected).toHaveText(/^2 - /);
   await page.getByTestId('config-reset-outer_wall_filament_id').click();
+  await expect(selected).toHaveText('Default');
+  await group.click();
+  await expect(group).toHaveAttribute('aria-expanded', 'false');
+  await expect(filament).toHaveCount(0);
+  await group.click();
   await expect(selected).toHaveText('Default');
 }

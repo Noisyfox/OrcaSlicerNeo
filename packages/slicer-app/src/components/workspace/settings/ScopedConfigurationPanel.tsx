@@ -670,7 +670,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
             const expansionKey = `${page}/${group}`;
             const groupCatalogue = allFields.filter((field) => keys.includes(field.key));
             const featureGroup = groupCatalogue.every(field => field.filamentRoute);
-            const open = expanded[expansionKey] ?? (!featureGroup || Boolean(search.trim()));
+            const open = expanded[expansionKey] ?? true;
             const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
             const toggle = <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
               aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}

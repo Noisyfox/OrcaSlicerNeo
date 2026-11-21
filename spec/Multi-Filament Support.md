@@ -643,7 +643,7 @@ transaction. A deleted explicit value with no merge destination falls back to
 
 ### 10.4 Feature-path filament routing
 
-The Objects mode exposes six native filament-routing options in the collapsed
+The Objects mode exposes six native filament-routing options in the
 **Filament for Features** group on the **Multi.** page for eligible objects and
 `MODEL_PART` selections in objects with multiple volumes:
 
@@ -661,10 +661,11 @@ shows `Mixed` when targets have different choices, and one selection applies to
 all targets in a single undoable operation.
 
 Project mode exposes the same six selectors under **Multi. → Filament for
-Features**. They set the defaults for the current project and are saved in its
-3MF configuration. Changing a Project route invalidates every plate. The
-Project selectors offer `Default` and the current slots, and retain the
-project-wide value when the selected Process preset changes.
+Features**. The group opens expanded in both modes and can be collapsed
+manually. The selected Project values define project-wide defaults and are
+saved in the 3MF configuration. Changing a Project route invalidates every
+plate. The Project selectors offer `Default` and the current slots, and retain
+the project-wide value when the selected Process preset changes.
 
 These options participate in project persistence, one-step Undo/Redo, slice
 invalidation, and atomic slot Delete/Merge remapping. A deleted explicit value
