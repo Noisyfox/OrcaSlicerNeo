@@ -1618,13 +1618,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           explicit_slot: Number(local ?? 0), effective_slot: effective,
           inherited: local === undefined, defaulted: local === '0' });
       };
+      const project = nativeScopedConfig.project[key] ?? '0';
+      append({ target: 'project', id: 0, object_id: 0 }, project, Number(project));
       for (const object of snapshot.assignments.objects) {
         const local = nativeScopedConfig.objects[object.id]?.[key];
-        const effective = Number(local) || object.effective_slot;
+        const overridesBase = local === undefined ? Number(project) > 0 : Number(local) > 0;
+        const effective = Number(local) || (local === undefined && Number(project)) || object.effective_slot;
         append(object, local, effective);
         for (const part of snapshot.assignments.parts.filter((row: any) => row.object_id === object.id)) {
           const partLocal = nativeScopedConfig.parts[part.id]?.[key];
-          const appliedBase = partLocal === '0' || !Number(local) ? part.explicit_slot : 0;
+          const appliedBase = partLocal === '0' || !overridesBase ? part.explicit_slot : 0;
           append(part, partLocal, Number(partLocal) || appliedBase || effective);
         }
       }
@@ -1977,7 +1980,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return errorEnvelope('invalid routing command', 'invalid_command');
       for (const target of targets) {
         if (!target || !['project', 'object', 'model-part'].includes(target.kind)) return errorEnvelope('target is not eligible', 'ineligible_target');
-        if ((feature && target.kind === 'project') || (!feature && target.kind === 'model-part')) return errorEnvelope('target is not eligible', 'ineligible_target');
+        if (!feature && target.kind === 'model-part') return errorEnvelope('target is not eligible', 'ineligible_target');
+        if (target.kind === 'project' && request.slot === null)
+          return errorEnvelope('project feature routing uses Default to clear the selected slot', 'invalid_command');
         const id = target.kind === 'project' ? 0 : target.id;
         if (target.kind !== 'project' && (!Number.isSafeInteger(id) || id < 1)) return errorEnvelope('target is not eligible', 'ineligible_target');
         const objectId = target.kind === 'model-part'
@@ -1991,7 +1996,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const key = featureRouteKeys[request.selector];
         for (const target of accepted) {
           const group = target.kind === 'object' ? nativeScopedConfig.objects : nativeScopedConfig.parts;
-          const config = group[target.id] ??= {};
+          const config = target.kind === 'project' ? nativeScopedConfig.project : (group[target.id] ??= {});
           if (request.slot === null) delete config[key];
           else config[key] = String(request.slot);
         }

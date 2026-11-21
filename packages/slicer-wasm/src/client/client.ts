@@ -507,11 +507,11 @@ function normalizeFilamentSessionResult(raw: unknown, includeReferences = true):
             !routingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
             !integer(item.effective_slot) || typeof item.inherited !== 'boolean' || typeof item.defaulted !== 'boolean' ||
             (item.target === 'project' && (item.id !== 0 || item.object_id !== 0 ||
-              !support)) ||
+              item.inherited || item.explicit_slot !== item.effective_slot)) ||
             (item.target === 'object' && (item.id === 0 || item.object_id !== item.id)) ||
             (item.target === 'model-part' && (item.id === 0 || item.object_id === 0 ||
               support)) ||
-            (support ? item.defaulted !== (item.effective_slot === 0)
+            (support || item.target === 'project' ? item.defaulted !== (item.effective_slot === 0)
               : item.effective_slot === 0 ||
                 (item.inherited && item.explicit_slot !== 0) ||
                 item.defaulted !== (item.explicit_slot === 0 && !item.inherited)))
@@ -731,7 +731,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
           return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
       } else {
         const feature = selector !== 'support-base' && selector !== 'support-interface';
-        if ((kind === 'project' && (id !== 0 || objectId !== 0 || feature)) ||
+        if ((kind === 'project' && (id !== 0 || objectId !== 0 || inheritRoute)) ||
             (kind === 'object' && (id < 1 || objectId !== id)) ||
             (kind === 'model-part' && (id < 1 || objectId < 1 || !feature)) ||
             !new Set(['project', 'object', 'model-part']).has(kind))

@@ -655,6 +655,22 @@ describe('SlicerClient bridge contract', () => {
     });
   });
 
+  it('accepts project feature routes and marks every plate invalidated', async () => {
+    const client = makeClient();
+    const initial = await client.getFilamentSessionSnapshot();
+    if (!initial.ok) throw new Error(initial.error);
+    const result = await client.setFilamentRouting({
+      version: 1, revision: initial.revisions.session, selector: 'outer-wall', slot: 1,
+      targets: [{ kind: 'project' }],
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.result.mutation).toMatchObject({ allPlateResultsInvalidated: true, slot: 1 });
+    expect(result.result.snapshot.routing).toContainEqual({
+      target: 'project', id: 0, objectId: 0, selector: 'outer-wall',
+      explicitSlot: 1, effectiveSlot: 1, inherited: false, defaulted: false,
+    });
+  });
+
   it('preserves native colour fields and display interpretations without losing source order', async () => {
     const module = createMockModule();
     const pointer = Number(module.ccall('orc_get_filament_session_snapshot', 'number', [], []));
@@ -812,6 +828,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const toWire = (snapshot: typeof base) => ({ ...snapshot,
+      routing: [],
       slots: snapshot.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId, material_type: slot.materialType, preset: { id: slot.preset.id, name: slot.preset.name, label: slot.preset.label, vendor: slot.preset.vendor, is_project_embedded: slot.preset.isProjectEmbedded, is_user: slot.preset.isUser },
         colour: { ...slot.colour, native: { ...slot.colour.native, multi_colour: slot.colour.native.multiColour } } })),
       mappings: { ...snapshot.mappings, physical_extruder: snapshot.mappings.physicalExtruder },
@@ -992,6 +1009,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const withSlots = (capabilities: Record<string, unknown>) => ({ ...base,
+      routing: [],
       slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, material_type: 'PLA', mix: null, preset: { is_project_embedded: false, is_user: false, id: `p${slot}`, name: `p${slot}`, label: `p${slot}`, vendor: '' }, colour: wireColour('#000000') })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: (capabilities.nozzle_count === 2 ? [0, 1] : [0]) },
       flushing: { matrix: Array.from({ length: 4 * Number(capabilities.nozzle_count) }, () => 0), vector: [], matrix_dimension: 2,
@@ -1016,6 +1034,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await c.getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const payload = { ...base,
+      routing: [],
       slots: base.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId, material_type: slot.materialType, preset: { id: slot.preset.id, name: slot.preset.name, label: slot.preset.label, vendor: slot.preset.vendor, is_project_embedded: slot.preset.isProjectEmbedded, is_user: slot.preset.isUser },
         colour: { ...slot.colour, native: { ...slot.colour.native, multi_colour: slot.colour.native.multiColour } } })),
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },

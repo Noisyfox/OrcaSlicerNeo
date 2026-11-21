@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { createMixedFilamentFixture } from './mixed-filament-fixture.mjs';
 
-const { module, call, rack, edit } = await createMixedFilamentFixture(process.argv[2]);
+const { module, call, rack, run, edit } = await createMixedFilamentFixture(process.argv[2]);
 function checked(result) {
   assert.equal(result.ok, true, JSON.stringify(result));
   return result;
@@ -13,6 +13,7 @@ checked(call('orc_add_shape', ['string', 'string'], ['Cube', 'Feature routing'])
 const [object] = checked(call('orc_get_model_structure')).objects;
 const objectTarget = { kind: 'object', id: object.id };
 const partTarget = { kind: 'model-part', id: object.volumes[0].id };
+const projectTarget = { kind: 'project', id: 0 };
 edit('orc_assign_filament', { slot: 1, targets: [partTarget] });
 
 function route(target, slot) {
@@ -22,6 +23,10 @@ function route(target, slot) {
 function assertPartRoute(inherited, defaulted, effectiveSlot) {
   const row = rack().routing.find(item => item.target === 'model-part' && item.selector === selector);
   assert.deepEqual([row.inherited, row.defaulted, row.effective_slot], [inherited, defaulted, effectiveSlot]);
+}
+
+function projectSlot(snapshot = rack()) {
+  return snapshot.routing.find(row => row.target === 'project' && row.selector === selector).explicit_slot;
 }
 
 async function assertOuterWallTool(expectedTool) {
@@ -35,6 +40,23 @@ async function assertOuterWallTool(expectedTool) {
     if (roles[i] === 2) outerWallTools.add(tools[i]); // libvgcode ExternalPerimeter
   assert.deepEqual([...outerWallTools], [expectedTool], 'physical tool used by outer wall');
 }
+
+const modelPlateId = checked(call('orc_get_plate_session_snapshot')).current_plate_id;
+checked(call('orc_add_plate'));
+checked(call('orc_select_plate', ['string'], [modelPlateId]));
+const beforeGlobal = rack().revisions.plates;
+const global = checked(run('orc_set_filament_routing', { selector, slot: 2, targets: [projectTarget] })).result;
+assert.equal(global.mutation.all_plate_results_invalidated, true);
+assert.deepEqual(global.mutation.affected_plate_ids.sort(), Object.keys(beforeGlobal).sort());
+for (const [id, revision] of Object.entries(beforeGlobal))
+  assert.ok(global.snapshot.revisions.plates[id] > revision, `stale project route on ${id}`);
+assert.equal(projectSlot(global.snapshot), 2);
+assertPartRoute(true, false, 2);
+await assertOuterWallTool(1);
+checked(call('orc_history_undo'));
+assertPartRoute(true, false, 1);
+checked(call('orc_history_redo'));
+assertPartRoute(true, false, 2);
 
 route(objectTarget, 2);
 assertPartRoute(true, false, 2);
@@ -67,4 +89,8 @@ try {
 }
 assertPartRoute(false, true, 1);
 await assertOuterWallTool(0);
-console.log('Feature routing passed: native Default, inheritance, history and the 3MF outer-wall tool round trip.');
+assert.equal(projectSlot(), 2);
+assert.equal(projectSlot(edit('orc_delete_filament_slot', { slot: 2 })), 0);
+checked(call('orc_history_undo'));
+assert.equal(projectSlot(edit('orc_merge_filament_slots', { source: 2, destination: 1 })), 1);
+console.log('Feature routing passed: Project routes, plate invalidation, Default, inheritance, history, 3MF and slot remapping.');

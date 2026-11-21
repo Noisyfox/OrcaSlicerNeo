@@ -166,7 +166,8 @@ export const ScopedField = memo(function ScopedField({
   const hasEditableLocalOverride = field.local && field.resettable;
   const sourceDetails=editor && !unavailable ? `\nSource: ${editor.sourceMixed?'Mixed':editor.source===null?'(null)':elementText(editor.source,editor.vector)}${editor.inheritedSource ? `\nInherited source: ${SOURCE_LABEL[editor.inheritedSource]}.` : ''}\nEffective: ${field.mixed?'Mixed':editor.effective===null?'(null)':elementText(editor.effective,editor.vector)}` : '';
   const routeDetails = field.filamentRoute && (field.filamentRoute.effectiveSlot === null
-    ? 'The selected targets use different filaments.' : `Effective filament: slot ${field.filamentRoute.effectiveSlot}.`);
+    ? 'The selected targets use different filaments.' : field.filamentRoute.effectiveSlot === 0
+      ? 'Uses the object or part filament.' : `Effective filament: slot ${field.filamentRoute.effectiveSlot}.`);
   const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${routeDetails || valueTooltip(field)}${sourceDetails}`}</span>;
 
   let control;
@@ -185,7 +186,7 @@ export const ScopedField = memo(function ScopedField({
         <SelectValue><FilamentChoiceContent label={name} display={effective?.colour.display ?? null} /></SelectValue>
       </SelectTrigger></TooltipFor>
       <SelectContent><SelectGroup>
-        <SelectItem value="inherit">Inherit</SelectItem>
+        {targets[0]?.scope !== 'project' && <SelectItem value="inherit">Inherit</SelectItem>}
         <SelectItem value="0">Default</SelectItem>
         {choices.map(choice => <SelectItem key={choice.value} value={choice.value}>
           <FilamentChoiceContent label={choice.label} display={choice.display} />
@@ -350,7 +351,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   );
   const selectionRevision = useSyncExternalStore(subscribeSelection, () => mode === 'scoped' ? selection?.revision ?? 0 : 0);
   const metadata = useSettingsStore((state) => state.metadata);
-  const filamentSession = useFilamentSessionStore(state => mode === 'scoped' ? state.snapshot : null);
+  const filamentRouting = useFilamentSessionStore(state => mode !== 'plates' ? state.snapshot?.routing : undefined);
   const baseValues = useSettingsStore((state) => state.baseValues);
   const nozzleDiameterText = useSettingsStore((state) => state.values.nozzle_diameter);
   const nozzleDiameters = useMemo(() => nozzleDiameterText?.split(',').map(value => value.trim()) ?? [], [nozzleDiameterText]);
@@ -445,8 +446,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       } } : field)
       .map(field=>mode==='project'?projectPrintField(field,printEditor.snapshot,printSelection.choiceId):
         mode==='scoped' && scopedDisplaySnapshot ? scopedPrintField(field,scopedDisplaySnapshot,scopedSelection.choiceId) : field)
-      .concat(featureFilamentFields(metadata, resolution, filamentSession))
-    : [], [baseValues, bedType, filamentSession, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
+      .concat(featureFilamentFields(metadata, resolution, filamentRouting))
+    : [], [baseValues, bedType, filamentRouting, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
   const availablePages = useMemo(() => printSettingsPages(mode).filter((page) =>
     page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, mode]);
   const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
@@ -500,7 +501,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const resetField = useCallback(async (field: ScopedConfigurationField) => {
     if ((mode !== 'project' && resolution.scope === 'invalid') || !field.local) return;
     if (field.filamentRoute) {
-      await setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, 'inherit');
+      await setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, mode === 'project' ? '0' : 'inherit');
       return;
     }
     if(mode==='scoped' && field.editor?.targets) {

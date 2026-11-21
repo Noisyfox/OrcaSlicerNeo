@@ -121,7 +121,7 @@ const inheritedSupport = result.result.snapshot.routing.find((entry) => entry.ta
 assert.deepEqual({ effective: inheritedSupport.effective_slot, inherited: inheritedSupport.inherited, defaulted: inheritedSupport.defaulted },
   { effective: 2, inherited: true, defaulted: false });
 snapshot = result.result.snapshot;
-for (const [selector, target] of [['outer-wall', { kind: 'project', id: 0 }], ['support-base', { kind: 'model-part', id: originalPart.id }],
+for (const [selector, target] of [['support-base', { kind: 'model-part', id: originalPart.id }],
   ['outer-wall', { kind: 'parameter-modifier', id: modifierProjection.id }]]) {
   const rejected = request('orc_set_filament_routing', { version: 1, revision: snapshot.revisions.session, selector, slot: 1, targets: [target] });
   assert.equal(rejected.ok, false, `${selector} ${target.kind} should be rejected`);

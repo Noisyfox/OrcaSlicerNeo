@@ -1485,7 +1485,7 @@ export interface FilamentRoutingProjection {
     'sparse-infill' | 'internal-solid-infill' | 'top-surface' | 'bottom-surface';
   /** Zero means native Default; positive values are one-based slot IDs. */
   readonly explicitSlot: number;
-  /** Zero for project-scoped support Default; otherwise the effective slot. */
+  /** Zero for project Default or support's active tool; otherwise the effective slot. */
   readonly effectiveSlot: number;
   /** A feature route has no local entry. Support uses zero to inherit. */
   readonly inherited: boolean;
@@ -1738,7 +1738,7 @@ export type FilamentRoutingSelector = FilamentRoutingProjection['selector'];
 
 export interface FilamentRoutingRequest extends FilamentCommandRequest {
   readonly selector: FilamentRoutingSelector;
-  /** Feature routing uses null to remove a local override and zero for native Default. */
+  /** Object/part feature routing uses null to inherit. Zero selects native Default. */
   readonly slot: number | null;
   readonly targets: readonly FilamentRoutingTargetRequest[];
 }

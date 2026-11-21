@@ -1518,8 +1518,7 @@ static void collect_object_instance_ids(const Model& model, const std::set<std::
 }
 
 template <typename Mutator>
-json run_filament_assignment_mutation(const json& request, const char* label, Mutator mutator,
-                                      const bool model_only = false)
+json run_filament_assignment_mutation(const json& request, const char* label, Mutator mutator)
 {
     try {
         if (!request.is_object() || request.value("version", 0) != 1)
@@ -1742,8 +1741,6 @@ static const char* routing_key_for_selector(const std::string& selector)
 json set_filament_routing_command(const json& request, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
-    const std::string requested_selector = request.value("selector", "");
-    const bool model_only = requested_selector != "support-base" && requested_selector != "support-interface";
     return run_filament_assignment_mutation(request, "Set Filament Routing", [&request](PresetBundle& bundle, Model& model,
         auto&, auto&, std::set<std::size_t>& affected_objects) {
         if (!request.contains("selector") || !request["selector"].is_string())
@@ -1785,7 +1782,7 @@ json set_filament_routing_command(const json& request, const Runtime& runtime)
             ModelObject* owner = nullptr;
             const std::string normalized_kind = kind == "model_part" ? "model-part" : kind;
             if (normalized_kind == "project") {
-                if (feature_selector) throw FilamentCommandFailure("ineligible_target", "feature routing does not support project scope");
+                if (inherit) throw FilamentCommandFailure("invalid_command", "project feature routing uses Default to clear the selected slot");
                 project_target = true;
             } else if (normalized_kind == "object") {
                 owner = find_object_by_id_in(model, id);
@@ -1819,7 +1816,7 @@ json set_filament_routing_command(const json& request, const Runtime& runtime)
         if (!feature_selector) auto_recalculate_filament_flush(bundle, -1, false);
         return json{{"kind", "routing"}, {"selector", selector}, {"slot", requested_slot},
                     {"accepted_targets", accepted}, {"invalidate_all_plates", invalidate_all}};
-    }, model_only);
+    });
 }
 
 json set_flushing_volumes_command(const json& request, const Runtime& runtime)
@@ -2950,7 +2947,7 @@ json filament_session_snapshot_json(const bool include_references)
         const auto* project_option = bundle.project_config.option(key);
         const int project_slot = project_option ? project_option->getInt() :
             feature ? option_int(bundle.prints.get_edited_preset().config, key) : 0;
-        if (!feature) append_routing("project", 0, 0, selector, project_slot, project_slot, false, project_slot == 0);
+        append_routing("project", 0, 0, selector, project_slot, project_slot, false, project_slot == 0);
         for (const auto* object : state().model.objects) {
             if (object == nullptr) continue;
             const auto object_id = object->id().id;

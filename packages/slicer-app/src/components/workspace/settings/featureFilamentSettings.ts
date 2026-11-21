@@ -1,4 +1,4 @@
-import type { FilamentRoutingSelector, FilamentRoutingTargetRequest, FilamentSessionSnapshot, OptionMetadata, SlicerClient } from '@slicer/client';
+import type { FilamentRoutingProjection, FilamentRoutingSelector, FilamentRoutingTargetRequest, OptionMetadata, SlicerClient } from '@slicer/client';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import type { ScopedConfigurationField, ScopedTargetResolution } from './scopedConfigurationProjection';
 
@@ -12,6 +12,7 @@ const featureOptions = [
 ] as const;
 
 function routingTargets(resolution: ScopedTargetResolution): Required<FilamentRoutingTargetRequest>[] {
+  if (resolution.scope === 'project') return [{ kind: 'project', id: 0 }];
   if (resolution.scope !== 'object' && resolution.scope !== 'part') return [];
   return resolution.targets.map(target => ({
     kind: target.scope === 'part' ? 'model-part' : 'object', id: Number(target.id),
@@ -19,13 +20,14 @@ function routingTargets(resolution: ScopedTargetResolution): Required<FilamentRo
 }
 
 export function featureFilamentFields(
-  metadata: OptionMetadata, resolution: ScopedTargetResolution, snapshot: FilamentSessionSnapshot | null,
+  metadata: OptionMetadata, resolution: ScopedTargetResolution, routing: readonly FilamentRoutingProjection[] | undefined,
 ): ScopedConfigurationField[] {
   const targets = routingTargets(resolution);
-  if (!snapshot?.routing || targets.length === 0) return [];
+  if (!routing || targets.length === 0) return [];
+  const scope = targets[0].kind === 'model-part' ? 'part' : targets[0].kind;
   const routeKey = (id: number, selector: FilamentRoutingSelector) => `${id}:${selector}`;
   const selectedIds = new Set(targets.map(target => target.id));
-  const routesByKey = new Map(snapshot.routing
+  const routesByKey = new Map(routing
     .filter(row => row.target === targets[0].kind && selectedIds.has(row.id))
     .map(row => [routeKey(row.id, row.selector), row]));
   const result: ScopedConfigurationField[] = [];
@@ -38,12 +40,12 @@ export function featureFilamentFields(
     if (routes.length !== targets.length) continue;
     const values = routes.map(route => route.inherited ? 'inherit' : String(route.explicitSlot));
     const effective = routes[0].effectiveSlot;
-    const local = values.some(value => value !== 'inherit');
+    const local = values.some(value => value !== 'inherit' && (resolution.scope !== 'project' || value !== '0'));
     const mixed = values.some(value => value !== values[0]);
     result.push({
       key, label, category: 'Filament for Features', meta: metadata[key] ?? { type: 'int' },
       local, mixed, resettable: true, value: values[0],
-      source: mixed ? 'mixed' : local ? targets[0].kind === 'model-part' ? 'part' : 'object' : 'project',
+      source: mixed ? 'mixed' : local ? scope : 'project',
       filamentRoute: { selector, effectiveSlot: routes.every(route => route.effectiveSlot === effective) ? effective : null },
     });
   }

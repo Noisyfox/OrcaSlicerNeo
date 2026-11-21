@@ -660,6 +660,12 @@ whose outer-wall filament is 2 uses slot 2 with `Inherit` and slot 1 with
 shows `Mixed` when targets have different choices, and one selection applies to
 all targets in a single undoable operation.
 
+Project mode exposes the same six selectors under **Multi. → Filament for
+Features**. They set the defaults for the current project and are saved in its
+3MF configuration. Changing a Project route invalidates every plate. The
+Project selectors offer `Default` and the current slots, and retain the
+project-wide value when the selected Process preset changes.
+
 These options participate in project persistence, one-step Undo/Redo, slice
 invalidation, and atomic slot Delete/Merge remapping. A deleted explicit value
 with no merge destination becomes `Default`; a Merge with operation replaces
