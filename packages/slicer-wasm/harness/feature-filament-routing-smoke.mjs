@@ -11,18 +11,23 @@ function checked(result) {
 const selector = 'outer-wall';
 checked(call('orc_add_shape', ['string', 'string'], ['Cube', 'Feature routing']));
 const [object] = checked(call('orc_get_model_structure')).objects;
+const secondPart = checked(call('orc_add_volume', ['string', 'pointer', 'number'], [JSON.stringify({
+  objectId: object.id, instanceId: object.instances[0].id, volumeType: 'model_part', shape: 'Cube',
+}), 0, 0]));
 const objectTarget = { kind: 'object', id: object.id };
-const partTarget = { kind: 'model-part', id: object.volumes[0].id };
+const partTargets = [object.volumes[0].id, secondPart.volumeId].map(id => ({ kind: 'model-part', id }));
 const projectTarget = { kind: 'project', id: 0 };
-edit('orc_assign_filament', { slot: 1, targets: [partTarget] });
+edit('orc_assign_filament', { slot: 1, targets: partTargets });
 
-function route(target, slot) {
-  edit('orc_set_filament_routing', { selector, slot, targets: [target] });
+function route(targets, slot) {
+  edit('orc_set_filament_routing', { selector, slot, targets });
 }
 
 function assertPartRoute(inherited, defaulted, effectiveSlot) {
-  const row = rack().routing.find(item => item.target === 'model-part' && item.selector === selector);
-  assert.deepEqual([row.inherited, row.defaulted, row.effective_slot], [inherited, defaulted, effectiveSlot]);
+  const rows = rack().routing.filter(item => item.target === 'model-part' && item.selector === selector);
+  assert.equal(rows.length, partTargets.length);
+  for (const row of rows)
+    assert.deepEqual([row.inherited, row.defaulted, row.effective_slot], [inherited, defaulted, effectiveSlot]);
 }
 
 function projectSlot(snapshot = rack()) {
@@ -58,15 +63,15 @@ assertPartRoute(true, false, 1);
 checked(call('orc_history_redo'));
 assertPartRoute(true, false, 2);
 
-route(objectTarget, 2);
+route([objectTarget], 2);
 assertPartRoute(true, false, 2);
 await assertOuterWallTool(1);
 
-route(partTarget, 0);
+route(partTargets, 0);
 assertPartRoute(false, true, 1);
 await assertOuterWallTool(0);
 
-route(partTarget, null);
+route(partTargets, null);
 assertPartRoute(true, false, 2);
 await assertOuterWallTool(1);
 checked(call('orc_history_undo'));
