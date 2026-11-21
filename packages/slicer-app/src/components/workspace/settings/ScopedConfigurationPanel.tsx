@@ -56,6 +56,8 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { type SceneInteractionController } from '../viewport/SceneInteractionController';
 import { commitScopedConfigurationMutation } from './configurationActions';
+import { featureFilamentFields, setFeatureFilament } from './featureFilamentSettings';
+import { FilamentChoiceContent, filamentSlotChoice } from '../FilamentSwatch';
 
 const physicalSelectors = new Set(['support_filament', 'support_interface_filament', 'wipe_tower_filament']);
 const slotSelectors = new Set([...physicalSelectors, 'outer_wall_filament_id', 'inner_wall_filament_id',
@@ -163,11 +165,33 @@ export const ScopedField = memo(function ScopedField({
   const controlDisabled = !!mixedOrder || disabled || readOnly || !visible || conditionReadOnly || (field.key === 'curr_bed_type' && commitPending);
   const hasEditableLocalOverride = field.local && field.resettable;
   const sourceDetails=editor && !unavailable ? `\nSource: ${editor.sourceMixed?'Mixed':editor.source===null?'(null)':elementText(editor.source,editor.vector)}${editor.inheritedSource ? `\nInherited source: ${SOURCE_LABEL[editor.inheritedSource]}.` : ''}\nEffective: ${field.mixed?'Mixed':editor.effective===null?'(null)':elementText(editor.effective,editor.vector)}` : '';
-  const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${valueTooltip(field)}${sourceDetails}`}</span>;
+  const routeDetails = field.filamentRoute && (field.filamentRoute.effectiveSlot === null
+    ? 'The selected targets use different filaments.' : `Effective filament: slot ${field.filamentRoute.effectiveSlot}.`);
+  const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${routeDetails || valueTooltip(field)}${sourceDetails}`}</span>;
 
   let control;
   if(readOnly) {
     control=<TooltipFor content={tooltip} nonInteractive><span data-testid={`config-input-${field.key}`} className="text-xs text-muted-foreground">{unavailable?'Unavailable':displayed}</span></TooltipFor>;
+  } else if (field.filamentRoute && slots) {
+    const choices = slots.map(slot => ({ value: String(slot.slot), ...filamentSlotChoice(slot) }));
+    const effective = slots.find(slot => slot.slot === field.filamentRoute?.effectiveSlot);
+    const selected = choices.find(choice => choice.value === displayed);
+    const name = field.mixed ? 'Mixed' : displayed === 'inherit' ? 'Inherit' : displayed === '0' ? 'Default' : selected?.label;
+    control = <Select disabled={controlDisabled || commitPending} value={displayed} onValueChange={value => {
+      if (value !== null) void commit(value);
+    }}>
+      <TooltipFor content={tooltip} nonInteractive><SelectTrigger id={`scoped-${field.key}`} size="sm" variant="sidebar"
+        data-testid={`config-input-${field.key}`}>
+        <SelectValue><FilamentChoiceContent label={name} display={effective?.colour.display ?? null} /></SelectValue>
+      </SelectTrigger></TooltipFor>
+      <SelectContent><SelectGroup>
+        <SelectItem value="inherit">Inherit</SelectItem>
+        <SelectItem value="0">Default</SelectItem>
+        {choices.map(choice => <SelectItem key={choice.value} value={choice.value}>
+          <FilamentChoiceContent label={choice.label} display={choice.display} />
+        </SelectItem>)}
+      </SelectGroup></SelectContent>
+    </Select>;
   } else if (slots && slotSelectors.has(field.key)) {
     const choices = slots.filter(slot => !physicalSelectors.has(field.key) || !slot.mix);
     const selected = choices.find(slot => String(slot.slot) === displayed);
@@ -326,6 +350,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   );
   const selectionRevision = useSyncExternalStore(subscribeSelection, () => mode === 'scoped' ? selection?.revision ?? 0 : 0);
   const metadata = useSettingsStore((state) => state.metadata);
+  const filamentSession = useFilamentSessionStore(state => mode === 'scoped' ? state.snapshot : null);
   const baseValues = useSettingsStore((state) => state.baseValues);
   const nozzleDiameterText = useSettingsStore((state) => state.values.nozzle_diameter);
   const nozzleDiameters = useMemo(() => nozzleDiameterText?.split(',').map(value => value.trim()) ?? [], [nozzleDiameterText]);
@@ -420,7 +445,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       } } : field)
       .map(field=>mode==='project'?projectPrintField(field,printEditor.snapshot,printSelection.choiceId):
         mode==='scoped' && scopedDisplaySnapshot ? scopedPrintField(field,scopedDisplaySnapshot,scopedSelection.choiceId) : field)
-    : [], [baseValues, bedType, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
+      .concat(featureFilamentFields(metadata, resolution, filamentSession))
+    : [], [baseValues, bedType, filamentSession, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
   const availablePages = useMemo(() => printSettingsPages(mode).filter((page) =>
     page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, mode]);
   const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
@@ -436,6 +462,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
+    if (field.filamentRoute) return setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, value);
     if(mode==='scoped' && field.editor?.targets) {
       const element = field.editor, targets = element.targets!;
       if(element.target.kind==='unavailable') throw new Error('This selection has no corresponding native mapping.');
@@ -472,6 +499,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   }, [metadata, mode, platform, resolution,printEditor.mutate,printEditor.snapshot,scopedEditor.mutate,scopedSelection.choiceId]);
   const resetField = useCallback(async (field: ScopedConfigurationField) => {
     if ((mode !== 'project' && resolution.scope === 'invalid') || !field.local) return;
+    if (field.filamentRoute) {
+      await setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, 'inherit');
+      return;
+    }
     if(mode==='scoped' && field.editor?.targets) {
       const element=field.editor;
       if(element.target.kind==='unavailable') return;
@@ -546,7 +577,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const displayedOptionKeys = useMemo(() => categories.flatMap(category => category.fields.map(field => field.key)), [categories]);
   const resetGroup = async (keys: readonly string[]) => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
-    const groupFields = allFields.filter(field => keys.includes(field.key) && field.resettable);
+    const groupFields = allFields.filter(field => keys.includes(field.key) && field.resettable && !field.filamentRoute);
     if (!groupFields.some(field => field.local)) return;
     if(mode==='project') {
       if(!printEditor.snapshot) return;
@@ -633,23 +664,23 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           <OptionEmptyMessage scope={optionScope} keys={displayedOptionKeys} />
           {categories.map(({ title: category, fields: categoryFields, page, group, keys }) => {
             const expansionKey = `${page}/${group}`;
-            const open = expanded[expansionKey] ?? true;
             const groupCatalogue = allFields.filter((field) => keys.includes(field.key));
+            const featureGroup = groupCatalogue.every(field => field.filamentRoute);
+            const open = expanded[expansionKey] ?? (!featureGroup || Boolean(search.trim()));
             const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
+            const toggle = <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
+              aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
+              className={cn("h-5 w-full justify-between rounded-none border-0 bg-control-background px-1 text-module font-semibold", highlighted && "config-override-label")}
+              onClick={() => setExpanded((current) => ({ ...current, [expansionKey]: !open }))}>
+              {category}{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+            </Button>;
             return <OptionGroupVisibility key={`${page}/${group}`} scope={optionScope} keys={keys}><div data-testid={`config-category-${category}`}>
-              {group && <ContextMenu>
-                <ContextMenuTrigger render={<div />}>
-                  <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
-                    aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
-                    className={cn("h-5 w-full justify-between rounded-none border-0 bg-control-background px-1 text-module font-semibold", highlighted && "config-override-label")}
-                    onClick={() => setExpanded((current) => ({ ...current, [expansionKey]: !open }))}>
-                    {category}{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-                  </Button>
-                </ContextMenuTrigger>
+              {group && (featureGroup ? toggle : <ContextMenu>
+                <ContextMenuTrigger render={<div />}>{toggle}</ContextMenuTrigger>
                 <ContextMenuContent><ContextMenuItem
                   data-testid={`config-reset-category-${group}`} disabled={!highlighted}
                   onClick={() => void resetGroup(keys)}>Reset {group}</ContextMenuItem></ContextMenuContent>
-              </ContextMenu>}
+              </ContextMenu>)}
               {open && <div className="py-1">{categoryFields.map((field, index) => {
                 const section = printSettingPlacement(field)?.section;
                 const startsSection = section && section !== (index > 0 ? printSettingPlacement(categoryFields[index - 1])?.section : undefined);

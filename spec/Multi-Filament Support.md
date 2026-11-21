@@ -643,17 +643,22 @@ transaction. A deleted explicit value with no merge destination falls back to
 
 ### 10.4 Feature-path filament routing
 
-The first release exposes all six native advanced filament-routing options in
-a collapsed **Advanced filament routing** group for eligible object and
-`MODEL_PART` settings:
+The Objects mode exposes six native filament-routing options in the collapsed
+**Filament for Features** group on the **Multi.** page for eligible objects and
+`MODEL_PART` selections:
 
 - outer walls and inner walls;
 - sparse infill and internal solid infill; and
 - top surface and bottom surface.
 
-Each selector offers `Default` plus every current slot. Here `Default` means
-inherit the active object/part filament. It remains distinct from the support
-controls' "use the currently active filament" behaviour.
+Each selector offers `Inherit`, `Default`, and the current physical and mixed
+slots. `Inherit` or the row's reset action removes the local feature override.
+`Default` stores native zero and lets the applicable object or part base
+filament take effect. For example, a part with base filament 1 under an object
+whose outer-wall filament is 2 uses slot 2 with `Inherit` and slot 1 with
+`Default`. Support controls retain their active-tool default. Multi-selection
+shows `Mixed` when targets have different choices, and one selection applies to
+all targets in a single undoable operation.
 
 These options participate in project persistence, one-step Undo/Redo, slice
 invalidation, and atomic slot Delete/Merge remapping. A deleted explicit value

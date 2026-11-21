@@ -1,6 +1,7 @@
 import { type OptionPublication } from './optionStateRegistry';
 import {
   type NativeScopedConfigScope,
+  type FilamentRoutingSelector,
   type NativeScopedConfigSnapshot,
   type NativeScopedConfigTarget,
   type OptionMeta,
@@ -32,6 +33,7 @@ export interface ScopedTargetResolution {
 
 export interface ScopedConfigurationField {
   readonly editor?: import('./printEditorProjection').PrintFieldElement;
+  readonly filamentRoute?: { readonly selector: FilamentRoutingSelector; readonly effectiveSlot: number | null };
   readonly key: string;
   readonly label: string;
   readonly category: string;
