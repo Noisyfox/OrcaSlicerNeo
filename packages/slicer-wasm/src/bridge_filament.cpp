@@ -1565,6 +1565,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
 
         std::set<std::size_t> affected_instances;
         collect_object_instance_ids(state().model, affected_objects, affected_instances);
+        const std::vector<std::uint64_t> changed_objects(affected_objects.begin(), affected_objects.end());
         const bool invalidate_all = mutation.value("invalidate_all_plates", false);
         const auto affected_plates = invalidate_all ? all_plate_ids() : member_plate_ids_for_instances(affected_instances);
         Model before_model = state().model;
@@ -1623,6 +1624,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         if (affected_plates.find(state().current_plate_id) != affected_plates.end()) {
             invalidate_preview_source();
         }
+        Neo::Bridge::PrimeTower::invalidate_projection_cache_and_object_usage_summaries(affected_plates, changed_objects);
         mutation["history_entry_delta"] = 1;
         mutation["revision_before"] = request["revision"];
         mutation["revision_after"] = state().history_revision;
