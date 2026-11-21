@@ -68,8 +68,5 @@ export async function setFeatureFilament(
     return runtime.setFilamentRouting({ version: 1, revision: current.revisions.session, selector, slot, targets });
   });
   if (!result.ok) throw new Error(result.error);
-  const published = result.result.snapshot.routing?.find(row =>
-    row.selector === selector && row.target === targets[0].kind && row.id === targets[0].id);
-  if (!published) throw new Error('The updated filament route is unavailable.');
-  return published.inherited ? 'inherit' : String(published.explicitSlot);
+  return result.result.mutation.slot?.toString() ?? 'inherit';
 }

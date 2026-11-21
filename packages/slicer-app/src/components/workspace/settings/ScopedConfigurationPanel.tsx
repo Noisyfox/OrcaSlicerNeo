@@ -59,9 +59,6 @@ import { commitScopedConfigurationMutation } from './configurationActions';
 import { featureFilamentFields, setFeatureFilament } from './featureFilamentSettings';
 import { FilamentChoiceContent, filamentSlotChoice } from '../FilamentSwatch';
 
-const physicalSelectors = new Set(['support_filament', 'support_interface_filament', 'wipe_tower_filament']);
-const slotSelectors = new Set([...physicalSelectors, 'outer_wall_filament_id', 'inner_wall_filament_id',
-  'sparse_infill_filament_id', 'internal_solid_filament_id', 'top_surface_filament_id', 'bottom_surface_filament_id']);
 const orderSelectors = new Set(['first_layer_sequence_choice', 'other_layers_sequence_choice']);
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -108,7 +105,7 @@ export const ScopedField = memo(function ScopedField({
   onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
   onReset: (field: ScopedConfigurationField) => Promise<void>;
 }) {
-  const slots = useFilamentSessionStore(s => slotSelectors.has(field.key) || orderSelectors.has(field.key) ? s.snapshot?.slots : undefined);
+  const slots = useFilamentSessionStore(s => field.filamentRoute || orderSelectors.has(field.key) ? s.snapshot?.slots : undefined);
   const mixedOrder = orderSelectors.has(field.key) && slots?.some(slot => slot.mix);
   const initial = valueForField(field);
   const [draft, setDraft] = useState(initial);
@@ -195,15 +192,6 @@ export const ScopedField = memo(function ScopedField({
           <FilamentChoiceContent label={choice.label} display={choice.display} />
         </SelectItem>)}
       </SelectGroup></SelectContent>
-    </Select>;
-  } else if (slots && slotSelectors.has(field.key)) {
-    const choices = slots.filter(slot => !physicalSelectors.has(field.key) || !slot.mix);
-    const selected = choices.find(slot => String(slot.slot) === displayed);
-    control = <Select disabled={controlDisabled} value={displayed} onValueChange={v => v !== null && onDiscrete(v)}>
-      <TooltipFor content={tooltip} nonInteractive><SelectTrigger id={`scoped-${field.key}`} size="sm" variant="sidebar"
-        data-testid={`config-input-${field.key}`}><SelectValue>{field.mixed ? 'Mixed' : displayed === '0' ? 'Default' : selected ? `${displayed} · ${selected.mix ? 'Mix' : selected.preset.label}` : displayed}</SelectValue></SelectTrigger></TooltipFor>
-      <SelectContent><SelectGroup><SelectItem value="0">Default</SelectItem>{choices.map(slot =>
-        <SelectItem key={slot.logicalId} value={String(slot.slot)}>{slot.slot} · {slot.mix ? 'Mix' : slot.preset.label}</SelectItem>)}</SelectGroup></SelectContent>
     </Select>;
   } else if (field.meta.type === 'bool') {
     control = <TooltipFor content={tooltip} nonInteractive><Checkbox
