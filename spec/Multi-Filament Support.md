@@ -645,7 +645,7 @@ transaction. A deleted explicit value with no merge destination falls back to
 
 The Objects mode exposes six native filament-routing options in the collapsed
 **Filament for Features** group on the **Multi.** page for eligible objects and
-`MODEL_PART` selections:
+`MODEL_PART` selections in objects with multiple volumes:
 
 - outer walls and inner walls;
 - sparse infill and internal solid infill; and

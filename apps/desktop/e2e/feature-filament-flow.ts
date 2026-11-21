@@ -22,7 +22,11 @@ export async function verifyFeatureFilamentRouting(page: Page) {
   const list = page.getByTestId('object-list');
   const object = list.locator('section[data-testid^="plate-group-"] > div[data-testid^="object-"]').first();
   const row = object.locator('button.object-list-row').first();
+  const parts = object.locator('[data-testid^="part-"]');
+  const expand = object.locator('[data-testid^="object-expand-"]');
+  await expect(parts).toHaveCount(0);
   await row.click();
+  await expect(page.getByTestId('scoped-target-label')).toContainText('Object:');
   await page.getByTestId('config-page-Multi.').click();
   if (await group.getAttribute('aria-expanded') === 'false') await group.click();
   await expect(selected).toHaveText('Inherit');
@@ -33,8 +37,8 @@ export async function verifyFeatureFilamentRouting(page: Page) {
   await row.click({ button: 'right' });
   await page.getByTestId('objectlist-add-model_part').click();
   await page.getByTestId('objectlist-add-model_part-Cube').click();
-  const parts = object.locator('[data-testid^="part-"]');
-  if (await parts.count() === 0) await object.locator('[data-testid^="object-expand-"]').click();
+  await expect(object.locator('[aria-label="Assembly"]')).toBeVisible();
+  if (await parts.count() === 0) await expand.click();
   await parts.first().locator('button.object-list-row').first().click();
   await expect(page.getByTestId('scoped-target-label')).toContainText('Part:');
   await expect(selected).toHaveText('Inherit');

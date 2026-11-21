@@ -50,6 +50,9 @@ mode the object list appears immediately below the mode switch and the target
 label replaces the process preset. Search expands into a text field and finds
 options across all pages in the current mode.
 
+An object with a single volume is edited at object scope even when the
+viewport or restored selection identifies its sole volume.
+
 The Project page tabs are Quality, Strength, Speed, Support, Multi., and
 Other. Objects adds the leading Frequent page from Orca `TabPrintModel::build()`;
 Plates uses the dedicated Plate Settings page from `TabPrintPlate::build()`.
