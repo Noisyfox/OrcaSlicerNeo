@@ -80,16 +80,21 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
 
 describe('scoped field drafts', () => {
   it('disables plate order and keeps the mix selectable for Process assignments', async () => {
-    const rack = { slots: [{ slot: 1, logicalId: 'a', preset: { label: 'PLA' }, mix: null },
-      { slot: 2, logicalId: 'b', preset: { label: 'PLA' }, mix: {} }] } as unknown as FilamentSessionSnapshot;
+    const colour = { display: { mode: 'solid', colors: ['#FF0000'] } };
+    const rack = { slots: [
+      { slot: 1, logicalId: 'a', preset: { name: 'PLA' }, colour, mix: null },
+      { slot: 2, logicalId: 'b', preset: { name: 'PLA' }, colour, mix: null },
+      { slot: 3, logicalId: 'mix', colour, mix: { components: [1, 2], ratios: [60, 40] } },
+    ] } as unknown as FilamentSessionSnapshot;
     useFilamentSessionStore.setState({ snapshot: rack });
     try {
       const view = await renderField({ key: 'first_layer_sequence_choice', value: '0' }, undefined, undefined, false);
       expect(view.container.querySelector('input')?.disabled).toBe(true);
-      await view.rerender({ key: 'outer_wall_filament_id', value: '2' });
-      expect(view.container.querySelector('[role="combobox"]')?.textContent).toContain('2 · Mix');
-      await act(async () => useFilamentSessionStore.setState({ snapshot: { ...rack, slots: rack.slots.slice(0, 1) } }));
-      await view.rerender({ key: 'other_layers_sequence_choice', value: '0' });
+      await view.rerender({ key: 'outer_wall_filament_id', value: '3',
+        filamentRoute: { selector: 'outer-wall', effectiveSlot: 3 } });
+      expect(view.container.querySelector('[data-slot="select-value"]')?.textContent).toBe('3 - 1 · 60%, 2 · 40%');
+      await act(async () => useFilamentSessionStore.setState({ snapshot: { ...rack, slots: rack.slots.slice(0, 2) } }));
+      await view.rerender({ key: 'other_layers_sequence_choice', value: '0', filamentRoute: undefined });
       expect(view.container.querySelector('input')?.disabled).toBe(false);
     } finally {
       await act(async () => useFilamentSessionStore.getState().reset());

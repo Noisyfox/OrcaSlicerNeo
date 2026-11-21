@@ -8,6 +8,7 @@
 // ----------------------------------------------------------------
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -26,6 +27,23 @@
 namespace Slic3r::Neo::Bridge::Filament {
 
 using json = nlohmann::json;
+
+struct RoutingOption {
+    const char* selector;
+    const char* key;
+    bool feature;
+};
+
+inline constexpr std::array<RoutingOption, 8> routing_options{{
+    {"support-base", "support_filament", false},
+    {"support-interface", "support_interface_filament", false},
+    {"outer-wall", "outer_wall_filament_id", true},
+    {"inner-wall", "inner_wall_filament_id", true},
+    {"sparse-infill", "sparse_infill_filament_id", true},
+    {"internal-solid-infill", "internal_solid_filament_id", true},
+    {"top-surface", "top_surface_filament_id", true},
+    {"bottom-surface", "bottom_surface_filament_id", true},
+}};
 
 namespace State {
 

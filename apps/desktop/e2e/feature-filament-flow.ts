@@ -1,0 +1,102 @@
+import { expect, type Page } from '@playwright/test';
+import { addPrimitive } from './add-primitive';
+
+export async function verifyFeatureFilamentRouting(page: Page) {
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('filament-add').click();
+  await expect(page.getByTestId('filament-slot-2')).toBeVisible();
+  const group = page.getByTestId('config-category-toggle-Filament for Features');
+  const filament = page.getByTestId('config-input-outer_wall_filament_id');
+  const selected = filament.locator('[data-slot="select-value"]');
+  await page.getByTestId('config-page-Multi.').click();
+  await expect(group).toHaveAttribute('aria-expanded', 'true');
+  await expect(group).toHaveCSS('font-size', '11px');
+  await expect(page.getByTestId('config-option-label-outer_wall_filament_id')).toHaveCSS('font-size', '13px');
+  await expect(filament).toHaveCSS('height', '24px');
+  await expect(filament).toHaveCSS('font-size', '13px');
+  await expect(filament).toHaveCSS('border-radius', '3px');
+  await expect(filament).toHaveCSS('border-top-width', '0px');
+  await expect(selected).toHaveText('Default');
+  await filament.click();
+  await expect(page.getByRole('option', { name: 'Inherit', exact: true })).toHaveCount(0);
+  await page.getByRole('option', { name: /^2 - / }).click();
+  await expect(selected).toHaveText(/^2 - /);
+  await expect(group).toHaveAttribute('data-local-override-highlight', 'true');
+  await group.click({ button: 'right' });
+  await expect(page.getByTestId('config-reset-category-Filament for Features')).toHaveCount(0);
+  const resizer = page.getByTestId('sidebar-resizer');
+  const width = await resizer.getAttribute('aria-valuenow');
+  const minimumWidth = await resizer.getAttribute('aria-valuemin');
+  for (let i = 0; i < Math.ceil((Number(width) - Number(minimumWidth)) / 16); i++)
+    await resizer.press('ArrowLeft');
+  await expect(resizer).toHaveAttribute('aria-valuenow', minimumWidth!);
+  const swatch = selected.locator('[aria-hidden="true"][style]');
+  const swatchBox = await swatch.boundingBox();
+  expect(swatchBox?.width).toBe(14);
+  expect(swatchBox?.height).toBe(14);
+  const outerBox = (await filament.boundingBox())!;
+  const innerBox = (await page.getByTestId('config-input-inner_wall_filament_id').boundingBox())!;
+  expect(outerBox.x).toBeCloseTo(innerBox.x, 0);
+  expect(outerBox.width).toBeCloseTo(innerBox.width, 0);
+  const innerName = page.getByTestId('config-input-inner_wall_filament_id')
+    .locator('[data-slot="select-value"] span:not([aria-hidden])');
+  await expect(innerName).toHaveText('Default');
+  expect(await innerName.evaluate(name => name.scrollWidth <= name.clientWidth)).toBe(true);
+  const selectedName = selected.locator('span:not([aria-hidden])');
+  await expect(selectedName).toHaveCSS('text-overflow', 'ellipsis');
+  expect(await selectedName.evaluate(name => name.scrollWidth > name.clientWidth)).toBe(true);
+  await expect(filament.locator('.sidebar-dropdown-arrow')).toHaveCSS('width', '20px');
+  await expect(page.getByTestId('config-option-label-outer_wall_filament_id'))
+    .toHaveAttribute('data-local-override-highlight', 'true');
+  await filament.click();
+  const slotOption = page.getByRole('option', { name: /^2 - / });
+  await expect(slotOption.locator('[aria-hidden="true"][style]')).toHaveCSS('width', '14px');
+  const popup = page.locator('[data-slot="select-content"]').filter({ has: slotOption });
+  await expect.poll(() => popup.evaluate(element => element.getBoundingClientRect().width))
+    .toBeGreaterThanOrEqual(Math.max(128, outerBox.width));
+  await page.keyboard.press('Escape');
+
+  await addPrimitive(page, 'cube');
+  await page.getByTestId('config-mode-scoped').click();
+  const list = page.getByTestId('object-list');
+  const object = list.locator('section[data-testid^="plate-group-"] > div[data-testid^="object-"]').first();
+  const row = object.locator('button.object-list-row').first();
+  const parts = object.locator('[data-testid^="part-"]');
+  const expand = object.locator('[data-testid^="object-expand-"]');
+  await expect(parts).toHaveCount(0);
+  await row.click({ position: { x: 40, y: 12 } });
+  await expect(page.getByTestId('scoped-target-label')).toContainText('Object:');
+  await page.getByTestId('config-page-Multi.').click();
+  await expect(group).toHaveAttribute('aria-expanded', 'true');
+  await expect(selected).toHaveText('Inherit');
+  await filament.click();
+  await page.getByRole('option', { name: /^2 - / }).click();
+  await expect(selected).toHaveText(/^2 - /);
+
+  await row.click({ button: 'right', position: { x: 40, y: 12 } });
+  await page.getByTestId('objectlist-add-model_part').click();
+  await page.getByTestId('objectlist-add-model_part-Cube').click();
+  await expect(object.locator('[aria-label="Assembly"]')).toBeVisible();
+  if (await parts.count() === 0) await expand.click();
+  await parts.first().locator('button.object-list-row').first().click({ position: { x: 40, y: 12 } });
+  await expect(page.getByTestId('scoped-target-label')).toContainText('Part:');
+  await expect(group).toHaveAttribute('aria-expanded', 'true');
+  await expect(selected).toHaveText('Inherit');
+  await filament.click();
+  await page.getByRole('option', { name: 'Default', exact: true }).click();
+  await expect(selected).toHaveText('Default');
+  await page.getByTestId('config-reset-outer_wall_filament_id').click();
+  await expect(selected).toHaveText('Inherit');
+  await row.click({ position: { x: 40, y: 12 } });
+  await expect(selected).toHaveText(/^2 - /);
+  await page.getByTestId('config-mode-project').click();
+  await expect(selected).toHaveText(/^2 - /);
+  await page.getByTestId('config-reset-outer_wall_filament_id').click();
+  await expect(selected).toHaveText('Default');
+  await group.click();
+  await expect(group).toHaveAttribute('aria-expanded', 'false');
+  await expect(filament).toHaveCount(0);
+  await group.click();
+  await expect(selected).toHaveText('Default');
+}
