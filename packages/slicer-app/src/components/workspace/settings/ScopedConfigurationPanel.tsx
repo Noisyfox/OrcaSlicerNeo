@@ -668,23 +668,24 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           <OptionEmptyMessage scope={optionScope} keys={displayedOptionKeys} />
           {categories.map(({ title: category, fields: categoryFields, page, group, keys }) => {
             const expansionKey = `${page}/${group}`;
-            const groupCatalogue = allFields.filter((field) => keys.includes(field.key));
-            const featureGroup = groupCatalogue.every(field => field.filamentRoute);
             const open = expanded[expansionKey] ?? true;
+            const groupCatalogue = allFields.filter((field) => keys.includes(field.key));
             const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
-            const toggle = <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
-              aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
-              className={cn("h-5 w-full justify-between rounded-none border-0 bg-control-background px-1 text-module font-semibold", highlighted && "config-override-label")}
-              onClick={() => setExpanded((current) => ({ ...current, [expansionKey]: !open }))}>
-              {category}{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-            </Button>;
+            const canResetCategory = groupCatalogue.some(field => field.local && field.resettable && !field.filamentRoute);
             return <OptionGroupVisibility key={`${page}/${group}`} scope={optionScope} keys={keys}><div data-testid={`config-category-${category}`}>
-              {group && (featureGroup ? toggle : <ContextMenu>
-                <ContextMenuTrigger render={<div />}>{toggle}</ContextMenuTrigger>
+              {group && <ContextMenu disabled={groupCatalogue.every(field => field.filamentRoute)}>
+                <ContextMenuTrigger render={<div />}>
+                  <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
+                    aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
+                    className={cn("h-5 w-full justify-between rounded-none border-0 bg-control-background px-1 text-module font-semibold", highlighted && "config-override-label")}
+                    onClick={() => setExpanded((current) => ({ ...current, [expansionKey]: !open }))}>
+                    {category}{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                  </Button>
+                </ContextMenuTrigger>
                 <ContextMenuContent><ContextMenuItem
-                  data-testid={`config-reset-category-${group}`} disabled={!highlighted}
+                  data-testid={`config-reset-category-${group}`} disabled={!canResetCategory}
                   onClick={() => void resetGroup(keys)}>Reset {group}</ContextMenuItem></ContextMenuContent>
-              </ContextMenu>)}
+              </ContextMenu>}
               {open && <div className="py-1">{categoryFields.map((field, index) => {
                 const section = printSettingPlacement(field)?.section;
                 const startsSection = section && section !== (index > 0 ? printSettingPlacement(categoryFields[index - 1])?.section : undefined);

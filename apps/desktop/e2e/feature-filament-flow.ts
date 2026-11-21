@@ -22,6 +22,9 @@ export async function verifyFeatureFilamentRouting(page: Page) {
   await expect(page.getByRole('option', { name: 'Inherit', exact: true })).toHaveCount(0);
   await page.getByRole('option', { name: /^2 - / }).click();
   await expect(selected).toHaveText(/^2 - /);
+  await expect(group).toHaveAttribute('data-local-override-highlight', 'true');
+  await group.click({ button: 'right' });
+  await expect(page.getByTestId('config-reset-category-Filament for Features')).toHaveCount(0);
   const resizer = page.getByTestId('sidebar-resizer');
   const width = await resizer.getAttribute('aria-valuenow');
   const minimumWidth = await resizer.getAttribute('aria-valuemin');
