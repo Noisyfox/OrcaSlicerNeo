@@ -1604,6 +1604,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     } } };
   }
 
+  const featureRouteKeys: Readonly<Record<string, string>> = {
+    'outer-wall': 'outer_wall_filament_id', 'inner-wall': 'inner_wall_filament_id',
+    'sparse-infill': 'sparse_infill_filament_id', 'internal-solid-infill': 'internal_solid_filament_id',
+    'top-surface': 'top_surface_filament_id', 'bottom-surface': 'bottom_surface_filament_id',
+  };
+
+  function projectFeatureRoutes(snapshot: any) {
+    const routing = (snapshot.routing ?? []).filter((row: any) => !Object.hasOwn(featureRouteKeys, row.selector));
+    for (const [selector, key] of Object.entries(featureRouteKeys)) {
+      const append = (entity: any, local: string | undefined, effective: number) => {
+        routing.push({ target: entity.target, id: entity.id, object_id: entity.object_id, selector,
+          explicit_slot: Number(local ?? 0), effective_slot: effective,
+          inherited: local === undefined, defaulted: local === '0' });
+      };
+      for (const object of snapshot.assignments.objects) {
+        const local = nativeScopedConfig.objects[object.id]?.[key];
+        const effective = Number(local) || object.effective_slot;
+        append(object, local, effective);
+        for (const part of snapshot.assignments.parts.filter((row: any) => row.object_id === object.id)) {
+          const partLocal = nativeScopedConfig.parts[part.id]?.[key];
+          const appliedBase = partLocal === '0' || !Number(local) ? part.explicit_slot : 0;
+          append(part, partLocal, Number(partLocal) || appliedBase || effective);
+        }
+      }
+    }
+    return routing;
+  }
+
   function filamentSessionSnapshot(includeReferences = true): unknown {
     if (filamentSessionState !== undefined) {
       const snapshot = includeReferences ? clone(filamentSessionState) as any
@@ -1634,6 +1662,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           })));
         snapshot.assignments = { ...snapshot.assignments, objects, parts, modifiers: snapshot.assignments?.modifiers ?? [] };
       }
+      if (includeReferences && opts.filamentSession === undefined) snapshot.routing = projectFeatureRoutes(snapshot);
       return snapshot;
     }
     const objects = includeReferences ? objectMeta.map((object) => ({
@@ -1644,7 +1673,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       .filter((volume) => volume.type === 'model_part')
       .map((volume) => ({ target: 'model-part', id: volume.id, object_id: object.id,
         explicit_slot: 0, effective_slot: 1, inherited: true }))) : [];
-    return {
+    const snapshot = {
       ok: true, version: 1,
       slots: [{ material_type: 'PLA', mix: null, logical_id: 'filament-1', slot: 1, preset: { is_project_embedded: false, is_user: false, id: 'Generic PLA @System', name: 'Generic PLA @System', label: 'Generic PLA', vendor: 'Generic' },
         colour: { effective: '#F2754E', provenance: 'preset',
@@ -1658,6 +1687,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       revisions: { session: historyRevision, project: historyRevision, result: 0, plates: { ...plateInputRevisions } },
       status: { state: 'ready', error: null },
     };
+    if (includeReferences) snapshot.routing = projectFeatureRoutes(snapshot);
+    return snapshot;
   }
   let autoFlushPolicy = 'all';
   let projectFlowMemory: Record<string, number[]> = {};
@@ -1939,14 +1970,32 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (target.group === 'objects') for (const part of next.assignments.parts) if (part.object_id === target.objectId) { part.explicit_slot = 0; part.effective_slot = request.slot; part.inherited = true; }
       }
     } else {
-      if (!Number.isSafeInteger(request.slot) || request.slot < 0 || request.slot > next.slots.length || typeof request.selector !== 'string') return errorEnvelope('invalid routing command', 'invalid_command');
-      const feature = request.selector !== 'support-base' && request.selector !== 'support-interface';
+      const feature = Object.hasOwn(featureRouteKeys, request.selector);
+      const support = request.selector === 'support-base' || request.selector === 'support-interface';
+      if ((!feature && !support) || (!(feature && request.slot === null) &&
+          (!Number.isSafeInteger(request.slot) || request.slot < 0 || request.slot > next.slots.length)))
+        return errorEnvelope('invalid routing command', 'invalid_command');
       for (const target of targets) {
         if (!target || !['project', 'object', 'model-part'].includes(target.kind)) return errorEnvelope('target is not eligible', 'ineligible_target');
         if ((feature && target.kind === 'project') || (!feature && target.kind === 'model-part')) return errorEnvelope('target is not eligible', 'ineligible_target');
         const id = target.kind === 'project' ? 0 : target.id;
         if (target.kind !== 'project' && (!Number.isSafeInteger(id) || id < 1)) return errorEnvelope('target is not eligible', 'ineligible_target');
-        accepted.push({ kind: target.kind, id, object_id: target.kind === 'project' ? 0 : id });
+        const objectId = target.kind === 'model-part'
+          ? next.assignments.parts.find((row: any) => row.id === id)?.object_id : id;
+        if (target.kind !== 'project' && !next.assignments.objects.some((row: any) => row.id === objectId))
+          return errorEnvelope('target is not eligible', 'ineligible_target');
+        if (accepted.some(row => row.kind === target.kind && row.id === id)) continue;
+        accepted.push({ kind: target.kind, id, object_id: objectId });
+      }
+      if (feature) {
+        const key = featureRouteKeys[request.selector];
+        for (const target of accepted) {
+          const group = target.kind === 'object' ? nativeScopedConfig.objects : nativeScopedConfig.parts;
+          const config = group[target.id] ??= {};
+          if (request.slot === null) delete config[key];
+          else config[key] = String(request.slot);
+        }
+        next.routing = projectFeatureRoutes(next);
       }
     }
     next.revisions.session += 1; next.revisions.project = next.revisions.session;

@@ -633,6 +633,28 @@ describe('SlicerClient bridge contract', () => {
     ] });
   });
 
+  it('distinguishes native feature Default from removing a part override', async () => {
+    const client = makeClient();
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    await client.addShape('Cube', 'Feature routing');
+    const initial = await client.getFilamentSessionSnapshot();
+    if (!initial.ok) throw new Error(initial.error);
+    const part = initial.assignments.parts[0];
+    const request = { version: 1, selector: 'outer-wall', targets: [{ kind: 'model-part', id: part.id }] } as const;
+    const defaulted = await client.setFilamentRouting({ ...request, revision: initial.revisions.session, slot: 0 });
+    if (!defaulted.ok) throw new Error(defaulted.error);
+    expect(defaulted.result.snapshot.routing).toContainEqual({
+      target: 'model-part', id: part.id, objectId: part.objectId, selector: 'outer-wall',
+      explicitSlot: 0, effectiveSlot: 1, inherited: false, defaulted: true,
+    });
+    const inherited = await client.setFilamentRouting({ ...request, revision: defaulted.result.snapshot.revisions.session, slot: null });
+    if (!inherited.ok) throw new Error(inherited.error);
+    expect(inherited.result.snapshot.routing).toContainEqual({
+      target: 'model-part', id: part.id, objectId: part.objectId, selector: 'outer-wall',
+      explicitSlot: 0, effectiveSlot: 1, inherited: true, defaulted: false,
+    });
+  });
+
   it('preserves native colour fields and display interpretations without losing source order', async () => {
     const module = createMockModule();
     const pointer = Number(module.ccall('orc_get_filament_session_snapshot', 'number', [], []));
