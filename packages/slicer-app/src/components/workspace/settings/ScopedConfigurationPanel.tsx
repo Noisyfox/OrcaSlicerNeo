@@ -150,7 +150,7 @@ export const ScopedField = memo(function ScopedField({
   const indexedKey=editor?.target.kind==='indexed' ? `${field.key}#${editor.target.index}` : field.key;
   const optionHelp = mixedOrder ? 'The slicer schedules the physical components of mixed filaments.' : unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` :
     optionTooltip(editor?.metadata ?? field.meta, indexedKey, field.label, editor?.metadata?.tooltip_default ?? defaultValue);
-  const row = 'grid grid-cols-[minmax(0,1fr)_minmax(0,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
+  const row = 'grid grid-cols-[minmax(0,1fr)_minmax(5rem,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
   const labelCls = 'min-w-0 flex-1 truncate text-[13px] font-normal text-muted-foreground';
   const displayed = draft;
   const canStep = isScalar(field.meta) || field.meta.type === 'percent' || field.meta.type === 'float_or_percent';
@@ -165,9 +165,11 @@ export const ScopedField = memo(function ScopedField({
   const controlDisabled = !!mixedOrder || disabled || readOnly || !visible || conditionReadOnly || (field.key === 'curr_bed_type' && commitPending);
   const hasEditableLocalOverride = field.local && field.resettable;
   const sourceDetails=editor && !unavailable ? `\nSource: ${editor.sourceMixed?'Mixed':editor.source===null?'(null)':elementText(editor.source,editor.vector)}${editor.inheritedSource ? `\nInherited source: ${SOURCE_LABEL[editor.inheritedSource]}.` : ''}\nEffective: ${field.mixed?'Mixed':editor.effective===null?'(null)':elementText(editor.effective,editor.vector)}` : '';
+  const effectiveSlot = slots?.find(slot => slot.slot === field.filamentRoute?.effectiveSlot);
   const routeDetails = field.filamentRoute && (field.filamentRoute.effectiveSlot === null
     ? 'The selected targets use different filaments.' : field.filamentRoute.effectiveSlot === 0
-      ? 'Uses the object or part filament.' : `Effective filament: slot ${field.filamentRoute.effectiveSlot}.`);
+      ? 'Uses the object or part filament.' : `Effective filament: ${effectiveSlot
+        ? filamentSlotChoice(effectiveSlot).label : field.filamentRoute.effectiveSlot}.`);
   const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${routeDetails || valueTooltip(field)}${sourceDetails}`}</span>;
 
   let control;
@@ -175,15 +177,16 @@ export const ScopedField = memo(function ScopedField({
     control=<TooltipFor content={tooltip} nonInteractive><span data-testid={`config-input-${field.key}`} className="text-xs text-muted-foreground">{unavailable?'Unavailable':displayed}</span></TooltipFor>;
   } else if (field.filamentRoute && slots) {
     const choices = slots.map(slot => ({ value: String(slot.slot), ...filamentSlotChoice(slot) }));
-    const effective = slots.find(slot => slot.slot === field.filamentRoute?.effectiveSlot);
     const selected = choices.find(choice => choice.value === displayed);
     const name = field.mixed ? 'Mixed' : displayed === 'inherit' ? 'Inherit' : displayed === '0' ? 'Default' : selected?.label;
     control = <Select disabled={controlDisabled || commitPending} value={displayed} onValueChange={value => {
       if (value !== null) void commit(value);
     }}>
-      <TooltipFor content={tooltip} nonInteractive><SelectTrigger id={`scoped-${field.key}`} size="sm" variant="sidebar"
+      <TooltipFor content={tooltip} nonInteractive><SelectTrigger id={`scoped-${field.key}`} size="sm" variant="sidebar" className="w-full"
         data-testid={`config-input-${field.key}`}>
-        <SelectValue><FilamentChoiceContent label={name} display={effective?.colour.display ?? null} /></SelectValue>
+        <SelectValue className="flex! items-center gap-1">
+          <FilamentChoiceContent label={<span className="min-w-0 truncate">{name}</span>} display={selected?.display ?? null} />
+        </SelectValue>
       </SelectTrigger></TooltipFor>
       <SelectContent><SelectGroup>
         {targets[0]?.scope !== 'project' && <SelectItem value="inherit">Inherit</SelectItem>}
