@@ -69,6 +69,24 @@ assert.deepEqual(rack().slots.at(-1).mix.points, gradient.points);
 assert.equal(rack().slots.at(-1).mix.ramp.length, 17);
 assert.equal(call('orc_add_shape', ['string', 'string'], ['Cube', 'Painted mix']).ok, true);
 const objectId = rack().assignments.objects[0].id;
+const partId = rack().assignments.parts[0].id;
+const probePlateId = call('orc_get_plate_session_snapshot').current_plate_id;
+function assertPartFeatureUsage(expected) {
+  const tower = call('orc_get_prime_tower_projection').plates.find(plate => plate.plate_id === probePlateId);
+  assert.deepEqual(tower.used_slots, expected, 'Prepare tower includes part-level feature slots');
+  assert.deepEqual(call('orc_get_nozzle_mapping', ['string'], [probePlateId]).usedFilaments, expected,
+    'nozzle mapping includes the same physical slots as the tower');
+}
+assertPartFeatureUsage([1]);
+for (const slot of [2, mix.slot]) {
+  edit('orc_set_filament_routing', { selector: 'outer-wall', targets: [{ kind: 'model-part', id: partId }], slot });
+  assertPartFeatureUsage([1, 2]);
+  assert.equal(call('orc_history_undo').ok, true);
+  assertPartFeatureUsage([1]);
+  assert.equal(call('orc_history_redo').ok, true);
+  assertPartFeatureUsage([1, 2]);
+  assert.equal(call('orc_history_undo').ok, true);
+}
 edit('orc_assign_filament', { targets: [{ kind: 'object', id: objectId }], slot: mix.slot });
 function archiveEntries() {
   const archive = call('orc_export_project', ['string'], ['{}']);

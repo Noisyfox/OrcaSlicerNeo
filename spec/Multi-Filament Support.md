@@ -643,17 +643,31 @@ transaction. A deleted explicit value with no merge destination falls back to
 
 ### 10.4 Feature-path filament routing
 
-The first release exposes all six native advanced filament-routing options in
-a collapsed **Advanced filament routing** group for eligible object and
-`MODEL_PART` settings:
+The Objects mode exposes six native filament-routing options in the
+**Filament for Features** group on the **Multi.** page for eligible objects and
+`MODEL_PART` selections in objects with multiple volumes:
 
 - outer walls and inner walls;
 - sparse infill and internal solid infill; and
 - top surface and bottom surface.
 
-Each selector offers `Default` plus every current slot. Here `Default` means
-inherit the active object/part filament. It remains distinct from the support
-controls' "use the currently active filament" behaviour.
+Each selector offers `Default` and the current physical and mixed slots.
+Objects without a local override display the Project selection. Parts without
+a local override display their object's selection. The row reset removes the
+local override and restores that inherited selection. Choosing `Default`
+stores native zero and lets the applicable object or part base filament take
+effect. For example, a part with base filament 1 under an object whose
+outer-wall filament is 2 displays slot 2 after reset and uses slot 1 when
+explicitly set to `Default`. Support controls retain their active-tool default.
+Multi-selection shows `Mixed` when targets display different choices, and one
+selection applies to all targets in a single undoable operation.
+
+Project mode exposes the same six selectors under **Multi. → Filament for
+Features**. The group opens expanded in both modes and can be collapsed
+manually. The selected Project values define project-wide defaults and are
+saved in the 3MF configuration. Changing a Project route invalidates every
+plate. The Project selectors offer `Default` and the current slots, and retain
+the project-wide value when the selected Process preset changes.
 
 These options participate in project persistence, one-step Undo/Redo, slice
 invalidation, and atomic slot Delete/Merge remapping. A deleted explicit value

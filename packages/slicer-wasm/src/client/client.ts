@@ -359,6 +359,9 @@ function encodeRememberedSlot({ preset, colour, native, mix }: import('./types')
   } };
 }
 
+const filamentRoutingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
+  'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
+
 function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult;
 function normalizeFilamentSessionResult(raw: unknown, includeReferences: false): FilamentSessionOrdinaryEdit | FilamentSessionSnapshotError;
 function normalizeFilamentSessionResult(raw: unknown, includeReferences = true): FilamentSessionSnapshotResult | FilamentSessionOrdinaryEdit {
@@ -494,24 +497,25 @@ function normalizeFilamentSessionResult(raw: unknown, includeReferences = true):
   let references: Pick<FilamentSessionSnapshot, 'routing' | 'assignments'> | undefined;
   if (includeReferences) {
     const routing: FilamentRoutingProjection[] = [];
-    const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
-      'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
     if (value.routing !== undefined) {
       if (!Array.isArray(value.routing)) return { ok: false, error: 'invalid filament session routing' };
       for (const candidate of value.routing) {
         if (!candidate || typeof candidate !== 'object') return { ok: false, error: 'invalid filament session routing' };
         const item = candidate as Record<string, unknown>;
+        const support = item.selector === 'support-base' || item.selector === 'support-interface';
         if ((item.target !== 'project' && item.target !== 'object' && item.target !== 'model-part') ||
             !integer(item.id) || !integer(item.object_id) || typeof item.selector !== 'string' ||
-            !routingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
+            !filamentRoutingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
             !integer(item.effective_slot) || typeof item.inherited !== 'boolean' || typeof item.defaulted !== 'boolean' ||
             (item.target === 'project' && (item.id !== 0 || item.object_id !== 0 ||
-              (item.selector !== 'support-base' && item.selector !== 'support-interface'))) ||
+              item.inherited || item.explicit_slot !== item.effective_slot)) ||
             (item.target === 'object' && (item.id === 0 || item.object_id !== item.id)) ||
             (item.target === 'model-part' && (item.id === 0 || item.object_id === 0 ||
-              item.selector === 'support-base' || item.selector === 'support-interface')) ||
-            (item.effective_slot === 0 && item.defaulted !== true) ||
-            (item.effective_slot !== 0 && item.defaulted !== false))
+              support)) ||
+            (support || item.target === 'project' ? item.defaulted !== (item.effective_slot === 0)
+              : item.effective_slot === 0 ||
+                (item.inherited && item.explicit_slot !== 0) ||
+                item.defaulted !== (item.explicit_slot === 0 && !item.inherited)))
           return { ok: false, error: 'invalid filament session routing' };
         if ((item.effective_slot as number) > slotCount || (item.explicit_slot as number) > slotCount)
           return { ok: false, error: 'invalid filament session routing' };
@@ -654,7 +658,9 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
   const requireSlot = mutation.kind === 'save-mix' || mutation.kind === 'select-preset' || mutation.kind === 'set-colour' || mutation.kind === 'add' ||
     mutation.kind === 'assign' || mutation.kind === 'routing';
   const minimumSlot = mutation.kind === 'assign' || mutation.kind === 'routing' ? 0 : 1;
-  if (requireSlot && (!Number.isSafeInteger(mutation.slot) || Number(mutation.slot) < minimumSlot))
+  const inheritRoute = mutation.kind === 'routing' && mutation.slot === null &&
+    mutation.selector !== 'support-base' && mutation.selector !== 'support-interface';
+  if (requireSlot && !inheritRoute && (!Number.isSafeInteger(mutation.slot) || Number(mutation.slot) < minimumSlot))
     return { ok: false, version: 1, error: 'invalid filament mutation slot', errorCode: 'invalid_response' };
   if (requireSlot && Number(mutation.slot) > snapshot.slots.length)
     return { ok: false, version: 1, error: 'invalid filament mutation slot range', errorCode: 'invalid_response' };
@@ -704,9 +710,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     if (!Array.isArray(mutation.accepted_targets) || mutation.accepted_targets.length === 0)
       return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
     const selector = mutation.kind === 'routing' ? mutation.selector : undefined;
-    const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
-      'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
-    if (mutation.kind === 'routing' && (typeof selector !== 'string' || !routingSelectors.has(selector)))
+    if (mutation.kind === 'routing' && (typeof selector !== 'string' || !filamentRoutingSelectors.has(selector)))
       return { ok: false, version: 1, error: 'invalid filament routing selector', errorCode: 'invalid_response' };
     let projectAccepted = false;
     for (const candidate of mutation.accepted_targets) {
@@ -726,7 +730,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
           return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
       } else {
         const feature = selector !== 'support-base' && selector !== 'support-interface';
-        if ((kind === 'project' && (id !== 0 || objectId !== 0 || feature)) ||
+        if ((kind === 'project' && (id !== 0 || objectId !== 0 || inheritRoute)) ||
             (kind === 'object' && (id < 1 || objectId !== id)) ||
             (kind === 'model-part' && (id < 1 || objectId < 1 || !feature)) ||
             !new Set(['project', 'object', 'model-part']).has(kind))

@@ -19,7 +19,10 @@ const snapshot: NativeScopedConfigSnapshot = {
 
 const structure = [{
   id: 10, index: 0, name: 'Cube', printable: true, autoDrop: true, isCut: false, instanceCount: 1,
-  volumes: [{ id: 20, index: 0, name: 'Modifier', type: 'parameter_modifier' as const, isSplittable: false }],
+  volumes: [
+    { id: 21, index: 0, name: 'Cube', type: 'model_part' as const, isSplittable: false },
+    { id: 20, index: 1, name: 'Modifier', type: 'parameter_modifier' as const, isSplittable: false },
+  ],
   instances: [{ id: 30, index: 0, printable: true }],
 }];
 
@@ -59,6 +62,19 @@ describe('scoped configuration projection', () => {
     expect(fields.find((field) => field.key === 'enable_support')).toMatchObject({ value: '1', source: 'object' });
     expect(fields.some((field) => field.key === 'extruder')).toBe(false);
     expect(fields.some((field) => field.key === 'custom_gcode')).toBe(false);
+  });
+
+  it('edits the object when its sole model volume is selected as a part', () => {
+    const selection = { objectId: 10, volumeId: 21 };
+    const resolution = resolveScopedConfigurationTarget({
+      selectionKind: 'part', selectedVolumes: [selection, selection], activePlateId: 'plate-1',
+      structure: [{ ...structure[0], volumes: [structure[0].volumes[0]] }],
+    });
+    expect(resolution).toEqual({
+      scope: 'object', label: 'Object: Cube',
+      targets: [{ scope: 'object', id: '10', label: 'Cube' }],
+      visibleScopes: ['preset', 'project', 'object'],
+    });
   });
 
   it('keeps Project mode on the Project map even when a selection has deeper overrides', () => {

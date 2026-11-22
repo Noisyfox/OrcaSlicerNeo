@@ -1,6 +1,7 @@
 import { type OptionPublication } from './optionStateRegistry';
 import {
   type NativeScopedConfigScope,
+  type FilamentRoutingSelector,
   type NativeScopedConfigSnapshot,
   type NativeScopedConfigTarget,
   type OptionMeta,
@@ -32,6 +33,7 @@ export interface ScopedTargetResolution {
 
 export interface ScopedConfigurationField {
   readonly editor?: import('./printEditorProjection').PrintFieldElement;
+  readonly filamentRoute?: { readonly selector: FilamentRoutingSelector; readonly effectiveSlot: number | null };
   readonly key: string;
   readonly label: string;
   readonly category: string;
@@ -139,7 +141,12 @@ export function resolveScopedConfigurationTarget(args: {
       scope: 'invalid', targets: [], label: 'Mixed selection', visibleScopes: ['preset', 'project'],
       disabledReason: 'Select only whole objects, or sibling parts from one object and instance.',
     };
-  if (args.selectionKind === 'object' || args.selectionKind === 'instance') {
+  const first = args.selectedVolumes[0];
+  const soleVolumeSelected = args.selectionKind === 'part' &&
+    structure.some(object => object.id === first.objectId && object.volumes.length === 1 &&
+      object.volumes[0].id === first.volumeId) &&
+    args.selectedVolumes.every(volume => volume.objectId === first.objectId && volume.volumeId === first.volumeId);
+  if (args.selectionKind === 'object' || args.selectionKind === 'instance' || soleVolumeSelected) {
     const ids = [...new Set(args.selectedVolumes.map((volume) => String(volume.objectId)))];
     const targets = ids.map((id) => ({ scope: 'object' as const, id, label: objectName(structure, id) }));
     return {
