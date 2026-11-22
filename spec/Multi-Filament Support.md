@@ -651,14 +651,16 @@ The Objects mode exposes six native filament-routing options in the
 - sparse infill and internal solid infill; and
 - top surface and bottom surface.
 
-Each selector offers `Inherit`, `Default`, and the current physical and mixed
-slots. `Inherit` or the row's reset action removes the local feature override.
-`Default` stores native zero and lets the applicable object or part base
-filament take effect. For example, a part with base filament 1 under an object
-whose outer-wall filament is 2 uses slot 2 with `Inherit` and slot 1 with
-`Default`. Support controls retain their active-tool default. Multi-selection
-shows `Mixed` when targets have different choices, and one selection applies to
-all targets in a single undoable operation.
+Each selector offers `Default` and the current physical and mixed slots.
+Objects without a local override display the Project selection. Parts without
+a local override display their object's selection. The row reset removes the
+local override and restores that inherited selection. Choosing `Default`
+stores native zero and lets the applicable object or part base filament take
+effect. For example, a part with base filament 1 under an object whose
+outer-wall filament is 2 displays slot 2 after reset and uses slot 1 when
+explicitly set to `Default`. Support controls retain their active-tool default.
+Multi-selection shows `Mixed` when targets display different choices, and one
+selection applies to all targets in a single undoable operation.
 
 Project mode exposes the same six selectors under **Multi. → Filament for
 Features**. The group opens expanded in both modes and can be collapsed

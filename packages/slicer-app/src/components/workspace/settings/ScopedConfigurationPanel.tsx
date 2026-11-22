@@ -175,7 +175,7 @@ export const ScopedField = memo(function ScopedField({
   } else if (field.filamentRoute && slots) {
     const choices = slots.map(slot => ({ value: String(slot.slot), ...filamentSlotChoice(slot) }));
     const selected = choices.find(choice => choice.value === displayed);
-    const name = field.mixed ? 'Mixed' : displayed === 'inherit' ? 'Inherit' : displayed === '0' ? 'Default' : selected?.label;
+    const name = field.mixed ? 'Mixed' : displayed === '0' ? 'Default' : selected?.label;
     control = <Select disabled={controlDisabled || commitPending} value={displayed} onValueChange={value => {
       if (value !== null) void commit(value);
     }}>
@@ -186,7 +186,6 @@ export const ScopedField = memo(function ScopedField({
         </SelectValue>
       </SelectTrigger></TooltipFor>
       <SelectContent><SelectGroup>
-        {targets[0]?.scope !== 'project' && <SelectItem value="inherit">Inherit</SelectItem>}
         <SelectItem value="0">Default</SelectItem>
         {choices.map(choice => <SelectItem key={choice.value} value={choice.value}>
           <FilamentChoiceContent label={choice.label} display={choice.display} />
@@ -454,7 +453,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
-    if (field.filamentRoute) return setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, value);
+    if (field.filamentRoute) {
+      const slot = await setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, Number(value));
+      return slot?.toString() ?? value;
+    }
     if(mode==='scoped' && field.editor?.targets) {
       const element = field.editor, targets = element.targets!;
       if(element.target.kind==='unavailable') throw new Error('This selection has no corresponding native mapping.');
@@ -492,7 +494,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const resetField = useCallback(async (field: ScopedConfigurationField) => {
     if ((mode !== 'project' && resolution.scope === 'invalid') || !field.local) return;
     if (field.filamentRoute) {
-      await setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, mode === 'project' ? '0' : 'inherit');
+      await setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, mode === 'project' ? 0 : null);
       return;
     }
     if(mode==='scoped' && field.editor?.targets) {
