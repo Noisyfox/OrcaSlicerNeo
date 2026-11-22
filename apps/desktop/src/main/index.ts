@@ -23,7 +23,7 @@ import { isBambuControlRequest } from '../shared/bambuControl';
 import { BambuUtility, bambuPaths, createBambuIpc } from './bambuUtility';
 import { BambuLogin } from './bambuLogin';
 import { BAMBU_REGIONS, isBambuPrinterCommand, isBambuCommand, unavailableBambuAccount } from '../shared/bambu';
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, shell, type WebContents } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { dirname, extname, join, sep } from 'node:path';
@@ -43,6 +43,7 @@ import {
 } from './nativeMenu';
 import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 import { writeFileAtomically } from './atomicFile';
+import { loadWindowPlacement, saveWindowPlacement } from './windowPlacement';
 import { RecentProjectsRepository } from './recentProjects';
 import { RecentThumbnailWorker } from './recentThumbnailWorker';
 import { summarizeElectronMemory } from './memoryIpc';
@@ -140,6 +141,8 @@ const preferencesPath = (): string => {
 const preferencesPersisted = (): boolean =>
   process.env.ORCA_E2E !== '1' || Boolean(process.env.ORCA_E2E_PREFERENCES);
 
+const windowPlacementPath = (): string => join(dirname(preferencesPath()), 'window-placement.json');
+
 const printerConfigurationPath = (): string =>
   process.env.ORCA_E2E_PRINTER_CONFIG ?? join(app.getPath('userData'), 'printer-config.json');
 
@@ -172,9 +175,12 @@ function sendNativeMenuCommand(command: MenuCommandId): void {
 }
 
 function createWindow(): void {
+  const placement = preferencesPersisted()
+    ? loadWindowPlacement(windowPlacementPath(), screen.getAllDisplays().map(display => display.workArea),
+      screen.getPrimaryDisplay().workArea)
+    : undefined;
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...(placement?.bounds ?? { width: 1280, height: 800 }),
     icon: APP_ICON_PATH,
     show: false,
     autoHideMenuBar: true,
@@ -225,6 +231,7 @@ function createWindow(): void {
   const showWindow = () => {
     if (shown) return;
     shown = true;
+    if (placement?.maximized) win.maximize();
     win.show();
   };
   win.on('ready-to-show', showWindow);
@@ -426,9 +433,10 @@ function registerIpc(): void {
       const warnings = await printerDownloads?.close();
       if (warnings?.length) await dialog.showMessageBox(win, { type: 'warning', message: 'Some download cleanup could not be confirmed.',
         detail: 'Owned temporary files will be checked on a later launch. Completed downloads are preserved.', buttons: ['Close'] });
+      if (preferencesPersisted()) await saveWindowPlacement(windowPlacementPath(), win);
+      allowWindowClose = true;
+      win.destroy();
     } finally { closingDownloads = false; }
-    allowWindowClose = true;
-    win.destroy();
   });
 
   ipcMain.handle(Ipc.preferencesLoad, async (): Promise<PreferencesLoadResult> => {
