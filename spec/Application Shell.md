@@ -1,6 +1,6 @@
 # Application Shell
 
-**Updated:** 2026-11-05
+**Updated:** 2026-11-22
 **Status:** Delivered shared behavior, including unfinished-send exit handling. Notification qualification boundaries are
 recorded in its verification section.
 **Scope:** Shared layout, desktop window chrome, menus and diagnostics.
@@ -34,6 +34,14 @@ Electron uses a hidden native titlebar. Windows/Linux retain native overlay
 window controls; macOS retains traffic lights and its native application menu.
 Interactive renderer controls are excluded from drag regions. Closing the last
 window quits Electron on all platforms after the applicable close guards succeed.
+
+After the close guards succeed, Electron saves the main window's normal bounds
+and maximized state. The next instance restores them on startup. If the title
+bar is no longer reachable on a connected display, the window opens centered
+on the primary display, sized to fit its work area. A first launch or unreadable
+record uses the usual 1280 × 800 default. On native Wayland, the compositor
+controls window positioning.
+
 The packaged renderer uses a guarded loopback HTTP origin; Electron WASM runs
 in the utility process, as specified by
 [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md).

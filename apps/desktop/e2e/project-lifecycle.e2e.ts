@@ -74,6 +74,44 @@ async function makeDirty(page: Page): Promise<void> {
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
 
+test('restores the main window placement after a native close and relaunch', async () => {
+  const first = await launchProjectApp();
+  let app = first.app;
+  const restart = async () => {
+    const closed = app.waitForEvent('close');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+    await closed;
+    app = (await launchProjectApp(first.dir)).app;
+    await ready(await app.firstWindow());
+  };
+  try {
+    await ready(await app.firstWindow());
+    const bounds = await app.evaluate(({ BrowserWindow, screen }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      const area = screen.getPrimaryDisplay().workArea;
+      win.setBounds({ x: area.x + 55, y: area.y + 40,
+        width: Math.min(850, area.width - 80), height: Math.min(600, area.height - 70) });
+      return win.getBounds();
+    });
+    expect(bounds.width).toBeLessThanOrEqual(850);
+    expect(bounds.height).toBeLessThanOrEqual(600);
+    await restart();
+    const currentBounds = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+    expect(await currentBounds()).toEqual(bounds);
+
+    // Headless Linux runners need not have a window manager that supports maximize.
+    if (process.platform !== 'linux') {
+      const maximized = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized());
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize());
+      await expect.poll(maximized).toBe(true);
+      await restart();
+      await expect.poll(maximized).toBe(true);
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].unmaximize());
+      await expect.poll(currentBounds).toEqual(bounds);
+    }
+  } finally { await app.close(); }
+});
+
 test('Preferences uses top category tabs and preserves edits across categories', async () => {
   const { app, dir } = await launchProjectApp();
   try {
@@ -383,7 +421,7 @@ test('Electron STL drop uses the shared Add Model action', async () => {
 });
 
 test('Electron close requests honor Cancel then Save/Don\'t Save choices', async () => {
-  const { app } = await launchProjectApp();
+  const { app, dir } = await launchProjectApp();
   try {
     const page = await app.firstWindow();
     await ready(page);
@@ -413,6 +451,8 @@ test('Electron close requests honor Cancel then Save/Don\'t Save choices', async
     await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
     await page.getByTestId('project-dirty-cancel').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+
+    expect(existsSync(join(dir, 'window-placement.json'))).toBe(false);
 
     const closed = page.waitForEvent('close');
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
