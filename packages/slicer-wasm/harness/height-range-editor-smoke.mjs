@@ -42,9 +42,15 @@ assert.match(edit(0, { operation: 'set', targets: [before[0], { ...before[1], re
 assert.deepEqual(rows(0), before);
 history(0, { operation: 'set', targets: rows(0), key: 'layer_height', value: 0.12 });
 assert.ok(rows(0).every(r => r.values.layer_height === '0.12'));
-ok(call('orc_history_undo'));
+const ownerId = objects()[0].id;
+function verifyRangeRestore(command) {
+  const { scene_delta: delta } = ok(call(command));
+  assert.ok(delta.object_ids.includes(ownerId));
+  assert.ok(!delta.retained_renderer_object_ids.includes(ownerId), 'restore must publish the updated range rows');
+}
+verifyRangeRestore('orc_history_undo');
 assert.deepEqual(rows(0).map(r => r.values), before.map(r => r.values));
-ok(call('orc_history_redo'));
+verifyRangeRestore('orc_history_redo');
 history(0, { operation: 'reset', targets: [rows(0)[1]], key: 'outer_wall_filament_id' });
 history(0, { operation: 'reset', targets: [rows(0)[1]], key: 'layer_height' });
 assert.equal(rows(0)[1].values.outer_wall_filament_id, undefined);

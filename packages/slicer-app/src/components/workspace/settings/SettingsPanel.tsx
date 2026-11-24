@@ -126,7 +126,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
         const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision,
           historyContextForStructure(sceneInteraction));
         if (!transition.ok) throw new Error(transition.error);
-        publishPrinterTransition(platform, transition);
+        await publishPrinterTransition(platform, transition);
         await rememberPrinterTransition(platform, transition);
       });
     } catch (error) { setError(`select toolhead diameter: ${String(error)}`); }
@@ -191,7 +191,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             historyContextForStructure(sceneInteraction));
           if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');
 
-          publishPrinterTransition(platform, transition);
+          await publishPrinterTransition(platform, transition);
           await rememberPrinterTransition(platform, transition);
         });
         return;

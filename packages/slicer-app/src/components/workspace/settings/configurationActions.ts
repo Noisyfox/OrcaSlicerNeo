@@ -20,7 +20,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
-import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { refreshRangeFilamentRows, useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { historyContextForStructure, projectHistoryStatus, readProjectMutationReservation, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
@@ -436,7 +436,7 @@ export function commitGlobalBedType(platform: PlatformCapabilities, value: strin
     targets: [{ scope: 'project' }], key: 'curr_bed_type', value });
 }
 
-export function publishPrinterTransition(platform: PlatformCapabilities, transition: PrinterTransitionSuccess) {
+export async function publishPrinterTransition(platform: PlatformCapabilities, transition: PrinterTransitionSuccess) {
   // This command already committed the single native history entry.
   // Publish its receipt directly; do not issue a second rack edit,
   // revision bump, profile read, or scoped-config revalidation.
@@ -472,7 +472,10 @@ export function publishPrinterTransition(platform: PlatformCapabilities, transit
     }
   });
 
-  }
+  if (useFilamentSessionStore.getState().snapshot === transition.filamentSession &&
+      (transition.mutation.kind === 'select-printer-with-remembered-rack' || transition.mutation.kind === 'synchronize-printer'))
+    await refreshRangeFilamentRows(platform.runtime);
+}
 
 export async function rememberPrinterTransition(platform: PlatformCapabilities, transition: PrinterTransitionSuccess) {
   // Rack memory is an independent user preference, not part of the

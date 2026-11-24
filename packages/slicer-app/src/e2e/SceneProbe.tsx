@@ -103,6 +103,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
       selectionInstanceCount?: () => number;
       selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
       previewMarkerPresent?: () => boolean;
+      heightRangePlanes?: () => Array<{ z: number; opacity: number }>;
       cameraState?: () => {
         position: [number, number, number];
         quaternion: [number, number, number, number];
@@ -266,6 +267,10 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
       return Boolean(hit && sceneInteraction && sceneInteraction.selectFromHit(hit, additive));
     },
     previewMarkerPresent: () => Boolean(scene.getObjectByName('preview-nozzle-marker')),
+    heightRangePlanes: () => (scene.getObjectByName('height-range-planes')?.children ?? []).map(child => ({
+      z: child.getWorldPosition(new THREE.Vector3()).z,
+      opacity: (child as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.opacity,
+    })),
     setCameraView: (position: [number, number, number], target: [number, number, number]) => {
       camera.position.fromArray(position);
       controls?.target?.fromArray(target);

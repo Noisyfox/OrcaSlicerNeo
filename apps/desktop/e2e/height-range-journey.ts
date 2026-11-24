@@ -4,7 +4,7 @@ import { addPrimitive } from './add-primitive';
 
 export async function verifyHeightRanges(page: Page) {
   await ready(page);
-  await selectPrinter(page);
+  await selectPrinter(page, 'Bambu Lab X1 Carbon 0.4 nozzle');
   await page.getByTestId('config-mode-scoped').click();
   await addPrimitive(page, 'Cube');
   const list = page.getByTestId('object-list');
@@ -14,17 +14,28 @@ export async function verifyHeightRanges(page: Page) {
   const panel = page.getByRole('region', { name: 'Height range settings' });
   await expect(panel).toBeVisible();
   const first = list.getByRole('button', { name: '0 – 2 mm', exact: true });
+  const planes = () => page.evaluate(() => (window as unknown as { __orcaE2e: {
+    heightRangePlanes: () => Array<{ z: number; opacity: number }>;
+  } }).__orcaE2e.heightRangePlanes());
+  await expect.poll(planes).toEqual([]);
   await first.click();
+  const height = panel.getByTestId('config-input-layer_height');
+  const originalHeight = await height.inputValue();
   await expect(panel.getByRole('textbox', { name: 'End (mm)' })).toHaveValue('2');
+  await expect.poll(async () => (await planes()).map(p => Math.round(p.z * 1000) / 1000)).toEqual([0, 2]);
+  for (const [i, label] of ['Start (mm)', 'End (mm)'].entries()) {
+    await panel.getByRole('textbox', { name: label }).focus();
+    await expect.poll(async () => { const p = await planes(); return p[i].opacity > p[1 - i].opacity; }).toBe(true);
+  }
   await list.getByRole('button', { name: 'Add range after 2 mm' }).click();
   const second = list.getByRole('button', { name: '2 – 4 mm', exact: true });
   await expect(second).toHaveAttribute('aria-pressed', 'true');
-  const height = panel.getByTestId('config-input-layer_height');
   await height.fill('0.12');
   await height.press('Enter');
   await expect(height).toHaveValue('0.12');
   await first.click({ modifiers: ['ControlOrMeta'] });
   await expect(height).toHaveAttribute('placeholder', 'Mixed');
+  await expect.poll(planes).toEqual([]);
   await expect(panel.getByRole('textbox', { name: 'End (mm)' })).toHaveCount(0);
   await height.fill('0.16');
   await height.press('Enter');
@@ -33,10 +44,31 @@ export async function verifyHeightRanges(page: Page) {
   await expect(height).toHaveValue('0.16');
   await first.click();
   await expect(height).toHaveValue('0.16');
+  await page.getByTestId('history-undo').click();
+  await second.click();
+  await expect(height).toHaveValue('0.12');
+  await first.click();
+  await expect(height).toHaveValue(originalHeight);
+  await page.getByTestId('history-redo').click();
+  await second.click();
+  await expect(height).toHaveValue('0.16');
   await list.getByRole('button', { name: 'Height Range Modifier', exact: true }).click();
   await list.getByRole('button', { name: 'Copy ranges' }).click();
   await addPrimitive(page, 'Cube');
   await objects.last().getByRole('button').first().click({ button: 'right' });
   await page.getByTestId('objectlist-paste-ranges').click();
-  await expect(objects.last().getByRole('button', { name: '2 – 4 mm', exact: true })).toBeVisible();
+  await objects.last().getByRole('button', { name: '2 – 4 mm', exact: true }).click();
+  const rack = page.getByTestId('filament-rack');
+  await rack.getByTestId('filament-add').click();
+  await expect(rack.getByTestId('filament-slot-2')).toBeVisible();
+  await rack.getByRole('tab', { name: 'Mixes (0)' }).click();
+  await rack.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save mix' }).click();
+  const outer = panel.getByTestId('config-input-outer_wall_filament_id');
+  await outer.click();
+  await page.getByRole('listbox').getByRole('option', { name: /^3 - / }).click();
+  await expect(outer).toContainText(/^3 - /);
+  await rack.getByRole('tab', { name: /Material/ }).click();
+  await rack.getByTestId('filament-add').click();
+  await expect(outer).toContainText(/^4 - /);
 }

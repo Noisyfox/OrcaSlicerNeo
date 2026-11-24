@@ -5,7 +5,7 @@
 **Status:** The existing object/part-management scope is delivered. Mesh
 Boolean remains unimplemented; section 10 records the agreed design and its
 implementation/qualification requirements.
-The [Height Range Modifier design](#91-height-range-modifiers) is accepted for implementation.
+The shared Prepare workspace supports [Height Range Modifiers](#91-height-range-modifiers).
 Brim points and cut connectors remain deferred.
 
 
@@ -66,6 +66,7 @@ Use the approved thin-bridge approach:
 - Separate instances into individual objects (**Set as an individual object** in
   the instance-row context menu).
 - Toggle an instance/object printable state.
+- Edit, batch-configure and copy object [height ranges](#91-height-range-modifiers).
 
 ### 3.4 Explicitly deferred
 
@@ -75,7 +76,6 @@ Use the approved thin-bridge approach:
 - `merge(false)` / `append_menu_item_merge_to_single_object()`: the upstream
   menu function is defined but has no call site and is not part of the
   delivered feature.
-- Height range editing is a planned extension described in [section 9.1](#91-height-range-modifiers).
 - Brim points and cut connectors.
 
 Multi-plate, history, painting and preset editing are delivered under their
@@ -342,7 +342,7 @@ This follows `MenuFactory::append_menu_items_add_volume` and
 `ObjectList::is_instance_or_object_selected` in the pinned Orca sources.
 
 Each submenu offers Load..., a separator, Cube, Cylinder, Sphere, Cone, Disc,
-and Torus. Text, SVG, precise seam, and height-range editing are omitted until
+and Torus. Text, SVG and precise seam are omitted until
 implemented. Additions use native model volumes, preserve the owning object
 and its instances, and participate in the existing project history and plate
 invalidation flow. Primitive placement follows `load_generic_subobject`;
@@ -436,8 +436,7 @@ settled-transform, history and current-plate contracts as ordinary imports.
 
 ### 9.1 Height range modifiers
 
-**Accepted design, awaiting implementation.** The shared Prepare workspace will
-edit the native height ranges already supported by project loading, saving and
+The shared Prepare workspace edits the native height ranges used by project loading, saving and
 slicing. An object owns its ranges, and all its instances use them, including
 instances placed on different plates. A range covers a span of object print Z
 in millimetres and carries its own process configuration.
@@ -577,6 +576,24 @@ Acceptance includes the following real project cases.
   checking the destination settings before and after undo. Check both planes
   on single selection, endpoint focus, and their dismissal on group or batch
   selection.
+
+#### Implementation and verification
+
+| Step | Independently verifiable result |
+| --- | --- |
+| 1. Rack operations | Imported range assignments follow slot insertion, deletion, merge, history and shorter-rack restoration. Verify the saved [3MF values](../packages/slicer-wasm/harness/height-range-filament-smoke.mjs). |
+| 2. Prepare and arrangement | Effective range and part settings determine physical filament and nozzle usage. [Prepare fixtures](../packages/slicer-wasm/harness/height-range-prepare-smoke.mjs) cover disabled features, covered ranges and ranges above the model. The [arrangement fixture](../packages/slicer-wasm/src/arrangement/HeadlessArrangement.test.cpp) checks nozzle-exclusion placement. |
+| 3. Native editing | The typed bridge implements structural and batch edits, stale-target rejection, history and 3MF persistence. The [native editing journey](../packages/slicer-wasm/harness/height-range-editor-smoke.mjs) also checks that Undo and Redo publish the changed rows to the renderer. |
+| 4. Shared editing interface | Open ranges from the Object List. Edit single or mixed selections with scoped controls, then copy and paste into another object. Both hosts exercise the [same editing journey](../apps/desktop/e2e/height-range-journey.ts). |
+| 5. Viewport and slicing | The selected instance shows both endpoint planes and highlights the focused field. [Layer Z](../packages/slicer-wasm/harness/height-range-slicing-smoke.mjs), [extruded wall tools](../packages/slicer-wasm/harness/height-range-material-slicing-smoke.mjs) and [three-plate history](../packages/slicer-wasm/harness/height-range-plates-smoke.mjs) are checked against the native runtime. |
+
+On macOS, the editing journey passed in Electron with threaded wasm64, Chrome
+with threaded and serial wasm64, and WebKit with threaded and serial wasm32.
+The interoperability check slices a Neo-authored 3MF in desktop Orca, exports
+it and reopens it in Neo. It compares the range metadata and every layer Z
+across both slicers, with and without a saved profile.
+The Reset button in desktop Orca's Variable Layer Height tool requires separate
+GUI verification.
 
 ## 10. Mesh Boolean design
 

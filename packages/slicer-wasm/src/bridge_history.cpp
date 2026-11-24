@@ -387,6 +387,17 @@ void validate_filament_history_candidate(
         model, plates, snapshot);
 }
 
+bool height_ranges_unchanged(const ModelObject& before, const ModelObject& after)
+{
+    const auto& left_ranges = before.layer_config_ranges;
+    const auto& right_ranges = after.layer_config_ranges;
+    return std::equal(left_ranges.begin(), left_ranges.end(), right_ranges.begin(), right_ranges.end(),
+        [](const auto& left, const auto& right) {
+            return left.first == right.first && left.second.timestamp_matches(right.second) &&
+                   left.second.get() == right.second.get();
+        });
+}
+
 // A history archive includes configuration and painting state in addition to
 // renderer geometry. Compare the live native graphs for this one restore;
 // configuration-only and transform edits do not require retransferring unchanged
@@ -398,6 +409,9 @@ bool renderer_object_unchanged(const ModelObject& before, const ModelObject& aft
     if (before.id() != after.id() || before.name != after.name || before.printable != after.printable ||
         before.auto_drop != after.auto_drop ||
         before.volumes.size() != after.volumes.size() || before.instances.size() != after.instances.size())
+        return false;
+    // Retained objects also reuse their Object List rows, including their edit revisions.
+    if (!height_ranges_unchanged(before, after))
         return false;
     for (std::size_t i = 0; i < before.volumes.size(); ++i) {
         const auto& left = *before.volumes[i];
@@ -656,7 +670,8 @@ json restore_timestamped_result(const Runtime& runtime,
             }
             for (const auto* object : state().model.objects) {
                 const auto before = before_objects.find(object->id().id);
-                if (before == before_objects.end() || before->second->config.get() == object->config.get())
+                if (before == before_objects.end() || (before->second->config.get() == object->config.get() &&
+                    height_ranges_unchanged(*before->second, *object)))
                     continue;
                 std::set<std::size_t> instance_ids;
                 for (const auto* instance : object->instances) instance_ids.insert(instance->id().id);
@@ -725,12 +740,7 @@ json restore_timestamped_result(const Runtime& runtime,
                 if (bool(old_value) != bool(new_value) ||
                     (old_value && old_value->serialize() != new_value->serialize())) usage_unchanged = false;
             }
-            if (old_object.layer_config_ranges.size() != new_object.layer_config_ranges.size()) usage_unchanged = false;
-            auto old_range = old_object.layer_config_ranges.begin();
-            auto new_range = new_object.layer_config_ranges.begin();
-            for (; usage_unchanged && old_range != old_object.layer_config_ranges.end(); ++old_range, ++new_range)
-                if (old_range->first != new_range->first || old_range->second.get() != new_range->second.get())
-                    usage_unchanged = false;
+            if (!height_ranges_unchanged(old_object, new_object)) usage_unchanged = false;
             for (std::size_t volume_index = 0; usage_unchanged && volume_index < old_object.volumes.size(); ++volume_index) {
                 const auto& old_volume = *old_object.volumes[volume_index];
                 const auto& new_volume = *new_object.volumes[volume_index];

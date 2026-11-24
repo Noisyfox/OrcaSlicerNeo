@@ -1265,7 +1265,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const objectById = (state: MockHistoryState) => new Map(state.objectMeta.map((object, index) => [object.id, {
       plateId: state.objectPlateIds[index], transforms: state.objectTransforms[index],
       volumeTransforms: state.objectVolumeTransforms[index], volumes: state.volumeMeta[index],
-      instances: state.instanceMeta[index],
+      instances: state.instanceMeta[index], heightRanges: object.heightRanges,
     }]));
     const beforeObjects = objectById(before);
     const afterObjects = objectById(after);

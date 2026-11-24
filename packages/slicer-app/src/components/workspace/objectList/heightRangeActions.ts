@@ -23,23 +23,25 @@ export async function editRanges(runtime: SlicerRuntime, command: HeightRangeCom
   try {
     const history = await runProjectHistoryMutation(runtime, labels[command.operation],
       () => runtime.editHeightRanges(command), scene, {
-        publish: async result => {
-          if (result.ok && result.changed) await refreshAfterModelMutation(runtime, result.plateSession);
+        publish: async (result, _status, delta) => {
+          if (!result.ok || generation !== useProjectStore.getState().projectGeneration) return;
+          if (result.changed) await refreshAfterModelMutation(runtime, result.plateSession);
+          if (!delta && result.changed) {
+            const structure = await runtime.getModelStructure();
+            if (!structure.ok) throw new Error(structure.error);
+            list.setStructure(structure.objects);
+          }
+          const object = useObjectListStore.getState().structure.find(o => o.id === command.objectId);
+          const keepGroup = previous?.objectId === command.objectId && previous.bounds === 'all' &&
+            (command.operation === 'set' || command.operation === 'reset');
+          list.selectRanges(object?.heightRanges?.length ? {
+            objectId: object.id, instanceId: instanceId ?? (previous?.objectId === object.id ? previous.instanceId : undefined),
+            bounds: keepGroup || result.selection.length === 0 ? 'all' : result.selection,
+          } : null);
         },
       });
     const result = history.result;
     if (!result.ok) throw new Error(result.error);
-    if (generation !== useProjectStore.getState().projectGeneration) return result;
-    const structure = await runtime.getModelStructure();
-    if (!structure.ok) throw new Error(structure.error);
-    list.setStructure(structure.objects);
-    const object = structure.objects.find(o => o.id === command.objectId);
-    const keepGroup = previous?.objectId === object?.id && previous?.bounds === 'all' &&
-      (command.operation === 'set' || command.operation === 'reset');
-    list.selectRanges(object?.heightRanges?.length ? {
-      objectId: object.id, instanceId: instanceId ?? (previous?.objectId === object.id ? previous.instanceId : undefined),
-      bounds: keepGroup || result.selection.length === 0 ? 'all' : result.selection,
-    } : null);
     return result;
   } catch (reason) {
     const error = reason instanceof Error ? reason.message : String(reason);
