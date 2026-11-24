@@ -1,4 +1,5 @@
 #include "HeadlessArrangement.hpp"
+#include "../height_range_filaments.hpp"
 #include "libslic3r/ModelArrange.hpp"
 #include "libslic3r/GCode/WipeTowerEstimate.hpp"
 #include "libslic3r/Flow.hpp"
@@ -108,7 +109,8 @@ void exclusions(Prepared& out) {
 }
 // The unsliced placement policy from PartPlate::get_object_filament_extruders:
 // include active feature assignments, support, painted and mixed materials.
-std::vector<int> exclusion_filaments(const ModelObject& object, const DynamicPrintConfig& config) {
+std::vector<int> exclusion_filaments(const ModelInstance& instance, const DynamicPrintConfig& config) {
+    const auto& object = *instance.get_object();
     auto effective = [&](const char* key) {
         const auto* value = object.config.option(key);
         return value ? value : config.option(key);
@@ -135,7 +137,10 @@ std::vector<int> exclusion_filaments(const ModelObject& object, const DynamicPri
         collect(volume->config.get());
     }
     collect(object.config.get());
-    for (const auto& range : object.layer_config_ranges) collect(range.second.get());
+    if (!object.layer_config_ranges.empty()) {
+        const auto* colours = config.opt<ConfigOptionStrings>("filament_colour");
+        collect_height_range_filaments(instance, config, colours ? colours->size() : 0, ids);
+    }
     for (const auto& [key, active] : features)
         if (active && !object.config.has(key) && config.has(key) && config.opt_int(key) > 0) ids.insert(config.opt_int(key));
     const auto* support = effective("enable_support");
@@ -147,7 +152,7 @@ std::vector<int> exclusion_filaments(const ModelObject& object, const DynamicPri
     if (result.empty()) result.push_back(1);
     return result;
 }
-void exclusion_extruders(ArrangePolygon& polygon, const ModelObject& object, const SceneInput& scene, Scope scope) {
+void exclusion_extruders(ArrangePolygon& polygon, const ModelInstance& instance, const SceneInput& scene, Scope scope) {
     if (active_bed_exclude_volume_mode(scene.config) == BedExcludeVolumeMode::Shared) return;
     const auto* nozzles = scene.config.option<ConfigOptionFloats>("nozzle_diameter");
     if (!nozzles || nozzles->values.empty()) return;
@@ -165,7 +170,7 @@ void exclusion_extruders(ArrangePolygon& polygon, const ModelObject& object, con
         if (!map || map->values.empty()) map = scene.config.option<ConfigOptionInts>("filament_map");
         const std::vector<int> configured = map ? map->values : std::vector<int>{};
         std::set<int> plate_ids;
-        for (int filament : exclusion_filaments(object, config)) {
+        for (int filament : exclusion_filaments(instance, config)) {
             if (filament <= 0) continue;
             const int nozzle = bed_exclusion_extruder_for_filament(std::size_t(filament - 1), configured,
                 mode, scene.bambu, true, nozzles->values.size());
@@ -273,7 +278,7 @@ Prepared prepare(const SceneInput& scene, const Settings& settings) {
             record.parking = ParkingReason::NonPrintable; out.parked.push_back(record); continue;
         }
         auto poly = get_instance_arrange_poly(instance, out.config);
-        exclusion_extruders(poly, *object, scene, settings.scope);
+        exclusion_extruders(poly, *instance, scene, settings.scope);
         poly.setter = nullptr;
         if (poly.poly.contour.points.size() < 3 || std::abs(poly.poly.area()) < .001) record.parking = ParkingReason::Degenerate;
         else if (poly.height > p.printable_height) record.parking = ParkingReason::TooTall;

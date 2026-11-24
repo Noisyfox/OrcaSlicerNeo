@@ -1,24 +1,16 @@
 import assert from 'node:assert/strict';
 import { createMixedFilamentFixture } from './mixed-filament-fixture.mjs';
-import { parseLayerRanges, readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
+import { parseLayerRanges } from './native-3mf-parser.mjs';
+
+import { saveProject, openProject, withRangeMetadata } from './height-range-project.mjs';
 
 const { module, call, edit, run, rack } = await createMixedFilamentFixture(process.argv[2]);
 const checked = (result) => {
   assert.equal(result.ok, true, JSON.stringify(result));
   return result;
 };
-function save() {
-  const { bytes_ptr, bytes_length } = checked(call('orc_export_project', ['string'], ['{}']));
-  try { return module.HEAPU8.slice(Number(bytes_ptr), Number(bytes_ptr) + bytes_length); }
-  finally { module._free(bytes_ptr); }
-}
-function open(bytes) {
-  const ptr = module._malloc(bytes.length);
-  try {
-    module.HEAPU8.set(bytes, Number(ptr));
-    checked(call('orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, bytes.length, 0, 'ranges.3mf']));
-  } finally { module._free(ptr); }
-}
+const save = () => saveProject(module, call);
+const open = bytes => openProject(module, call, bytes);
 
 const recipe = { components: [1, 2], ratios: [60, 40], gradient: false, perPart: false, reverse: false, points: [] };
 const mixSlot = edit('orc_edit_mixed_filament', { recipe }).slots.at(-1).slot;
@@ -31,14 +23,7 @@ function expected(slot) {
     { layer_height: '0.12', outer_wall_filament_id: '0', extruder: '2' },
   ];
 }
-const ranges = expected(mixSlot).map((values, i) =>
-  `<range min_z="${4*i}" max_z="${4*i+4}">${Object.entries(values)
-    .map(([key, value]) => `<option opt_key="${key}">${value}</option>`).join('')}</range>`);
-const seed = writeStoredZip([...readZipEntries(save()), {
-  name: 'Metadata/layer_config_ranges.xml',
-  content: new TextEncoder().encode(`<objects><object id="1">${ranges.join('')}</object></objects>`),
-}]);
-open(seed);
+open(withRangeMetadata(save(), expected(mixSlot).map((values, i) => [4 * i, 4 * i + 4, values])));
 function assertRanges(slot) {
   assert.deepEqual(parseLayerRanges(save()).map(range => range.values), expected(slot));
 }
