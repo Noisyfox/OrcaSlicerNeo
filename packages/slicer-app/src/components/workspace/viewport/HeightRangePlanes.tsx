@@ -13,7 +13,7 @@ export function HeightRangePlanes({ volumes }: { volumes: readonly GLVolume[] })
   const group = useRef<THREE.Group>(null);
   const bounds = useMemo(() => new THREE.Box3(), []);
   const object = structure.find(o => o.id === selection?.objectId);
-  const selected = selection && selection.bounds !== 'all' && selection.bounds.length === 1 ? selection.bounds[0] : null;
+  const selected = selection?.bounds === 'all' ? focus : selection?.bounds.length === 1 ? selection.bounds[0] : null;
   const row = selected && object?.heightRanges?.find(r => sameBounds(r, selected));
   const parts = useMemo(() => {
     if (!object || !row) return [];
@@ -35,7 +35,7 @@ export function HeightRangePlanes({ volumes }: { volumes: readonly GLVolume[] })
     {(['min', 'max'] as const).map(name => <mesh key={name} name={`height-range-${name}`} position-z={row[name]}
       renderOrder={40} raycast={() => undefined}>
       <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial transparent opacity={focus === name ? 0.5 : 0.2} color={focus === name ? '#f6a32c' : '#44bfc4'}
+      <meshBasicMaterial transparent opacity={focus?.endpoint === name ? 0.5 : 0.2} color={focus?.endpoint === name ? '#f6a32c' : '#44bfc4'}
         depthWrite={false} side={THREE.DoubleSide} />
     </mesh>)}
   </group>;

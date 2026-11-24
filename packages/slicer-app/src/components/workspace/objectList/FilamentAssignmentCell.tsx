@@ -27,9 +27,18 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
   // Modifier Default is a distinct native choice, not the inherited effective
   // filament. Ordinary model parts display their effective assignment.
   const selectedSlot = allowDefault ? assignment.explicitSlot : assignment.effectiveSlot;
+  return <FilamentSlotCell snapshot={snapshot} selectedSlot={selectedSlot} inherited={assignment.inherited}
+    allowDefault={allowDefault} pending={pending} onAssign={onAssign} testId={`filament-cell-${kind}-${id}`}
+    label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`} />;
+}
+
+export function FilamentSlotCell({ snapshot, selectedSlot, inherited, allowDefault, pending, onAssign, testId, label }: {
+  snapshot: FilamentSessionSnapshot; selectedSlot: number; inherited?: boolean; allowDefault: boolean;
+  pending: boolean; onAssign?: (slot: number) => void; testId: string; label: string;
+}) {
   const display = selectedSlot > 0 ? snapshot.slots.find((slot) => slot.slot === selectedSlot)?.colour.display : undefined;
   const colour = selectedSlot > 0 ? snapshot.slots.find((slot) => slot.slot === selectedSlot)?.colour.effective : undefined;
-  const label = selectedSlot > 0 ? `Slot ${selectedSlot}${assignment.inherited ? ' · inherited' : ''}` : 'Default';
+  const slotLabel = selectedSlot > 0 ? `Slot ${selectedSlot}${inherited ? ' · inherited' : ''}` : 'Default';
   const items = [
     ...(allowDefault ? [{ value: '0', label: 'Default', display: null }] : []),
     ...snapshot.slots.map((slot) => ({
@@ -44,11 +53,11 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
       onValueChange={(value) => value != null && onAssign?.(Number(value))}
       disabled={pending}
     >
-      <TooltipFor content={display ? `${label} · ${filamentSwatchTitle(display)}` : label}>
+      <TooltipFor content={display ? `${slotLabel} · ${filamentSwatchTitle(display)}` : slotLabel}>
         <SelectTrigger
           hideIndicator
-          aria-label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`}
-          data-testid={`filament-cell-${kind}-${id}`}
+          aria-label={label}
+          data-testid={testId}
           className="h-5 w-10 shrink-0 justify-center rounded-[1px] border border-input-button-foreground/40 px-0 py-0 text-xs leading-none"
           style={{ height: 20, ...(display ? colorSwatchStyle(display) : { backgroundColor: 'transparent' }),
             color: colour ? colorSwatchForeground(colour) : 'var(--color-foreground)' }}

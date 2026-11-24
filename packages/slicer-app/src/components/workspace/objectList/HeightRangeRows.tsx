@@ -1,17 +1,24 @@
-import { useRef } from 'react';
-import type { ModelObjectStructure, HeightRangeRow } from '@slicer/client';
+import { useRef, type MouseEvent } from 'react';
+import type { HeightRangeRow, ModelObjectStructure } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
-import { useProjectStore } from '@/stores/useProjectStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { Button } from '@/components/ui/button';
+import { FilamentSlotCell } from './FilamentAssignmentCell';
 import { sameBounds, selectedHeightRanges, useObjectListStore } from './useObjectListStore';
 import { editRanges } from './heightRangeActions';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import layerIcon from './icons/height_range_layer.svg';
+import layersIcon from './icons/height_range_modifier.svg';
 
-export function HeightRangeRows({ object, scene, instanceId }: { object: ModelObjectStructure; scene?: SceneInteractionController | null; instanceId?: number }) {
+export function HeightRangeRows({ object, scene, instanceId, onMenu }: {
+  object: ModelObjectStructure; scene?: SceneInteractionController | null; instanceId?: number;
+  onMenu: (event: MouseEvent, rows: HeightRangeRow[]) => void;
+}) {
   const { runtime } = usePlatform();
   const selection = useObjectListStore(s => s.heightRangeSelection);
-  const select = useObjectListStore(s => s.selectRanges);
-  const copy = useObjectListStore(s => s.copyRanges);
+  const collapsed = useObjectListStore(s => s.collapsedLayers[object.id]);
+  const rack = useFilamentSessionStore(s => s.snapshot);
+  const pending = useFilamentSessionStore(s => s.pendingKind !== null);
   const anchor = useRef<HeightRangeRow | null>(null);
   const rows = object.heightRanges ?? [];
   const active = selection?.objectId === object.id;
@@ -21,7 +28,8 @@ export function HeightRangeRows({ object, scene, instanceId }: { object: ModelOb
     const ownerInstance = instanceId ?? (active ? selection.instanceId : undefined);
     const index = object.instances.find(instance => instance.id === ownerInstance)?.index;
     scene?.selectComposite(object.index, undefined, index);
-    select(bounds === 'all' || bounds.length ? { objectId: object.id, instanceId: ownerInstance, bounds } : null);
+    useObjectListStore.getState().selectRanges(bounds === 'all' || bounds.length
+      ? { objectId: object.id, instanceId: ownerInstance, bounds } : null);
   }
   function pick(row: HeightRangeRow, toggle: boolean, extend: boolean) {
     let bounds = [row];
@@ -35,21 +43,36 @@ export function HeightRangeRows({ object, scene, instanceId }: { object: ModelOb
     }
     choose(bounds);
   }
-  return <div className="ml-4 text-xs" draggable onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}
-    onDragStart={event => { event.preventDefault(); event.stopPropagation(); }}>
-    <button type="button" data-testid={`height-range-group-${object.id}`} aria-pressed={group}
-      className="w-full rounded px-2 py-1 text-left font-medium aria-pressed:bg-accent"
-      onClick={() => choose('all')}>Height Range Modifier</button>
-    {rows.map(row => <div key={`${row.min},${row.max}`} className="ml-2 flex items-center">
-      <button type="button" aria-pressed={!group && selected.some(r => sameBounds(r, row))}
-        className="flex-1 rounded px-2 text-left tabular-nums aria-pressed:bg-accent"
-        onClick={e => pick(row, e.ctrlKey || e.metaKey, e.shiftKey)}>{row.min} – {row.max} mm</button>
-      <Button variant="ghost" size="xs" aria-label={`Add range after ${row.max} mm`}
-        onClick={() => void editRanges(runtime, { objectId: object.id, operation: 'append', targets: [row] }, scene, instanceId)}>+</Button>
-    </div>)}
-    {active && <div className="ml-2 flex gap-1">
-      <Button size="xs" variant="ghost" onClick={() => copy(useProjectStore.getState().projectGeneration, selected)}>Copy ranges</Button>
-      <Button size="xs" variant="ghost" onClick={() => void editRanges(runtime, { objectId: object.id, operation: 'remove', targets: selected }, scene)}>Delete ranges</Button>
-    </div>}
+  return <div data-height-range-tree="" onDragStart={event => { event.preventDefault(); event.stopPropagation(); }} draggable>
+    <div className="relative flex items-center">
+      <Button variant="ghost" size="xs" className="object-list-row w-full justify-start pl-5"
+        data-testid={`height-range-group-${object.id}`} aria-pressed={group} data-state={group ? 'selected' : 'idle'}
+        onClick={() => choose('all')} onContextMenu={event => { if (!group) choose('all'); onMenu(event, rows); }}>
+        <img className="mr-1 size-4" src={layersIcon} alt="" />Layers
+      </Button>
+      <button type="button" aria-label={collapsed ? 'Expand Layers' : 'Collapse Layers'} aria-expanded={!collapsed}
+        className="absolute left-0 w-5 text-xs text-muted-foreground"
+        onClick={() => useObjectListStore.getState().toggleLayersCollapsed(object.id)}>{collapsed ? '▸' : '▾'}</button>
+    </div>
+    {!collapsed && rows.map(row => {
+      const picked = !group && selected.some(r => sameBounds(r, row));
+      const label = `Range ${row.min.toFixed(2)}-${row.max.toFixed(2)} (mm)`;
+      return <div key={`${row.min}/${row.max}`} className="relative ml-4 flex items-center">
+        <Button variant="ghost" size="xs" aria-pressed={picked} data-state={picked ? 'selected' : 'idle'}
+          className="object-list-row w-full justify-start pl-1 pr-[4.5rem] tabular-nums"
+          onClick={e => pick(row, e.ctrlKey || e.metaKey, e.shiftKey)}
+          onContextMenu={event => { if (!picked) choose([row]); onMenu(event, picked ? selected : [row]); }}>
+          <img className="mr-1 size-4" src={layerIcon} alt="" /><span className="truncate">{label}</span>
+        </Button>
+        {rack && <div className="absolute right-6 flex items-center">
+          <FilamentSlotCell snapshot={rack} selectedSlot={Number(row.values.extruder ?? 0)} allowDefault pending={pending}
+            testId={`range-filament-${object.id}-${row.min}-${row.max}`} label={`${label} filament`}
+            onAssign={slot => {
+              if (!picked) choose([row]);
+              void editRanges(runtime, { objectId: object.id, targets: picked ? selected : [row], operation: 'set', key: 'extruder', value: slot }, scene);
+            }} />
+        </div>}
+      </div>;
+    })}
   </div>;
 }

@@ -15,11 +15,11 @@ const labels: Record<HeightRangeCommand['operation'], string> = {
 };
 export async function editRanges(runtime: SlicerRuntime, command: HeightRangeCommand,
   scene?: SceneInteractionController | null, instanceId?: number): Promise<HeightRangeEditResult> {
+  const list = useObjectListStore.getState();
+  const previous = list.heightRangeSelection;
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return { ok: false, error: prepared.error ?? 'Height range edit unavailable' };
   const generation = useProjectStore.getState().projectGeneration;
-  const list = useObjectListStore.getState();
-  const previous = list.heightRangeSelection;
   try {
     const history = await runProjectHistoryMutation(runtime, labels[command.operation],
       () => runtime.editHeightRanges(command), scene, {
@@ -31,9 +31,13 @@ export async function editRanges(runtime: SlicerRuntime, command: HeightRangeCom
             if (!structure.ok) throw new Error(structure.error);
             list.setStructure(structure.objects);
           }
-          const object = useObjectListStore.getState().structure.find(o => o.id === command.objectId);
+          const current = useObjectListStore.getState();
+          // A blur can save just as the user selects a different tree item.
+          if (current.rangeSelectionRevision !== list.rangeSelectionRevision) return;
+          const object = current.structure.find(o => o.id === command.objectId);
           const keepGroup = previous?.objectId === command.objectId && previous.bounds === 'all' &&
-            (command.operation === 'set' || command.operation === 'reset');
+            command.operation !== 'paste';
+          if (keepGroup && current.heightRangeSelection === previous) return;
           list.selectRanges(object?.heightRanges?.length ? {
             objectId: object.id, instanceId: instanceId ?? (previous?.objectId === object.id ? previous.instanceId : undefined),
             bounds: keepGroup || result.selection.length === 0 ? 'all' : result.selection,

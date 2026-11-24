@@ -82,6 +82,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
+  const rangeOwner = useObjectListStore(s => s.heightRangeSelection?.objectId);
   const toggleExpanded = useObjectListStore((s) => s.toggleExpanded);
   const toggleInstancesCollapsed = useObjectListStore((s) => s.toggleInstancesCollapsed);
   const setHighlightLevel = useObjectListStore((s) => s.setHighlightLevel);
@@ -458,7 +459,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             }}
             onContextMenu={(e) => {
               const target = e.target as Element;
-              if (target.closest('[data-testid^="part-"], [data-testid^="instances-select-"], [data-testid^="instance-"]')) return;
+              if (target.closest('[data-height-range-tree], [data-testid^="part-"], [data-testid^="instances-select-"], [data-testid^="instance-"]')) return;
               const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
               if (row) handleRowContextMenu(e, row, { kind: 'object', object: obj });
             }}
@@ -468,7 +469,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               variant="ghost"
               size="xs"
               className={`object-list-row w-full justify-start ${obj.volumes.length > 1 ? 'pr-32' : 'pr-24'}`}
-              data-state={objectSelected ? 'selected' : 'idle'}
+              data-state={objectSelected && rangeOwner !== obj.id ? 'selected' : 'idle'}
               onClick={(e) => {
                 const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
                 if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);
@@ -519,8 +520,6 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               </span>
             </div>
             </div>
-            {isExpanded && !!obj.heightRanges?.length && <HeightRangeRows object={obj} scene={sceneInteraction}
-              instanceId={obj.instances.find(instance => projection.instanceIds.has(instance.id))?.id} />}
             {isExpanded && (
               <div className="ml-4">
                 {obj.volumes.length > 1 && obj.volumes.map((vol) => (
@@ -556,7 +555,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       variant="ghost"
                       size="xs"
                       className="object-list-row min-w-0 flex-1 justify-start pl-1 pr-24"
-                      data-state={projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
+                      data-state={rangeOwner !== obj.id && projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
                       onClick={(e) => {
                         const row = flatRows.find((r) => r.key === `vol:${obj.index}:${vol.index}`);
                         if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);
@@ -595,6 +594,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                     </div>
                   </div>
                 ))}
+                {!!obj.heightRanges?.length && <HeightRangeRows object={obj} scene={sceneInteraction}
+                  instanceId={obj.instances.find(instance => projection.instanceIds.has(instance.id))?.id}
+                  onMenu={(event, rows) => openContextMenu(event, { kind: 'ranges', object: obj, rows })} />}
                 {obj.instanceCount > 1 && (
                   <div data-testid={`instances-${obj.id}`} className="pl-2">
                     <Button
@@ -617,7 +619,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         openContextMenu(e, { kind: 'object', object: obj });
                       }}
                       className="object-list-row w-full justify-start"
-                      data-state={obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
+                      data-state={rangeOwner !== obj.id && obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
                       onClick={(e) => handleInstancesGroupClick(obj, e.ctrlKey || e.metaKey)}
                     >
                       <span
@@ -644,7 +646,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                           size="xs"
                           variant="ghost"
                           className="object-list-row min-w-0 flex-1 justify-start pl-5 pr-24"
-                          data-state={projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
+                          data-state={rangeOwner !== obj.id && projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
                           onClick={(e) => {
                             const row = flatRows.find((r) => r.key === `inst:${obj.index}:${inst.index}`);
                             if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);

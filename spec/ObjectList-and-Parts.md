@@ -90,6 +90,9 @@ Object
 ├─ Part 1
 ├─ Part 2
 ├─ ...
+├─ Layers
+│   ├─ Range 0.00-2.00 (mm)
+│   └─ ...
 └─ Instances
     ├─ Instance 1
     ├─ Instance 2
@@ -97,12 +100,13 @@ Object
 ```
 
 - Parts are direct children of the object.
-- `Instances` is a group under the object, after all parts.
+- `Layers` appears after the parts when the object has height ranges (§9.1).
+- `Instances` is the last group under the object.
 - The `Instances` group is shown only when the object has more than one
   instance. Like the object line, it has an expand/collapse caret that toggles
   the instance sub-list; clicking the header label selects every instance of the
   object (see §6.1).
-- Settings and Layers nodes are omitted in the first version.
+- The settings for the selected row appear in the sidebar.
 
 ## 5. Sidebar Layout
 
@@ -446,7 +450,9 @@ in millimetres and carries its own process configuration.
 Open Height Range Modifier from the context menu for a single object or a
 single full instance. Both target the owning object. Its Object List group shows
 the ranges in native order. Opening an existing group selects it and exposes
-its ranges. Removing the last range removes the group. A range row targets the
+its ranges. The collapsible Layers node follows the parts and precedes the
+instances. Each child shows its range icon, two-decimal bounds in millimetres
+and base filament. Removing the last range removes the group. A range row targets the
 range configuration, including layer height, supported print-region settings
 such as walls and infill, and filament choices. Structural actions on that row
 must resolve to its owning object and range before changing the model.
@@ -456,8 +462,12 @@ base filament (`extruder = 0`). Resetting a range's layer height writes the
 current parent height back into the range. Preserve other native range options
 when editing a single field or moving an endpoint. Ranges use the Objects
 settings panel with its category tabs, collapsible groups, search and local
-override indicators. Frequent and Quality show the endpoints for a single
-range. Frequent and Multi. show its base filament. The six feature selectors
+override indicators. Selecting Layers opens the interval list beneath the
+object tree. Each row shows Range, two inline millimetre inputs, Remove and
+Add, in that order. Group edits keep the list open. Selecting one range
+shows its two inputs above the process categories. Selecting multiple
+ranges shows their shared process controls. Frequent and Multi. show the base
+filament. The six feature selectors
 appear under Multi. → Filament for Features. Reset on a field, a group or the
 whole panel affects the selected ranges in one undoable edit. Reset preserves
 their endpoints and restores the native defaults for layer height and base filament.
@@ -465,7 +475,7 @@ their endpoints and restores the native defaults for layer height and base filam
 Range rows from one object support multi-selection. The settings panel shows
 common values directly and differing values as `Mixed`. A layer height,
 process setting or filament change applies to all selected ranges as one
-undoable edit. Endpoint editing is available for a single range.
+undoable edit. Users edit endpoints one interval at a time in the group list or the single-range view.
 
 Within one project, copying selected range rows copies their bounds and full
 native range configurations. Copying the range group copies all its entries.
@@ -476,8 +486,8 @@ to its state before the entire paste.
 
 In Prepare, selecting a single range shows a horizontal plane at each of its
 two endpoints. Focusing a minimum or maximum input emphasizes the corresponding
-plane. Edit the values in the sidebar. Selecting the group or multiple ranges
-hides the planes.
+plane. In the Layers list, focusing an endpoint previews its own interval.
+Leaving the group editor or selecting multiple ranges clears that preview.
 
 #### Range editing and variable layer height
 
@@ -578,7 +588,7 @@ Acceptance includes the following real project cases.
 - Batch-edit two sibling ranges with different initial values and undo once.
   Paste them onto an object with one exact match and one partial overlap,
   checking the destination settings before and after undo. Check both planes
-  on single selection, endpoint focus, and their dismissal on group or batch
+  on single selection, endpoint focus, and their dismissal on unfocused group or batch
   selection.
 
 #### Implementation and verification

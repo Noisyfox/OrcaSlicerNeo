@@ -55,24 +55,15 @@ export function heightRangeEditor(runtime: SlicerRuntime, scene: SceneInteractio
     .filter(field => isVisiblePrintSetting(field, 'scoped'));
   if (rack) fields.push(setting(rows, 'extruder', '0', metadata, 'Filament'), ...rangeFilamentFields(objectId, rows, metadata, rack));
   const single = selection.bounds !== 'all' && rows.length === 1 ? rows[0] : undefined;
-  if (single) {
-    for (const endpoint of ['min', 'max'] as const) {
-      fields.push({ key: `range_${endpoint}`, label: endpoint === 'min' ? 'Start (mm)' : 'End (mm)',
-        category: 'Height range', meta: { type: 'float', min: 0 }, rangeEndpoint: endpoint,
-        value: String(single[endpoint]), source: 'range', local: false, resettable: false, mixed: false });
-    }
-  }
   async function commit(field: ScopedConfigurationField, value: string) {
-    const numeric = field.rangeEndpoint || field.key === 'layer_height' || field.key === 'extruder' || field.filamentRoute;
+    const numeric = field.key === 'layer_height' || field.key === 'extruder' || field.filamentRoute;
     if (numeric && (!value.trim() || !Number.isFinite(Number(value)))) throw new Error('Enter a valid number.');
-    const command = field.rangeEndpoint
-      ? { operation: field.rangeEndpoint, value: Number(value) }
-      : { operation: 'set' as const, key: field.key, value: numeric ? Number(value) : value };
-    const result = await editRanges(runtime, { objectId, targets, ...command }, scene);
+    const result = await editRanges(runtime, { objectId, targets, operation: 'set',
+      key: field.key, value: numeric ? Number(value) : value }, scene);
     if (!result.ok) throw new Error(result.error);
     const updated = useObjectListStore.getState().structure.find(o => o.id === objectId);
     const row = updated && selectedHeightRanges(updated, { ...selection, bounds: result.selection })[0];
-    return row && field.rangeEndpoint ? String(row[field.rangeEndpoint]) : row?.values[field.key] ?? value;
+    return row?.values[field.key] ?? value;
   }
   async function reset(keys: readonly string[]) {
     const localKeys = fields.filter(field => field.local && field.resettable && keys.includes(field.key)).map(field => field.key);
@@ -80,7 +71,7 @@ export function heightRangeEditor(runtime: SlicerRuntime, scene: SceneInteractio
     const result = await editRanges(runtime, { objectId, targets, operation: 'reset', keys: localKeys }, scene);
     if (!result.ok) throw new Error(result.error);
   }
-  const label = single ? `${single.min} – ${single.max} mm` : selection.bounds === 'all' ? 'Height Range Modifier' : `${rows.length} height ranges`;
+  const label = single ? `${single.min} – ${single.max} mm` : `${rows.length} height ranges`;
   const identity = fieldTargets.map(target => target.id).join(',');
   return { label, identity, fields, targets: fieldTargets, rows, projectValues, parentValues, commit, reset };
 }

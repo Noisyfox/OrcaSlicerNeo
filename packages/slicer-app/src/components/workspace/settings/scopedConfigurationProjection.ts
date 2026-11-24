@@ -32,7 +32,6 @@ export interface ScopedTargetResolution {
 }
 
 export interface ScopedConfigurationField {
-  readonly rangeEndpoint?: 'min' | 'max';
   readonly editor?: import('./printEditorProjection').PrintFieldElement;
   readonly filamentRoute?: { readonly selector: FilamentRoutingSelector; readonly effectiveSlot: number | null };
   readonly key: string;

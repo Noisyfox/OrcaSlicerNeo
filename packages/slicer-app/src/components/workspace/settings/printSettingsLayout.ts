@@ -88,13 +88,11 @@ const PLATE_SETTINGS_PAGES: readonly PrintSettingsPage[] = [{ title: 'Plate Sett
 ] }];
 
 type LayoutMode = ConfigurationMode | 'range';
-const RANGE_BOUNDS = { title: 'Height range', keys: ['range_min', 'range_max'] };
 const RANGE_PAGES: readonly PrintSettingsPage[] = PRINT_SETTINGS_PAGES.map(page => {
-  if (page.title === 'Quality') return { ...page, groups: [RANGE_BOUNDS, ...page.groups] };
   if (page.title === 'Multi.') return { ...page, groups: [{ title: 'Filament', keys: ['extruder'] }, ...page.groups] };
   return page;
 });
-const RANGE_FREQUENT: PrintSettingsPage = { title: 'Frequent', groups: [RANGE_BOUNDS,
+const RANGE_FREQUENT: PrintSettingsPage = { title: 'Frequent', groups: [
   { title: '', keys: [...FREQUENT_PAGE.groups[0].keys, 'extruder'] }] };
 
 export function printSettingsPages(mode: LayoutMode): readonly PrintSettingsPage[] {

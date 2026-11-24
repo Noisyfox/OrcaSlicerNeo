@@ -1,7 +1,7 @@
 import { openRanges, editRanges } from './heightRangeActions';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { executeMeshBoolean } from '../viewport/gizmo/meshBoolean/meshBooleanCommand';
-import type { FilamentAssignmentTargetRequest, ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
+import type { HeightRangeRow, FilamentAssignmentTargetRequest, ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
 import type { ReactNode } from 'react';
 import { FolderPlus } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
@@ -34,6 +34,7 @@ import { FilamentChoiceContent, filamentSlotChoice } from '../FilamentSwatch';
 
 export type ObjectListCtxTarget =
   | { kind: 'list' }
+  | { kind: 'ranges'; object: ModelObjectStructure; rows: HeightRangeRow[] }
   | { kind: 'object'; object: ModelObjectStructure }
   | { kind: 'part'; object: ModelObjectStructure; volume: ModelVolumeStructure }
   | { kind: 'instance'; object: ModelObjectStructure; instance: ModelInstanceStructure };
@@ -160,6 +161,14 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const items: ReactNode[] = [];
   if (target.kind === 'list') {
     if (assembleItem) items.push(assembleItem);
+  } else if (target.kind === 'ranges') {
+    items.push(
+      <MenuItem key="copy" label="Copy ranges" testid="objectlist-copy-ranges" onClick={() => {
+        useObjectListStore.getState().copyRanges(generation, target.rows); onClose();
+      }} />,
+      <MenuItem key="delete" label="Delete ranges" testid="objectlist-delete-ranges" danger
+        onClick={() => act(editRanges(runtime, { operation: 'remove', objectId: target.object.id, targets: target.rows }, sceneInteraction))} />,
+    );
   } else if (target.kind === 'object') {
     const o = target.object;
     // The object menu is selection-based: Delete/Clone/printable act on the

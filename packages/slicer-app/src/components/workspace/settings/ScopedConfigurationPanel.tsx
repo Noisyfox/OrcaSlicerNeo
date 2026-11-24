@@ -1,3 +1,4 @@
+import { HeightRangeBoundsEditor } from '../objectList/HeightRangeBoundsEditor';
 import { heightRangeEditor } from './heightRangeEditor';
 import { PlateNozzleMapping } from '../nozzleMapping/NozzleMappingControls';
 import { useNozzleMapping } from '../nozzleMapping/useNozzleMapping';
@@ -107,7 +108,6 @@ export const ScopedField = memo(function ScopedField({
   onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
   onReset: (field: ScopedConfigurationField) => Promise<void>;
 }) {
-  const endpoint = field.rangeEndpoint;
   const filamentChoice = field.filamentRoute !== undefined || field.key === 'extruder';
   const slots = useFilamentSessionStore(s => filamentChoice || orderSelectors.has(field.key) ? s.snapshot?.slots : undefined);
   const mixedOrder = orderSelectors.has(field.key) && slots?.some(slot => slot.mix);
@@ -149,7 +149,7 @@ export const ScopedField = memo(function ScopedField({
   const unavailable=editor?.target.kind==='unavailable';
   const readOnly=unavailable || editor?.vector?.readOnly===true;
   const indexedKey=editor?.target.kind==='indexed' ? `${field.key}#${editor.target.index}` : field.key;
-  const optionHelp = endpoint ? 'Height in millimetres from the bottom of the object.' : mixedOrder ? 'The slicer schedules the physical components of mixed filaments.' : unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` :
+  const optionHelp = mixedOrder ? 'The slicer schedules the physical components of mixed filaments.' : unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` :
     optionTooltip(editor?.metadata ?? field.meta, indexedKey, field.label, editor?.metadata?.tooltip_default ?? defaultValue);
   const row = 'grid grid-cols-[minmax(0,1fr)_minmax(5rem,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
   const labelCls = 'min-w-0 flex-1 truncate text-[13px] font-normal text-muted-foreground';
@@ -171,7 +171,7 @@ export const ScopedField = memo(function ScopedField({
     ? 'The selected targets use different filaments.' : field.filamentRoute.effectiveSlot === 0
       ? 'Uses the object or part filament.' : `Effective filament: ${effectiveSlot
         ? filamentSlotChoice(effectiveSlot).label : field.filamentRoute.effectiveSlot}.`);
-  const tooltip = <span className="whitespace-pre-line">{endpoint ? optionHelp : `${optionHelp}\n\n${routeDetails || valueTooltip(field)}${sourceDetails}`}</span>;
+  const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${routeDetails || valueTooltip(field)}${sourceDetails}`}</span>;
 
   let control;
   if(readOnly) {
@@ -231,9 +231,7 @@ export const ScopedField = memo(function ScopedField({
         max={field.meta.max}
         type={isScalar(field.meta) ? 'number' : 'text'}
         step={field.meta.type === 'int' ? 1 : 'any'}
-        onFocus={endpoint ? () => useObjectListStore.getState().focusRange(endpoint) : undefined}
         onBlur={() => {
-          if (endpoint) useObjectListStore.getState().focusRange(null);
           if (cancelBlur.current) { cancelBlur.current = false; return; }
           if (draft !== valueForField(field)) void commit(draft);
         }}
@@ -359,9 +357,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const rangeObject = rangeSelection && structure?.find(o => o.id === rangeSelection.objectId && o.heightRanges?.length);
   const rangeRack = useFilamentSessionStore(s => rangeObject ? s.snapshot : null);
   const rangePending = useFilamentSessionStore(s => !!rangeObject && s.pendingKind !== null);
-  const range = useMemo(() => rangeObject && rangeSelection && metadata
+  const range = useMemo(() => rangeObject && rangeSelection && rangeSelection.bounds !== 'all' && metadata
     ? heightRangeEditor(platform.runtime, sceneInteraction, rangeSelection, rangeObject, metadata, baseValues, snapshot, rangeRack)
     : null, [rangeObject, rangeSelection, metadata, platform.runtime, sceneInteraction, baseValues, snapshot, rangeRack]);
+  const layersRoot = rangeSelection?.bounds === 'all';
   const layout = range ? 'range' : mode;
   const activePlateId = usePlateSessionStore((state) => mode !== 'project' ? state.snapshot?.currentPlateId : undefined);
   const activePlateLabel = usePlateSessionStore((state) => mode !== 'project'
@@ -421,7 +420,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     observer.observe(scroll);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [mode, mappingTabActive]);
+  }, [mode, mappingTabActive, layersRoot]);
 
   const resolution = useMemo(() => mode === 'project' ? PROJECT_RESOLUTION : resolveScopedConfigurationTarget({
     selectionKind: mode === 'plates' ? 'empty' : sceneInteraction?.computeSelectionKind() ?? 'empty',
@@ -442,7 +441,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const selectedChoice = mode === 'project' ? printSelection : scopedSelection;
   // Reset actions operate on the whole selected section/catalogue, not just
   // the subset currently visible through the search query.
-  const allFields = useMemo(() => range ? range.fields : metadata
+  const allFields = useMemo(() => range ? range.fields : metadata && !layersRoot
     ? (mode==='scoped' ? scopedConfigurationCatalogue(metadata,resolution) : projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' })).filter((field) => isVisiblePrintSetting(field, mode) &&
       (field.key !== 'curr_bed_type' || (bedType?.supportsSelection && bedType.choices.length > 0)))
       .map(field => field.key === 'curr_bed_type' && bedType ? { ...field, meta: { ...field.meta,
@@ -451,7 +450,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       .map(field=>mode==='project'?projectPrintField(field,printEditor.snapshot,printSelection.choiceId):
         mode==='scoped' && scopedDisplaySnapshot ? scopedPrintField(field,scopedDisplaySnapshot,scopedSelection.choiceId) : field)
       .concat(featureFilamentFields(metadata, resolution, filamentRouting))
-    : [], [range, baseValues, bedType, filamentRouting, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
+    : [], [range, layersRoot, baseValues, bedType, filamentRouting, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
   const availablePages = useMemo(() => printSettingsPages(layout).filter((page) =>
     page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, layout]);
   const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
@@ -686,7 +685,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
             const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
             const canResetCategory = groupCatalogue.some(field => field.local && field.resettable && (range || !field.filamentRoute));
             return <OptionGroupVisibility key={`${page}/${group}`} scope={optionScope} keys={keys}><div data-testid={`config-category-${category}`}>
-              {group && <ContextMenu disabled={range ? groupCatalogue.every(field => field.rangeEndpoint) : groupCatalogue.every(field => field.filamentRoute)}>
+              {group && <ContextMenu disabled={!range && groupCatalogue.every(field => field.filamentRoute)}>
                 <ContextMenuTrigger render={<div />}>
                   <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
                     aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
@@ -718,7 +717,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   );
 
   return (
-    <section ref={panelRef} aria-label={range ? 'Height range settings' : undefined} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
+    <section ref={panelRef} aria-label={rangeObject ? 'Height range settings' : undefined} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
       <div className={cn('shrink-0 space-y-1 bg-card', mode !== 'plates' && 'pb-1')}>
         <div data-testid="configuration-mode-header" className="shrink-0 bg-panel-header">
           <div role="tablist" aria-label="Configuration mode" className="sidebar-section-header">
@@ -733,7 +732,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         {mode === 'plates' && platesToolbar}
         {scopedContent && <div ref={objectListRef} hidden={mode !== 'scoped'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-object-list-scroll">{scopedContent}</div>}
         {platesContent && <div ref={plateListRef} hidden={mode !== 'plates'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-plate-list-scroll">{platesContent}</div>}
-        {mode !== 'plates' && optionsHeader}
+        {rangeSelection && rangeObject && !layersRoot && <HeightRangeBoundsEditor key={rangeObject.id} object={rangeObject} selection={rangeSelection} scene={sceneInteraction} />}
+        {mode !== 'plates' && !layersRoot && optionsHeader}
         </div>
       </div>
       {mode === 'plates' ? <div data-testid="plate-options-section"
@@ -751,7 +751,9 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               <div ref={optionsContentRef}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
             </div>
           : <>{optionsHeader}{optionsBody}</>}
-      </div> : optionsBody}
+      </div> : layersRoot && rangeObject && rangeSelection
+        ? <HeightRangeBoundsEditor key={rangeObject.id} object={rangeObject} selection={rangeSelection} scene={sceneInteraction} />
+        : optionsBody}
     </section>
   );
 }
