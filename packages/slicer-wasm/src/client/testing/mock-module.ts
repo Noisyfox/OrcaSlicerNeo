@@ -1,3 +1,5 @@
+import { editMockRanges } from './heightRanges';
+import type { HeightRangeRow } from '../types';
 import type { SetupWizardCatalogue, ProfileActivation } from '../setupWizard';
 import { NEO_VERSION } from '../version';
 import { paintingMock } from './painting-mock';
@@ -522,10 +524,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // getModelStructure / selection-restoration tests behave like the real
   // bridge. IDs are minted once at add/delete and do not shift across
   // structural mutations.
+  let nextRangeRevision = 1;
   let nextObjectId = 1000;
   let nextVolumeId = 2000;
   let nextInstanceId = 3000;
-  let objectMeta: Array<{ id: number; name: string; printable: boolean; autoDrop: boolean; isCut: boolean; primitive?: string }> = [];
+  let objectMeta: Array<{ id: number; name: string; printable: boolean; autoDrop: boolean; isCut: boolean; primitive?: string; heightRanges?: HeightRangeRow[] }> = [];
   let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }>> = [];
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
@@ -564,7 +567,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     modelLoaded: boolean;
     objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
-    objectMeta: Array<{ id: number; name: string; printable: boolean; autoDrop: boolean; isCut: boolean; primitive?: string }>;
+    objectMeta: Array<{ id: number; name: string; printable: boolean; autoDrop: boolean; isCut: boolean; primitive?: string; heightRanges?: HeightRangeRow[] }>;
     volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }>>;
     instanceMeta: Array<Array<{ id: number; printable: boolean }>>;
     objectPlateIds: string[];
@@ -2159,6 +2162,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       autoDrop: objectMeta[oi].autoDrop,
       isCut: objectMeta[oi].isCut,
       instanceCount: instanceMeta[oi].length,
+      ...(objectMeta[oi].heightRanges?.length ? { heightRanges: objectMeta[oi].heightRanges } : {}),
       volumes: volumeMeta[oi].map((v, vi) => ({
         id: v.id, index: vi, name: v.name, type: v.type, isSplittable: v.isSplittable,
       })),
@@ -4094,6 +4098,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return { error: 'volume not found' };
     },
+    orc_edit_height_ranges(encoded: string) {
+      try {
+        const command = JSON.parse(encoded);
+        const index = objectMeta.findIndex(object => object.id === command.objectId);
+        if (index < 0) return { error: 'Object no longer exists' };
+        const owner = objectMeta[index];
+        const height = nativeScopedConfig.objects[String(owner.id)]?.layer_height ?? nativeScopedConfig.project.layer_height ?? '0.2';
+        const { rows, changed, selection } = editMockRanges(owner.heightRanges ?? [], command, height, () => nextRangeRevision++);
+        if (!changed) return { ok: true, changed, selection };
+        owner.heightRanges = rows;
+        return { ok: true, changed, selection, plate_session: modelStructureMutation([objectPlateIds[index] ?? '']) };
+      } catch (error) { return { error: String(error) }; }
+    },
     orc_set_volume_type(volumeId: number, type: string) {
       const valid: VolumeType[] = [
         'model_part', 'negative_volume', 'parameter_modifier',
@@ -4571,6 +4588,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_remove_instance: { ret: 'number', args: ['number', 'number'] },
     orc_rename_object: { ret: 'number', args: ['number', 'string'] },
     orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
+    orc_edit_height_ranges: { ret: 'number', args: ['string'] },
     orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },
     orc_set_objects_auto_drop: { ret: 'number', args: ['string', 'number'] },
     orc_set_object_printable: { ret: 'number', args: ['number', 'number'] },

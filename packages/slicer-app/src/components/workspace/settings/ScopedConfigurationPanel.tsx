@@ -1,3 +1,4 @@
+import { HeightRangeSettings } from './HeightRangeSettings';
 import { PlateNozzleMapping } from '../nozzleMapping/NozzleMappingControls';
 import { useNozzleMapping } from '../nozzleMapping/useNozzleMapping';
 import { editorSettingContext, printerNozzleCount, updateOptionStates } from './settingConditions';
@@ -62,7 +63,7 @@ import { FilamentChoiceContent, filamentSlotChoice } from '../FilamentSwatch';
 const orderSelectors = new Set(['first_layer_sequence_choice', 'other_layers_sequence_choice']);
 
 const SOURCE_LABEL: Record<string, string> = {
-  preset: 'Preset', project: 'Project', plate: 'Plate', object: 'Object', part: 'Volume', mixed: 'Mixed',
+  preset: 'Preset', project: 'Project', plate: 'Plate', object: 'Object', part: 'Volume', range: 'Height range', mixed: 'Mixed',
 };
 
 const PROJECT_RESOLUTION: ScopedTargetResolution = {
@@ -349,6 +350,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const snapshot = useSettingsStore((state) => state.nativeScopedConfig);
   const setConfigurationMode = useSettingsStore((state) => state.setConfigurationMode);
   const structure = useObjectListStore((state) => mode === 'scoped' ? state.structure : undefined);
+  const rangeSelection = useObjectListStore(s => mode === 'scoped' ? s.heightRangeSelection : null);
+  const rangeObject = rangeSelection && structure?.find(o => o.id === rangeSelection.objectId && o.heightRanges?.length);
   const activePlateId = usePlateSessionStore((state) => mode !== 'project' ? state.snapshot?.currentPlateId : undefined);
   const activePlateLabel = usePlateSessionStore((state) => mode !== 'project'
     ? state.snapshot?.plates.find((plate) => plate.plateId === state.snapshot?.currentPlateId)?.name : undefined);
@@ -703,14 +706,14 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               aria-selected={mode === value} data-testid={`config-mode-${value}`} variant="ghost" size="xs"
               className={cn('h-5 w-[68px] rounded-b-none rounded-t-sm px-0 text-module leading-none font-normal',
                 mode === value ? 'bg-card text-foreground hover:bg-card' : 'text-muted-foreground')}
-              onClick={() => setConfigurationMode(value)}>{value === 'project' ? 'Project' : value === 'scoped' ? 'Objects' : 'Plates'}</Button>)}
+              onClick={() => { if (value !== 'scoped') useObjectListStore.getState().selectRanges(null); setConfigurationMode(value); }}>{value === 'project' ? 'Project' : value === 'scoped' ? 'Objects' : 'Plates'}</Button>)}
           </div>
         </div>
         <div className="space-y-1 px-2">
         {mode === 'plates' && platesToolbar}
         {scopedContent && <div ref={objectListRef} hidden={mode !== 'scoped'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-object-list-scroll">{scopedContent}</div>}
         {platesContent && <div ref={plateListRef} hidden={mode !== 'plates'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-plate-list-scroll">{platesContent}</div>}
-        {mode !== 'plates' && optionsHeader}
+        {mode !== 'plates' && !rangeObject && optionsHeader}
         </div>
       </div>
       {mode === 'plates' ? <div data-testid="plate-options-section"
@@ -728,7 +731,9 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               <div ref={optionsContentRef}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
             </div>
           : <>{optionsHeader}{optionsBody}</>}
-      </div> : optionsBody}
+      </div> : rangeObject && rangeSelection
+        ? <HeightRangeSettings selection={rangeSelection} object={rangeObject} scene={sceneInteraction} Field={ScopedField} />
+        : optionsBody}
     </section>
   );
 }

@@ -11,7 +11,7 @@ import {
 import { type SelectionKind } from '../viewport/SceneInteractionController';
 
 export type ConfigurationMode = 'project' | 'scoped' | 'plates';
-export type ScopedValueSource = 'preset' | NativeScopedConfigScope | 'mixed';
+export type ScopedValueSource = 'preset' | NativeScopedConfigScope | 'mixed' | 'range';
 
 export interface ScopedSelectionVolume {
   readonly objectId: number;

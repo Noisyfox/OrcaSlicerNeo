@@ -1,0 +1,42 @@
+import { expect, type Page } from '@playwright/test';
+import { ready, selectPrinter } from './arrangement-journey';
+import { addPrimitive } from './add-primitive';
+
+export async function verifyHeightRanges(page: Page) {
+  await ready(page);
+  await selectPrinter(page);
+  await page.getByTestId('config-mode-scoped').click();
+  await addPrimitive(page, 'Cube');
+  const list = page.getByTestId('object-list');
+  const objects = list.getByTestId(/^object-\d+$/);
+  await objects.first().getByRole('button').first().click({ button: 'right' });
+  await page.getByTestId('objectlist-height-ranges').click();
+  const panel = page.getByRole('region', { name: 'Height range settings' });
+  await expect(panel).toBeVisible();
+  const first = list.getByRole('button', { name: '0 – 2 mm', exact: true });
+  await first.click();
+  await expect(panel.getByRole('textbox', { name: 'End (mm)' })).toHaveValue('2');
+  await list.getByRole('button', { name: 'Add range after 2 mm' }).click();
+  const second = list.getByRole('button', { name: '2 – 4 mm', exact: true });
+  await expect(second).toHaveAttribute('aria-pressed', 'true');
+  const height = panel.getByTestId('config-input-layer_height');
+  await height.fill('0.12');
+  await height.press('Enter');
+  await expect(height).toHaveValue('0.12');
+  await first.click({ modifiers: ['ControlOrMeta'] });
+  await expect(height).toHaveAttribute('placeholder', 'Mixed');
+  await expect(panel.getByRole('textbox', { name: 'End (mm)' })).toHaveCount(0);
+  await height.fill('0.16');
+  await height.press('Enter');
+  await expect(height).toHaveValue('0.16');
+  await second.click();
+  await expect(height).toHaveValue('0.16');
+  await first.click();
+  await expect(height).toHaveValue('0.16');
+  await list.getByRole('button', { name: 'Height Range Modifier', exact: true }).click();
+  await list.getByRole('button', { name: 'Copy ranges' }).click();
+  await addPrimitive(page, 'Cube');
+  await objects.last().getByRole('button').first().click({ button: 'right' });
+  await page.getByTestId('objectlist-paste-ranges').click();
+  await expect(objects.last().getByRole('button', { name: '2 – 4 mm', exact: true })).toBeVisible();
+}

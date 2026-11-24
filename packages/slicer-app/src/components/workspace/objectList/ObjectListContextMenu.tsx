@@ -1,3 +1,5 @@
+import { openRanges, editRanges } from './heightRangeActions';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { executeMeshBoolean } from '../viewport/gizmo/meshBoolean/meshBooleanCommand';
 import type { FilamentAssignmentTargetRequest, ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
 import type { ReactNode } from 'react';
@@ -74,6 +76,8 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const projection = useObjectListStore((s) => s.projection);
   const structure = useObjectListStore((s) => s.structure);
+  const clipboard = useObjectListStore(s => s.rangeClipboard);
+  const generation = useProjectStore(s => s.projectGeneration);
   const act = (p: Promise<{ ok: boolean; error?: string }>) => { void p; onClose(); };
 
   const assemblyTargets = resolveAssemblyTargets(structure, projection);
@@ -271,6 +275,14 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   }
 
   if (target.kind === 'object' || target.kind === 'instance') {
+    if (selectedObjectIds.length <= 1 && (target.kind === 'object' || projection.instanceIds.size <= 1)) {
+      const instanceId = target.kind === 'instance' ? target.instance.id : undefined;
+      items.push(<MenuItem key="ranges" label="Height Range Modifier" testid="objectlist-height-ranges"
+        onClick={() => { onClose(); void openRanges(runtime, target.object.id, instanceId, sceneInteraction); }} />);
+      if (clipboard?.generation === generation)
+        items.push(<MenuItem key="paste-ranges" label="Paste height ranges" testid="objectlist-paste-ranges"
+          onClick={() => { onClose(); void editRanges(runtime, { objectId: target.object.id, operation: 'paste', rows: clipboard.rows }, sceneInteraction, instanceId); }} />);
+    }
     const selected = selectedAutoDropObjects(structure, projection);
     const objects = selected.some((object) => object.id === target.object.id) ? selected : [target.object];
     const enabled = objects.every((object) => object.autoDrop);

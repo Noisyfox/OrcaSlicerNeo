@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle, Box, CircleMinus, CirclePlus, RotateCcw } from 'lucide-react';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { HeightRangeRows } from './HeightRangeRows';
 import { useObjectListStore } from './useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
@@ -165,7 +166,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       setProjection(nextProjection);
     };
     update();
-    return sceneInteraction.selection.subscribe(update);
+    return sceneInteraction.selection.subscribe(() => {
+      if (restorePhase === 'idle') useObjectListStore.getState().selectRanges(null);
+      update();
+    });
   }, [restorePhase, sceneInteraction, structure, highlightLevel, setProjection]);
 
   function openContextMenu(event: ReactMouseEvent, target: ObjectListCtxTarget) {
@@ -237,6 +241,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   /** Row click with multi-select: Ctrl/Cmd toggles the row; Shift selects a
    *  contiguous range from the previous (non-shift) selection to this row. */
   function handleRowClick(row: SelectableRow, ctrl: boolean, shift: boolean) {
+    useObjectListStore.getState().selectRanges(null);
     if (sceneInteraction?.gizmo === 'mesh-boolean' && row.kind === 'part') {
       const session = sceneInteraction.meshBoolean;
       const object = structure.find(item => item.index === row.target.objectIdx);
@@ -342,6 +347,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
    *  right-click never collapses a multi-selection. The menu opens afterwards
    *  (via `openContextMenu`) so its items see the freshly selected state. */
   function handleRowContextMenu(event: ReactMouseEvent, row: SelectableRow, target: ObjectListCtxTarget) {
+    useObjectListStore.getState().selectRanges(null);
     if (sceneInteraction) {
       const anchor = sceneInteraction.getSelectionInstanceAnchor(row.target.objectIdx);
       if (!rowFullySelected(row, anchor)) {
@@ -422,7 +428,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
           </button>
           {!collapsedGroups[group.key] && group.objects.map((obj) => {
         const objectSelected = projection.objectIds.has(obj.id);
-        const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1;
+        const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1 || !!obj.heightRanges?.length;
         const isExpanded = hasExpandable && !!expanded[obj.id];
         const renamingObject = renaming?.kind === 'object' && renaming.id === obj.id;
         const validity = objectListValidity(obj, plateSession);
@@ -513,6 +519,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               </span>
             </div>
             </div>
+            {isExpanded && !!obj.heightRanges?.length && <HeightRangeRows object={obj} scene={sceneInteraction}
+              instanceId={obj.instances.find(instance => projection.instanceIds.has(instance.id))?.id} />}
             {isExpanded && (
               <div className="ml-4">
                 {obj.volumes.length > 1 && obj.volumes.map((vol) => (
