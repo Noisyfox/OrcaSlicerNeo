@@ -195,6 +195,10 @@ unknown options, and other options without a supported generic editing path do
 not appear there. Existing native settings outside the visible catalogue are
 not thereby exposed to generic reset.
 
+The [Height Range Modifier design](ObjectList-and-Parts.md#91-height-range-modifiers)
+defines a dedicated range target for the Objects editor. Its field and reset
+semantics apply only when a range is selected.
+
 Scalar options use their appropriate controls. Other supported option types
 use an editable text field that preserves the value format used by the slicer.
 Text remains a draft until Enter or blur commits it; Escape discards the draft.

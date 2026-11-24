@@ -674,6 +674,10 @@ invalidation, and atomic slot Delete/Merge remapping. A deleted explicit value
 with no merge destination becomes `Default`; a Merge with operation replaces
 it with the selected surviving slot before later slot IDs are renumbered.
 
+The [Height Range Modifier design](ObjectList-and-Parts.md#91-height-range-modifiers)
+covers range-level base and feature assignments, their relocation when rack
+slots move, the range Delete and Reset semantics, and plate estimates.
+
 ### 10.5 Painting and layer-event editing
 
 Object/part assignment and facet-level multi-material painting are delivered.
