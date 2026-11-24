@@ -1,7 +1,7 @@
-import { HeightRangeSettings } from './HeightRangeSettings';
+import { heightRangeEditor } from './heightRangeEditor';
 import { PlateNozzleMapping } from '../nozzleMapping/NozzleMappingControls';
 import { useNozzleMapping } from '../nozzleMapping/useNozzleMapping';
-import { editorSettingContext, printerNozzleCount, updateOptionStates } from './settingConditions';
+import { editorSettingContext, printerNozzleCount, settingValues, updateOptionStates } from './settingConditions';
 import { useOptionState, useOptionStateScope, useVisibleOptionCount, type OptionStateScope } from './optionStateRegistry';
 import {
   scopedOptionPublication,
@@ -12,6 +12,7 @@ import {
   scopedConfigurationCatalogue,
   type ScopedConfigurationField,
   type ScopedConfigurationTarget,
+  type ScopedFieldTarget,
   type ScopedTargetResolution
 } from './scopedConfigurationProjection';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -102,11 +103,13 @@ export const ScopedField = memo(function ScopedField({
   visible?: boolean;
   conditionReadOnly?: boolean;
   field: ScopedConfigurationField;
-  targets: readonly ScopedConfigurationTarget[];
+  targets: readonly ScopedFieldTarget[];
   onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
   onReset: (field: ScopedConfigurationField) => Promise<void>;
 }) {
-  const slots = useFilamentSessionStore(s => field.filamentRoute || orderSelectors.has(field.key) ? s.snapshot?.slots : undefined);
+  const endpoint = field.rangeEndpoint;
+  const filamentChoice = field.filamentRoute !== undefined || field.key === 'extruder';
+  const slots = useFilamentSessionStore(s => filamentChoice || orderSelectors.has(field.key) ? s.snapshot?.slots : undefined);
   const mixedOrder = orderSelectors.has(field.key) && slots?.some(slot => slot.mix);
   const initial = valueForField(field);
   const [draft, setDraft] = useState(initial);
@@ -146,7 +149,7 @@ export const ScopedField = memo(function ScopedField({
   const unavailable=editor?.target.kind==='unavailable';
   const readOnly=unavailable || editor?.vector?.readOnly===true;
   const indexedKey=editor?.target.kind==='indexed' ? `${field.key}#${editor.target.index}` : field.key;
-  const optionHelp = mixedOrder ? 'The slicer schedules the physical components of mixed filaments.' : unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` :
+  const optionHelp = endpoint ? 'Height in millimetres from the bottom of the object.' : mixedOrder ? 'The slicer schedules the physical components of mixed filaments.' : unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` :
     optionTooltip(editor?.metadata ?? field.meta, indexedKey, field.label, editor?.metadata?.tooltip_default ?? defaultValue);
   const row = 'grid grid-cols-[minmax(0,1fr)_minmax(5rem,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
   const labelCls = 'min-w-0 flex-1 truncate text-[13px] font-normal text-muted-foreground';
@@ -168,12 +171,12 @@ export const ScopedField = memo(function ScopedField({
     ? 'The selected targets use different filaments.' : field.filamentRoute.effectiveSlot === 0
       ? 'Uses the object or part filament.' : `Effective filament: ${effectiveSlot
         ? filamentSlotChoice(effectiveSlot).label : field.filamentRoute.effectiveSlot}.`);
-  const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${routeDetails || valueTooltip(field)}${sourceDetails}`}</span>;
+  const tooltip = <span className="whitespace-pre-line">{endpoint ? optionHelp : `${optionHelp}\n\n${routeDetails || valueTooltip(field)}${sourceDetails}`}</span>;
 
   let control;
   if(readOnly) {
     control=<TooltipFor content={tooltip} nonInteractive><span data-testid={`config-input-${field.key}`} className="text-xs text-muted-foreground">{unavailable?'Unavailable':displayed}</span></TooltipFor>;
-  } else if (field.filamentRoute && slots) {
+  } else if (filamentChoice && slots) {
     const choices = slots.map(slot => ({ value: String(slot.slot), ...filamentSlotChoice(slot) }));
     const selected = choices.find(choice => choice.value === displayed);
     const name = field.mixed ? 'Mixed' : displayed === '0' ? 'Default' : selected?.label;
@@ -228,7 +231,9 @@ export const ScopedField = memo(function ScopedField({
         max={field.meta.max}
         type={isScalar(field.meta) ? 'number' : 'text'}
         step={field.meta.type === 'int' ? 1 : 'any'}
+        onFocus={endpoint ? () => useObjectListStore.getState().focusRange(endpoint) : undefined}
         onBlur={() => {
+          if (endpoint) useObjectListStore.getState().focusRange(null);
           if (cancelBlur.current) { cancelBlur.current = false; return; }
           if (draft !== valueForField(field)) void commit(draft);
         }}
@@ -352,6 +357,12 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const structure = useObjectListStore((state) => mode === 'scoped' ? state.structure : undefined);
   const rangeSelection = useObjectListStore(s => mode === 'scoped' ? s.heightRangeSelection : null);
   const rangeObject = rangeSelection && structure?.find(o => o.id === rangeSelection.objectId && o.heightRanges?.length);
+  const rangeRack = useFilamentSessionStore(s => rangeObject ? s.snapshot : null);
+  const rangePending = useFilamentSessionStore(s => !!rangeObject && s.pendingKind !== null);
+  const range = useMemo(() => rangeObject && rangeSelection && metadata
+    ? heightRangeEditor(platform.runtime, sceneInteraction, rangeSelection, rangeObject, metadata, baseValues, snapshot, rangeRack)
+    : null, [rangeObject, rangeSelection, metadata, platform.runtime, sceneInteraction, baseValues, snapshot, rangeRack]);
+  const layout = range ? 'range' : mode;
   const activePlateId = usePlateSessionStore((state) => mode !== 'project' ? state.snapshot?.currentPlateId : undefined);
   const activePlateLabel = usePlateSessionStore((state) => mode !== 'project'
     ? state.snapshot?.plates.find((plate) => plate.plateId === state.snapshot?.currentPlateId)?.name : undefined);
@@ -421,17 +432,17 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     wipeTowerSelected: mode === 'plates' ? false : sceneInteraction?.hasWipeTowerSelection,
     allowPlateTarget: mode === 'plates',
   }), [mode, activePlateId, activePlateLabel, sceneInteraction, selectionRevision, structure]);
-  const scopedTargets = useMemo<readonly ScopedConfigEditorTarget[]>(() => mode === 'scoped' &&
+  const scopedTargets = useMemo<readonly ScopedConfigEditorTarget[]>(() => mode === 'scoped' && !rangeObject &&
     (resolution.scope === 'object' || resolution.scope === 'part')
-    ? resolution.targets.map(target => ({ scope: resolution.scope as 'object' | 'part', id: String(target.id) })) : [], [mode, resolution]);
-  const scopedEditor = useScopedConfigEditor(platform, scopedTargets, mode === 'scoped');
+    ? resolution.targets.map(target => ({ scope: resolution.scope as 'object' | 'part', id: String(target.id) })) : [], [mode, resolution, rangeObject]);
+  const scopedEditor = useScopedConfigEditor(platform, scopedTargets, mode === 'scoped' && !rangeObject);
   const scopedDisplaySnapshot = scopedEditor.snapshot ?? scopedEditor.displaySnapshot;
   const scopedSelection = useConfigEditorSelection(scopedEditor.selection, scopedEditor.entry);
-  const selectionMetadata = mode === 'project' ? printEditor.snapshot?.editorSelection : mode === 'scoped' ? scopedEditor.selection : null;
+  const selectionMetadata = mode === 'project' ? printEditor.snapshot?.editorSelection : mode === 'scoped' && !rangeObject ? scopedEditor.selection : null;
   const selectedChoice = mode === 'project' ? printSelection : scopedSelection;
   // Reset actions operate on the whole selected section/catalogue, not just
   // the subset currently visible through the search query.
-  const allFields = useMemo(() => metadata
+  const allFields = useMemo(() => range ? range.fields : metadata
     ? (mode==='scoped' ? scopedConfigurationCatalogue(metadata,resolution) : projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' })).filter((field) => isVisiblePrintSetting(field, mode) &&
       (field.key !== 'curr_bed_type' || (bedType?.supportsSelection && bedType.choices.length > 0)))
       .map(field => field.key === 'curr_bed_type' && bedType ? { ...field, meta: { ...field.meta,
@@ -440,21 +451,20 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       .map(field=>mode==='project'?projectPrintField(field,printEditor.snapshot,printSelection.choiceId):
         mode==='scoped' && scopedDisplaySnapshot ? scopedPrintField(field,scopedDisplaySnapshot,scopedSelection.choiceId) : field)
       .concat(featureFilamentFields(metadata, resolution, filamentRouting))
-    : [], [baseValues, bedType, filamentRouting, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
-  const availablePages = useMemo(() => printSettingsPages(mode).filter((page) =>
-    page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, mode]);
+    : [], [range, baseValues, bedType, filamentRouting, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
+  const availablePages = useMemo(() => printSettingsPages(layout).filter((page) =>
+    page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, layout]);
   const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
-  const categories = useMemo(() => printSettingsGroups(allFields, selectedPage, search, mode), [allFields, search, selectedPage, mode]);
-  const highlightedCategories = useMemo(() => new Set(allFields
-    .filter((field) => field.local && field.resettable)
-    .map((field) => field.category)), [allFields]);
+  const categories = useMemo(() => printSettingsGroups(allFields, selectedPage, search, layout), [allFields, search, selectedPage, layout]);
   const hasLocalOverrides = mode === 'project' ? printHasLocalOverrides(printEditor.snapshot, snapshot.project)
-    : mode === 'scoped' ? scopedHasLocalOverrides(scopedEditor.snapshot) : highlightedCategories.size > 0;
+    : mode === 'scoped' && !range ? scopedHasLocalOverrides(scopedEditor.snapshot) : allFields.some(field => field.local && field.resettable);
+  const invalidTarget = !range && mode !== 'project' && resolution.scope === 'invalid';
   const pageKeys = availablePages.find(page => page.title === selectedPage)?.groups.flatMap(group => group.keys)
     .filter(key => allFields.some(field => field.key === key)) ?? [];
   const dirtyChoiceIds = mode === 'scoped' ? scopedDirtyChoiceIds(scopedEditor.snapshot, pageKeys) : editorDirtyChoiceIds(printEditor.snapshot, pageKeys);
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
+    if (range) return range.commit(field, value);
     if (mode !== 'project' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
     if (field.filamentRoute) {
       const slot = await setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, Number(value));
@@ -493,8 +503,9 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       baseValues: current.baseValues, snapshot: current.nativeScopedConfig, resolution })
       .find((candidate) => candidate.key === field.key);
     return effective ? valueForField(effective) : value;
-  }, [metadata, mode, platform, resolution,printEditor.mutate,printEditor.snapshot,scopedEditor.mutate,scopedSelection.choiceId]);
+  }, [range, metadata, mode, platform, resolution,printEditor.mutate,printEditor.snapshot,scopedEditor.mutate,scopedSelection.choiceId]);
   const resetField = useCallback(async (field: ScopedConfigurationField) => {
+    if (range) return range.reset([field.key]);
     if ((mode !== 'project' && resolution.scope === 'invalid') || !field.local) return;
     if (field.filamentRoute) {
       await setFeatureFilament(platform.runtime, resolution, field.filamentRoute.selector, mode === 'project' ? 0 : null);
@@ -521,9 +532,9 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     };
     if(mode==='project' && printEditor.snapshot && printOwnsField(printEditor.snapshot,field.key)) await printEditor.mutate(request);
     else await commitScopedConfigurationMutation(platform, request);
-  }, [mode, platform, resolution,printEditor.mutate,printEditor.snapshot,scopedEditor.mutate]);
+  }, [range, mode, platform, resolution,printEditor.mutate,printEditor.snapshot,scopedEditor.mutate]);
   const optionScope = useOptionStateScope<ScopedOptionData>();
-  const optionLocked = mode === 'scoped' ? scopedEditor.pending || scopedEditor.refreshing || scopedEditor.error !== null :
+  const optionLocked = range ? rangePending : mode === 'scoped' ? scopedEditor.pending || scopedEditor.refreshing || scopedEditor.error !== null :
     mode === 'project' ? !printEditor.snapshot || printEditor.pending || printEditor.refreshing || printEditor.error !== null : false;
   const latestOptions = useRef({ locked: optionLocked, fields: new Map(allFields.map(field => [field.key, field])), commitField, resetField });
   const commitOption = useCallback((field: ScopedConfigurationField, value: string) => {
@@ -542,14 +553,14 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   }, []);
   const optionRows = useMemo(() => allFields.map(field => {
     const binding = field.editor?.target;
-    const viewKey = mode === 'scoped'
+    const viewKey = range ? `range:${range.identity}:${field.key}` : mode === 'scoped'
       ? `${scopedEditor.identity}:${field.key}:${binding?.kind}:${binding?.kind === 'indexed' ? `${scopedSelection.identity}:${binding.index}` : binding?.kind === 'unavailable' ? scopedSelection.identity : ''}`
       : mode === 'project' && printEditor.snapshot && printOwnsField(printEditor.snapshot, field.key)
         ? fieldViewKey(printEditor.snapshot, field.key, printSelection.choiceId) : `${mode}:${field.key}`;
     const disabled = field.key === 'curr_bed_type' && bedTypeDisabled;
-    return scopedOptionPublication({ field, targets: resolution.targets, disabled, viewKey,
+    return scopedOptionPublication({ field, targets: range?.targets ?? resolution.targets, disabled, viewKey,
       selectionGutter: mode !== 'plates' && (selectionMetadata?.choices.length ?? 0) > 1 });
-  }), [allFields, mode, scopedEditor.identity,
+  }), [allFields, range, mode, scopedEditor.identity,
     scopedSelection.identity, printEditor.snapshot,
     printSelection.choiceId, bedTypeDisabled, resolution.targets, selectionMetadata]);
   const printers = useSettingsStore(state => state.printers);
@@ -559,20 +570,28 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     const printer = printers.find(item => item.name === activePrinter);
     const options = { scope: 'project' as const, printerValues: baseValues, projectValues: baseValues,
       isBblPrinter: printer ? printer.vendor_id === 'BBL' : undefined, nozzleCount: printerNozzleCount(baseValues) };
-    const contexts = mode === 'scoped' ? scopedDisplaySnapshot?.targets.map(target => editorSettingContext(
+    const contexts = range ? range.rows.map(row => ({
+      ...editorSettingContext(null, null, { ...options, scope: 'range', projectValues: range.projectValues }),
+      ...settingValues(key => row.values[key] ?? range.parentValues[key]),
+    })) : mode === 'scoped' ? scopedDisplaySnapshot?.targets.map(target => editorSettingContext(
       { ...target, editorSelection: scopedDisplaySnapshot!.editorSelection }, scopedSelection.choiceId,
       { ...options, scope: target.target.scope })) ?? []
       : [editorSettingContext(mode === 'project' ? printEditor.snapshot : null, printSelection.choiceId,
         { ...options, scope: mode === 'plates' ? 'plate' : 'project' })];
-    const effective = mode === 'scoped' ? scopedDisplaySnapshot?.targets.map(target => [target.target, target.effectiveValues,
+    const effective = range ? [range.projectValues, range.parentValues, range.rows.map(row => row.values)] : mode === 'scoped' ? scopedDisplaySnapshot?.targets.map(target => [target.target, target.effectiveValues,
       Object.entries(target.editorVectors).map(([key, vector]) => [key, vector.effectiveValues, vector.enumOptions])])
       : [printEditor.snapshot?.effectiveValues, Object.entries(printEditor.snapshot?.editorVectors ?? {}).map(([key, vector]) => [key, vector.effectiveValues, vector.enumOptions])];
     const input = JSON.stringify([mode, baseValues, effective, selectionMetadata, selectedChoice.choiceId, printer?.vendor_id]);
     optionScope.publish(optionRows, contexts, updateOptionStates, input);
-  }, [allFields, commitField, resetField, optionLocked, optionScope, optionRows, mode, printers, activePrinter, baseValues,
+  }, [allFields, range, commitField, resetField, optionLocked, optionScope, optionRows, mode, printers, activePrinter, baseValues,
     scopedDisplaySnapshot, scopedSelection.choiceId, printEditor.snapshot, printSelection.choiceId, selectionMetadata, selectedChoice.choiceId]);
   const displayedOptionKeys = useMemo(() => categories.flatMap(category => category.fields.map(field => field.key)), [categories]);
   const resetGroup = async (keys: readonly string[]) => {
+    if (range) {
+      try { await range.reset(keys); }
+      catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      return;
+    }
     if (mode !== 'project' && resolution.scope === 'invalid') return;
     const groupFields = allFields.filter(field => keys.includes(field.key) && field.resettable && !field.filamentRoute);
     if (!groupFields.some(field => field.local)) return;
@@ -597,6 +616,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     }
   };
   const resetAll = async () => {
+    if (range) return resetGroup(allFields.map(field => field.key));
     if (mode !== 'project' && resolution.scope === 'invalid') return;
     const targets = mode === 'project' ? [{ scope: 'project', label: 'Project' } as const] : resolution.targets;
     const hasLocal = mode !== 'plates' ? hasLocalOverrides : targets.some((target) => localKeysForTarget(snapshot, target).some((key) => allFields.some((field) => field.key === key && field.resettable)));
@@ -613,9 +633,9 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         <div className="flex min-w-0 items-center gap-1">
           <TooltipFor content="Reset all local overrides"><Button type="button" variant="ghost" size="icon-xs"
             className="size-5 shrink-0 text-config-override [&>svg]:size-3" aria-label="Reset All" data-testid="config-reset-all"
-            disabled={!hasLocalOverrides || (mode !== 'project' && resolution.scope === 'invalid') || (mode==='scoped' && (scopedEditor.pending || scopedEditor.refreshing))} onClick={() => void resetAll()}><RotateCcw /></Button></TooltipFor>
+            disabled={!hasLocalOverrides || invalidTarget || (mode === 'scoped' && optionLocked)} onClick={() => void resetAll()}><RotateCcw /></Button></TooltipFor>
           {mode === 'project' ? <div data-testid="config-process-profile" data-dirty={hasLocalOverrides ? 'true' : 'false'} className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
-            <span data-testid="scoped-target-label" data-dirty={hasLocalOverrides ? 'true' : 'false'} className={cn("min-w-0 flex-1 truncate text-xs text-muted-foreground", mode==='scoped' && hasLocalOverrides && "text-config-override")}>{resolution.label}</span>}
+            <span data-testid="scoped-target-label" data-dirty={hasLocalOverrides ? 'true' : 'false'} className={cn("min-w-0 flex-1 truncate text-xs text-muted-foreground", mode==='scoped' && hasLocalOverrides && "text-config-override")}>{range?.label ?? resolution.label}</span>}
           {mode === 'project' && <span data-testid="scoped-target-label" className="sr-only">Project</span>}
           <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-control-background text-input-button-foreground hover:text-muted-foreground aria-expanded:bg-control-background aria-expanded:text-input-button-foreground"
             aria-label="Search settings" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }}><Search /></Button></TooltipFor>
@@ -645,7 +665,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           <PrintEditorSelection metadata={selectionMetadata} choiceId={selectedChoice.choiceId} onSelect={selectedChoice.select}
             diameters={nozzleDiameters}
             disabled={mode==='project' && printEditor.refreshing} dirtyChoiceIds={dirtyChoiceIds} />}
-        {mode==='scoped' && scopedEditor.error && <p role="alert" className="text-xs text-destructive">{scopedEditor.error}</p>}
+        {mode==='scoped' && !range && scopedEditor.error && <p role="alert" className="text-xs text-destructive">{scopedEditor.error}</p>}
         {mode==='project' && printEditor.error && <p role="alert" className="text-xs text-destructive">{printEditor.error}</p>}
   </div>;
   const optionsBody = (
@@ -655,18 +675,18 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       <div ref={optionsContentRef}>
       <fieldset data-testid="configuration-option-lock" className="min-w-0 border-0 p-0" disabled={optionLocked}>
       {!metadata ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> :
-        mode !== 'project' && resolution.scope === 'invalid' ? (
+        invalidTarget ? (
           <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
-        ) : mode==='scoped' && !scopedDisplaySnapshot ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> : <>
+        ) : mode==='scoped' && !range && !scopedDisplaySnapshot ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> : <>
           <OptionEmptyMessage scope={optionScope} keys={displayedOptionKeys} />
           {categories.map(({ title: category, fields: categoryFields, page, group, keys }) => {
             const expansionKey = `${page}/${group}`;
             const open = expanded[expansionKey] ?? true;
             const groupCatalogue = allFields.filter((field) => keys.includes(field.key));
             const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
-            const canResetCategory = groupCatalogue.some(field => field.local && field.resettable && !field.filamentRoute);
+            const canResetCategory = groupCatalogue.some(field => field.local && field.resettable && (range || !field.filamentRoute));
             return <OptionGroupVisibility key={`${page}/${group}`} scope={optionScope} keys={keys}><div data-testid={`config-category-${category}`}>
-              {group && <ContextMenu disabled={groupCatalogue.every(field => field.filamentRoute)}>
+              {group && <ContextMenu disabled={range ? groupCatalogue.every(field => field.rangeEndpoint) : groupCatalogue.every(field => field.filamentRoute)}>
                 <ContextMenuTrigger render={<div />}>
                   <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
                     aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
@@ -698,7 +718,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   );
 
   return (
-    <section ref={panelRef} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
+    <section ref={panelRef} aria-label={range ? 'Height range settings' : undefined} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
       <div className={cn('shrink-0 space-y-1 bg-card', mode !== 'plates' && 'pb-1')}>
         <div data-testid="configuration-mode-header" className="shrink-0 bg-panel-header">
           <div role="tablist" aria-label="Configuration mode" className="sidebar-section-header">
@@ -713,7 +733,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         {mode === 'plates' && platesToolbar}
         {scopedContent && <div ref={objectListRef} hidden={mode !== 'scoped'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-object-list-scroll">{scopedContent}</div>}
         {platesContent && <div ref={plateListRef} hidden={mode !== 'plates'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-plate-list-scroll">{platesContent}</div>}
-        {mode !== 'plates' && !rangeObject && optionsHeader}
+        {mode !== 'plates' && optionsHeader}
         </div>
       </div>
       {mode === 'plates' ? <div data-testid="plate-options-section"
@@ -731,9 +751,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               <div ref={optionsContentRef}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
             </div>
           : <>{optionsHeader}{optionsBody}</>}
-      </div> : rangeObject && rangeSelection
-        ? <HeightRangeSettings selection={rangeSelection} object={rangeObject} scene={sceneInteraction} Field={ScopedField} />
-        : optionsBody}
+      </div> : optionsBody}
     </section>
   );
 }

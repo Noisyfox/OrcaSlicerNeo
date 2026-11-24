@@ -454,9 +454,13 @@ must resolve to its owning object and range before changing the model.
 New ranges take the object's effective layer height and use the native default
 base filament (`extruder = 0`). Resetting a range's layer height writes the
 current parent height back into the range. Preserve other native range options
-when editing a single field or moving an endpoint. Use the existing scoped
-Process controls for eligible settings and the typed filament controls for
-assignments.
+when editing a single field or moving an endpoint. Ranges use the Objects
+settings panel with its category tabs, collapsible groups, search and local
+override indicators. Frequent and Quality show the endpoints for a single
+range. Frequent and Multi. show its base filament. The six feature selectors
+appear under Multi. → Filament for Features. Reset on a field, a group or the
+whole panel affects the selected ranges in one undoable edit. Reset preserves
+their endpoints and restores the native defaults for layer height and base filament.
 
 Range rows from one object support multi-selection. The settings panel shows
 common values directly and differing values as `Mixed`. A layer height,

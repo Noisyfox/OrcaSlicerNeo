@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { ready, selectPrinter } from './arrangement-journey';
 import { addPrimitive } from './add-primitive';
 
@@ -9,7 +9,22 @@ export async function verifyHeightRanges(page: Page) {
   await addPrimitive(page, 'Cube');
   const list = page.getByTestId('object-list');
   const objects = list.getByTestId(/^object-\d+$/);
-  await objects.first().getByRole('button').first().click({ button: 'right' });
+  const owner = objects.first().getByRole('button').first();
+  await owner.click();
+  const settings = page.getByTestId('scoped-configuration-panel');
+  const tabs = settings.getByRole('tablist', { name: 'Settings category' });
+  await tabs.getByRole('tab', { name: 'Strength' }).click();
+  const walls = settings.getByTestId('config-input-wall_loops');
+  await expect(walls).toBeEnabled();
+  const ownerWalls = await walls.inputValue();
+  const rowMetrics = () => walls.evaluate(input => {
+    const label = input.closest('[data-testid^="config-field-"]')!.querySelector('label')!;
+    return [input.clientHeight, getComputedStyle(input).fontSize, getComputedStyle(label).fontSize,
+      input.getBoundingClientRect().left > label.getBoundingClientRect().left];
+  });
+  const objectMetrics = await rowMetrics();
+  await settings.screenshot({ path: test.info().outputPath('object-strength.png') });
+  await owner.click({ button: 'right' });
   await page.getByTestId('objectlist-height-ranges').click();
   const panel = page.getByRole('region', { name: 'Height range settings' });
   await expect(panel).toBeVisible();
@@ -19,14 +34,41 @@ export async function verifyHeightRanges(page: Page) {
   } }).__orcaE2e.heightRangePlanes());
   await expect.poll(planes).toEqual([]);
   await first.click();
+  await expect(tabs.getByRole('tab', { name: 'Strength' })).toHaveAttribute('aria-selected', 'true');
+  await expect(walls).toHaveValue(ownerWalls);
+  expect(await rowMetrics()).toEqual(objectMetrics);
+  await settings.screenshot({ path: test.info().outputPath('range-strength.png') });
+  const wallGroup = panel.getByTestId('config-category-toggle-Walls');
+  await wallGroup.click();
+  await expect(walls).toBeHidden();
+  await wallGroup.click();
+  await walls.fill('7');
+  await walls.press('Enter');
+  await expect(panel.getByTestId('config-reset-wall_loops')).toBeVisible();
+  await panel.getByRole('button', { name: 'Search settings' }).click();
+  const search = panel.getByTestId('scoped-config-search');
+  await search.fill('wall_loops');
+  await expect(walls).toHaveCount(1);
+  await panel.getByTestId('config-category-toggle-Strength / Walls').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Reset Walls' }).click();
+  await expect(walls).toHaveValue(ownerWalls);
+  await panel.getByRole('button', { name: 'Search settings' }).click();
+  await tabs.getByRole('tab', { name: 'Frequent' }).click();
   const height = panel.getByTestId('config-input-layer_height');
   const originalHeight = await height.inputValue();
-  await expect(panel.getByRole('textbox', { name: 'End (mm)' })).toHaveValue('2');
+  await expect(panel.getByRole('spinbutton', { name: 'End (mm)' })).toHaveValue('2');
   await expect.poll(async () => (await planes()).map(p => Math.round(p.z * 1000) / 1000)).toEqual([0, 2]);
   for (const [i, label] of ['Start (mm)', 'End (mm)'].entries()) {
-    await panel.getByRole('textbox', { name: label }).focus();
+    await panel.getByRole('spinbutton', { name: label }).focus();
     await expect.poll(async () => { const p = await planes(); return p[i].opacity > p[1 - i].opacity; }).toBe(true);
   }
+  const end = panel.getByRole('spinbutton', { name: 'End (mm)' });
+  await end.fill('3');
+  await end.press('Enter');
+  await expect(list.getByRole('button', { name: '0 – 3 mm', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await end.fill('2');
+  await end.press('Enter');
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
   await list.getByRole('button', { name: 'Add range after 2 mm' }).click();
   const second = list.getByRole('button', { name: '2 – 4 mm', exact: true });
   await expect(second).toHaveAttribute('aria-pressed', 'true');
@@ -36,7 +78,7 @@ export async function verifyHeightRanges(page: Page) {
   await first.click({ modifiers: ['ControlOrMeta'] });
   await expect(height).toHaveAttribute('placeholder', 'Mixed');
   await expect.poll(planes).toEqual([]);
-  await expect(panel.getByRole('textbox', { name: 'End (mm)' })).toHaveCount(0);
+  await expect(panel.getByRole('spinbutton', { name: 'End (mm)' })).toHaveCount(0);
   await height.fill('0.16');
   await height.press('Enter');
   await expect(height).toHaveValue('0.16');
@@ -64,6 +106,11 @@ export async function verifyHeightRanges(page: Page) {
   await rack.getByRole('tab', { name: 'Mixes (0)' }).click();
   await rack.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Save mix' }).click();
+  const base = panel.getByTestId('config-input-extruder');
+  await base.click();
+  await page.getByRole('listbox').getByRole('option', { name: /^2 - / }).click();
+  await expect(base).toContainText(/^2 - /);
+  await tabs.getByRole('tab', { name: 'Multi.' }).click();
   const outer = panel.getByTestId('config-input-outer_wall_filament_id');
   await outer.click();
   await page.getByRole('listbox').getByRole('option', { name: /^3 - / }).click();
@@ -71,4 +118,15 @@ export async function verifyHeightRanges(page: Page) {
   await rack.getByRole('tab', { name: /Material/ }).click();
   await rack.getByTestId('filament-add').click();
   await expect(outer).toContainText(/^4 - /);
+  await panel.getByTestId('config-reset-all').click();
+  await expect(outer.locator('[data-slot="select-value"]')).toHaveText('Default');
+  await expect(base.locator('[data-slot="select-value"]')).toHaveText('Default');
+  await expect(panel.getByTestId('config-reset-all')).toBeDisabled();
+  await page.getByTestId('history-undo').click();
+  await objects.last().getByRole('button', { name: '2 – 4 mm', exact: true }).click();
+  await expect(outer).toContainText(/^4 - /);
+  await expect(base).toContainText(/^2 - /);
+  await owner.click();
+  await tabs.getByRole('tab', { name: 'Strength' }).click();
+  await expect(walls).toHaveValue(ownerWalls);
 }

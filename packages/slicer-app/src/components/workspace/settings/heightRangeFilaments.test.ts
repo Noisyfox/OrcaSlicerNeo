@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { HeightRangeRow, FilamentRoutingProjection } from '@slicer/client';
-import { rangeFilamentFields } from './HeightRangeSettings';
+import { rangeFilamentFields } from './heightRangeEditor';
 
 const route: FilamentRoutingProjection = { target: 'object', id: 7, objectId: 7, selector: 'outer-wall',
   explicitSlot: 2, effectiveSlot: 2, inherited: false, defaulted: false };

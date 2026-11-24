@@ -32,6 +32,7 @@ export interface ScopedTargetResolution {
 }
 
 export interface ScopedConfigurationField {
+  readonly rangeEndpoint?: 'min' | 'max';
   readonly editor?: import('./printEditorProjection').PrintFieldElement;
   readonly filamentRoute?: { readonly selector: FilamentRoutingSelector; readonly effectiveSlot: number | null };
   readonly key: string;
@@ -267,9 +268,11 @@ export function scopedConfigurationCatalogue(metadata: OptionMetadata, resolutio
       meta, value: null, mixed: false, source: 'preset', local: false, resettable: true }));
 }
 
+export type ScopedFieldTarget = ScopedConfigurationTarget | { scope: 'range'; id: string };
+
 export interface ScopedOptionData {
   readonly field: ScopedConfigurationField;
-  readonly targets: readonly ScopedConfigurationTarget[];
+  readonly targets: readonly ScopedFieldTarget[];
   readonly disabled: boolean;
   readonly selectionGutter: boolean;
   readonly viewKey: string;
