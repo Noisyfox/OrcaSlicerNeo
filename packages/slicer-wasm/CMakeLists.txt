@@ -420,6 +420,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_height_ranges.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_mesh_boolean.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_plate.cpp"

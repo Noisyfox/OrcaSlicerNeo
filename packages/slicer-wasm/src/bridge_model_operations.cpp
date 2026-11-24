@@ -19,6 +19,7 @@
 #include <vector>
 #include <emscripten/emscripten.h>
 #include "bridge_buffers.hpp"
+#include "bridge_height_ranges.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_performance.hpp"
 #include "bridge_prime_tower.hpp"
@@ -164,6 +165,8 @@ json model_structure_json_filtered(const std::set<std::size_t>* object_ids) {
         objects.push_back(json{{"id", object->id().id}, {"index", oi}, {"name", object->name},
             {"printable", object->printable}, {"autoDrop", object->auto_drop}, {"isCut", object->is_cut()}, {"instanceCount", object->instances.size()},
             {"volumes", std::move(volumes)}, {"instances", std::move(instances)}});
+        if (!object->layer_config_ranges.empty())
+            objects.back()["heightRanges"] = Neo::Bridge::HeightRanges::rows(*object);
     }
     return objects;
 }

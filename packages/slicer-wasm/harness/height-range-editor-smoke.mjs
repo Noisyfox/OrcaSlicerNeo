@@ -1,0 +1,68 @@
+import assert from 'node:assert/strict';
+import { createMixedFilamentFixture } from './mixed-filament-fixture.mjs';
+import { openProject, saveProject } from './height-range-project.mjs';
+import { parseLayerRanges } from './native-3mf-parser.mjs';
+
+const { module, call } = await createMixedFilamentFixture(process.argv[2]);
+const ok = result => { assert.equal(result.ok, true, JSON.stringify(result)); return result; };
+const objects = () => ok(call('orc_get_model_structure')).objects;
+const rows = index => objects()[index].heightRanges ?? [];
+const bounds = row => [row.min, row.max];
+for (const name of ['Source', 'Destination']) ok(call('orc_add_shape', ['string', 'string'], ['Cube', name]));
+const context = JSON.stringify({ selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} });
+const edit = (index, command) => call('orc_edit_height_ranges', ['string'],
+  [JSON.stringify({ objectId: objects()[index].id, ...command })]);
+function history(index, command) {
+  const begin = call('orc_history_begin', ['string', 'string', 'string', 'string'], ['Height range', 'project', context, '']);
+  assert.ok(begin.transactionId, JSON.stringify(begin));
+  const result = ok(edit(index, command));
+  assert.equal(result.changed, true, JSON.stringify(result));
+  assert.ok(result.plate_session.affected_plate_ids.length > 0);
+  assert.equal(result.plate_session.native_scoped_config.kind, 'full');
+  const commit = call('orc_history_commit', ['string', 'string'], [begin.transactionId, context]);
+  assert.ok(commit.status.canUndo, JSON.stringify(commit));
+  return result;
+}
+history(0, { operation: 'initialize' });
+assert.deepEqual(rows(0).map(bounds), [[0, 2]]);
+history(0, { operation: 'append', targets: rows(0) });
+history(0, { operation: 'set', key: 'wall_loops', value: '4', targets: [rows(0)[1]] });
+history(0, { operation: 'append', targets: [rows(0)[0]] });
+assert.deepEqual(rows(0).map(bounds), [[0, 2], [2, 3], [3, 4]]);
+assert.equal(rows(0)[2].values.wall_loops, '4');
+assert.equal(rows(0)[1].values.wall_loops, undefined);
+history(0, { operation: 'min', targets: [rows(0)[1]], value: 5 });
+assert.deepEqual(bounds(rows(0).at(-1)), [5, 5.5]);
+history(0, { operation: 'max', targets: [rows(0)[1]], value: 3 });
+assert.match(edit(0, { operation: 'max', targets: [rows(0)[1]], value: 2 }).error, /endpoint/);
+history(0, { operation: 'set', targets: rows(0), key: 'outer_wall_filament_id', value: 2 });
+const before = rows(0);
+assert.match(edit(0, { operation: 'set', targets: [before[0], { ...before[1], revision: 0 }], key: 'wall_loops', value: '6' }).error, /changed since selection/);
+assert.deepEqual(rows(0), before);
+history(0, { operation: 'set', targets: rows(0), key: 'layer_height', value: 0.12 });
+assert.ok(rows(0).every(r => r.values.layer_height === '0.12'));
+ok(call('orc_history_undo'));
+assert.deepEqual(rows(0).map(r => r.values), before.map(r => r.values));
+ok(call('orc_history_redo'));
+history(0, { operation: 'reset', targets: [rows(0)[1]], key: 'outer_wall_filament_id' });
+history(0, { operation: 'reset', targets: [rows(0)[1]], key: 'layer_height' });
+assert.equal(rows(0)[1].values.outer_wall_filament_id, undefined);
+assert.equal(rows(0)[1].values.layer_height, before[1].values.layer_height);
+history(1, { operation: 'initialize' });
+history(1, { operation: 'paste', rows: [...rows(0), { min: 1, max: 6, values: { layer_height: '0.16', extruder: '2' } }] });
+assert.deepEqual(rows(1).map(bounds), [[0, 2], [1, 6], [3, 3], [5, 5.5]]);
+assert.equal(rows(1)[0].values.outer_wall_filament_id, undefined);
+assert.equal(edit(1, { operation: 'paste', rows: rows(0) }).changed, false);
+ok(call('orc_history_undo'));
+assert.deepEqual(rows(1).map(bounds), [[0, 2]]);
+ok(call('orc_history_redo'));
+history(0, { operation: 'remove', targets: rows(0) });
+assert.deepEqual(rows(0), []);
+const saved = saveProject(module, call);
+const metadata = parseLayerRanges(saved);
+openProject(module, call, saved);
+assert.deepEqual(parseLayerRanges(saveProject(module, call)), metadata);
+assert.deepEqual(rows(1).map(bounds), [[0, 2], [1, 6], [3, 3], [5, 5.5]]);
+console.log('PASS range add, split, move, overlap, batch edit, stale target, reset, paste, undo/redo and 3MF');
+process.exit(0);

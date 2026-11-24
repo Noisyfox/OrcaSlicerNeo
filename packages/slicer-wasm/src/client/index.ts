@@ -9,6 +9,7 @@ export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   DeviceFilamentOptions, SlicerClient, OrcaModule, OrcaModuleFactory,
   ArrangementRequest, ArrangementResult, ArrangementParkingReason, ArrangementPlateSessionMutation,
+  HeightRangeBounds, HeightRangeTarget, HeightRangeRow, HeightRangeCommand, HeightRangeEditResult,
   ModelMutationResult, ModelPlateSessionMutation, InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot, PrinterPicker, BedTypeCapabilities,
   FilamentColourProvenance, FilamentNativeColour, FilamentColourDisplay,
   ColorDecomposeQuery, ColorDecomposeProposal, MixedFilamentRecipe, StoredMixedFilament, MixedFilamentPoint, MixedFilamentPreview, MixedFilamentRequest, MixedFilamentRecommendation, MixedFilamentTrianglePalette,
