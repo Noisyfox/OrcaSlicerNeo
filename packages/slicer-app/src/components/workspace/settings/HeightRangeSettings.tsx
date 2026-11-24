@@ -99,7 +99,7 @@ export function HeightRangeSettings({ selection, object, scene, Field }: {
     return updated && selectedHeightRanges(updated, selection)[0]?.values[field.key] || value;
   }
   async function reset(field: ScopedConfigurationField) {
-    const r = await editRanges(runtime, { objectId, targets, operation: 'reset', key: field.key }, scene);
+    const r = await editRanges(runtime, { objectId, targets, operation: 'reset', keys: [field.key] }, scene);
     if (!r.ok) throw new Error(r.error);
   }
   const renderField = (field: ScopedConfigurationField) => <Field key={field.key} field={field}

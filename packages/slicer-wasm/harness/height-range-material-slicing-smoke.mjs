@@ -70,7 +70,7 @@ assert.deepEqual(sliced.above, [0, 1]);
 range({ operation: 'set', key: 'extruder', value: 1 });
 edit('orc_delete_filament_slot', { slot: 3 });
 assert.deepEqual((await wallTools()).inside, [0], 'Delete explicitly defaults to the white range base');
-range({ operation: 'reset', key: 'outer_wall_filament_id' });
+range({ operation: 'reset', keys: ['outer_wall_filament_id'] });
 assert.deepEqual((await wallTools()).inside, [0, 1], 'Reset restores the inherited part routes');
 const recipe = { components: [1, 2], ratios: [50, 50], gradient: false, perPart: false, reverse: false, points: [] };
 edit('orc_edit_mixed_filament', { recipe });

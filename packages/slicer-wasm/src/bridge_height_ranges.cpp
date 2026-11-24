@@ -99,29 +99,27 @@ Bounds add_after(t_layer_config_ranges& ranges, const Bounds& key, const ModelOb
     return added;
 }
 
-void edit_field(ModelConfig& config, const ModelObject& object, const json& request)
+void edit_field(ModelConfig& config, const ModelObject& object, const std::string& key, const json* value)
 {
-    const std::string op = request.at("operation");
-    const std::string key = request.at("key");
     const bool filament = key == "extruder" || std::any_of(Filament::routing_options.begin(), Filament::routing_options.end(),
         [&](const auto& item) { return item.feature && key == item.key; });
     const auto* definition = print_config_def.get(key);
     static const PrintRegionConfig region;
     if (!definition || definition->readonly || (!filament && key != "layer_height" && !region.option(key)))
         throw std::invalid_argument("Unsupported height range option: " + key);
-    if (op == "reset") {
+    if (!value) {
         if (key == "layer_height") config.set_key_value(key, new ConfigOptionFloat(parent_height(object)));
         else if (key == "extruder") config.set_key_value(key, new ConfigOptionInt(0));
         else config.erase(key);
         return;
     }
     if (filament) {
-        const auto& slot = request.at("value");
+        const auto& slot = *value;
         if (!slot.is_number_unsigned() || slot.get<uint64_t>() > Filament::State::material_slot_count(state().presets.project_config))
             throw std::invalid_argument("Invalid height range filament slot");
         config.set_key_value(key, new ConfigOptionInt(slot.get<int>()));
     } else if (key == "layer_height") {
-        const double height = number(request.at("value"));
+        const double height = number(*value);
         const int slot = config.has("extruder") ? config.opt_int("extruder") : 0;
         double max = printer_value("max_layer_height", slot);
         if (max < EPSILON) max = 0.75 * printer_value("nozzle_diameter", slot);
@@ -129,9 +127,8 @@ void edit_field(ModelConfig& config, const ModelObject& object, const json& requ
             throw std::invalid_argument("Layer height is outside the printer limits");
         config.set_key_value(key, new ConfigOptionFloat(height));
     } else {
-        const auto value = request.at("value").get<std::string>();
         DynamicPrintConfig candidate = config.get();
-        ScopedConfig::set_scoped_value(candidate, key, value);
+        ScopedConfig::set_scoped_value(candidate, key, value->get<std::string>());
         config.assign_config(std::move(candidate));
     }
 }
@@ -182,8 +179,14 @@ json edit(const json& request)
         } else if (op == "remove") {
             for (const auto& key : selected) candidate.erase(key);
             selected.clear();
-        } else if (op == "set" || op == "reset") {
-            for (const auto& key : selected) edit_field(candidate.at(key), *object, request);
+        } else if (op == "set") {
+            const auto key = request.at("key").get<std::string>();
+            for (const auto& bounds : selected) edit_field(candidate.at(bounds), *object, key, &request.at("value"));
+        } else if (op == "reset") {
+            const auto keys = request.at("keys").get<std::vector<std::string>>();
+            if (keys.empty()) throw std::invalid_argument("Select at least one height range setting");
+            for (const auto& bounds : selected)
+                for (const auto& key : keys) edit_field(candidate.at(bounds), *object, key, nullptr);
         } else throw std::invalid_argument("Unknown height range operation");
     }
     const auto& previous = object->layer_config_ranges;

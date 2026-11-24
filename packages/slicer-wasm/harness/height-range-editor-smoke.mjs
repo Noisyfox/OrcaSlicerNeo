@@ -51,10 +51,21 @@ function verifyRangeRestore(command) {
 verifyRangeRestore('orc_history_undo');
 assert.deepEqual(rows(0).map(r => r.values), before.map(r => r.values));
 verifyRangeRestore('orc_history_redo');
-history(0, { operation: 'reset', targets: [rows(0)[1]], key: 'outer_wall_filament_id' });
-history(0, { operation: 'reset', targets: [rows(0)[1]], key: 'layer_height' });
-assert.equal(rows(0)[1].values.outer_wall_filament_id, undefined);
-assert.equal(rows(0)[1].values.layer_height, before[1].values.layer_height);
+const beforeReset = rows(0);
+const resetKeys = ['outer_wall_filament_id', 'layer_height'];
+assert.match(edit(0, { operation: 'reset', targets: beforeReset, keys: [...resetKeys, 'unsupported_key'] }).error, /Unsupported/);
+assert.deepEqual(rows(0), beforeReset);
+history(0, { operation: 'reset', targets: rows(0).slice(1), keys: resetKeys });
+const afterReset = rows(0);
+assert.deepEqual(afterReset[0], beforeReset[0]);
+for (const [i, row] of afterReset.entries()) {
+  if (i === 0) continue;
+  assert.equal(row.values.outer_wall_filament_id, undefined);
+  assert.equal(row.values.layer_height, before[i].values.layer_height);
+}
+verifyRangeRestore('orc_history_undo');
+assert.deepEqual(rows(0).map(r => r.values), beforeReset.map(r => r.values));
+verifyRangeRestore('orc_history_redo');
 history(1, { operation: 'initialize' });
 history(1, { operation: 'paste', rows: [...rows(0), { min: 1, max: 6, values: { layer_height: '0.16', extruder: '2' } }] });
 assert.deepEqual(rows(1).map(bounds), [[0, 2], [1, 6], [3, 3], [5, 5.5]]);

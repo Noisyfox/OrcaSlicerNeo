@@ -56,15 +56,21 @@ export function editMockRanges(current: HeightRangeRow[], command: HeightRangeCo
         selection = [];
         break;
       case 'set':
-      case 'reset':
+      case 'reset': {
+        const keys = command.operation === 'set' ? [command.key] : command.keys;
+        if (!keys.length) throw new Error('Select at least one height range setting');
+        const inherited: Record<string, string> = defaults();
         for (const target of targets) {
-          const value = command.operation === 'set' ? String(command.value) : defaults()[command.key as keyof ReturnType<typeof defaults>];
-          if (value === target.values[command.key]) continue;
-          if (value === undefined) delete target.values[command.key];
-          else target.values[command.key] = value;
-          target.revision = nextRevision();
+          for (const key of keys) {
+            const value = command.operation === 'set' ? String(command.value) : inherited[key];
+            if (value === target.values[key]) continue;
+            if (value === undefined) delete target.values[key];
+            else target.values[key] = value;
+            target.revision = nextRevision();
+          }
         }
         break;
+      }
     }
   }
   rows.sort((a, b) => a.min - b.min || a.max - b.max);

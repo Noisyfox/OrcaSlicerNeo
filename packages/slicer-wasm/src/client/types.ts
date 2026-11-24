@@ -997,7 +997,7 @@ export type HeightRangeCommand = { objectId: number } & (
   | { operation: 'append' | 'remove'; targets: HeightRangeTarget[] }
   | { operation: 'min' | 'max'; targets: HeightRangeTarget[]; value: number }
   | { operation: 'set'; targets: HeightRangeTarget[]; key: string; value: number | string }
-  | { operation: 'reset'; targets: HeightRangeTarget[]; key: string }
+  | { operation: 'reset'; targets: HeightRangeTarget[]; keys: string[] }
   | { operation: 'paste'; rows: Pick<HeightRangeRow, 'min' | 'max' | 'values'>[] }
 );
 export type HeightRangeEditResult = ModelMutationResult<{ changed: true; selection: HeightRangeBounds[] }>
