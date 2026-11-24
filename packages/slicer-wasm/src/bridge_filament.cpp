@@ -363,26 +363,32 @@ bool is_filament_slot_reference_key(const std::string& key)
 
 int remap_filament_config_reference(const std::string& key, const int value,
                                     const std::size_t removed,
-                                    const std::optional<std::size_t>& replacement)
+                                    const std::optional<std::size_t>& replacement,
+                                    int deleted_base_slot = 1)
 {
     // Support/raft and feature routing use native zero as Default.  A plain
     // slot Delete therefore clears a deleted explicit route to Default, while
     // ordinary object/part assignments retain Orca's slot-1 fallback.
-    if (!replacement.has_value() && value == static_cast<int>(removed + 1) && is_routing_key(key))
-        return 0;
+    if (!replacement && value == static_cast<int>(removed + 1)) {
+        if (key == "extruder") return deleted_base_slot;
+        if (is_routing_key(key)) return 0;
+    }
     return remap_filament_reference(value, removed, replacement);
 }
 
 template <typename Config>
 void remap_config_filament_references(Config& config, const std::size_t removed,
-                                      const std::optional<std::size_t>& replacement)
+                                      const std::optional<std::size_t>& replacement,
+                                      int deleted_base_slot = 1)
 {
     const auto keys = config.keys();
     for (const std::string& key : keys) {
         if (!is_filament_slot_reference_key(key)) continue;
         const auto* option = dynamic_cast<const ConfigOptionInt*>(config.option(key));
         if (option == nullptr) continue;
-        config.set_key_value(key, new ConfigOptionInt(remap_filament_config_reference(key, option->value, removed, replacement)));
+        const int slot = remap_filament_config_reference(key, option->value, removed, replacement, deleted_base_slot);
+        if (slot != option->value)
+            config.set_key_value(key, new ConfigOptionInt(slot));
     }
 }
 
@@ -607,6 +613,8 @@ void remap_model_filament_references(Model& model, const std::size_t removed,
     validate_paint_remap(model, removed, replacement);
     for (ModelObject* object : model.objects) {
         remap_config_filament_references(object->config, removed, replacement);
+        for (auto& range : object->layer_config_ranges)
+            remap_config_filament_references(range.second, removed, replacement, 0);
         for (ModelVolume* volume : object->volumes) {
             remap_config_filament_references(volume->config, removed, replacement);
             // The native MM painting selector stores 1-based enforcer IDs and
@@ -640,13 +648,13 @@ void normalize_references_after_rack_restore(PresetBundle& bundle, Model& model,
 {
     const std::size_t count = State::material_slot_count(bundle.project_config);
     if (count == 0) throw std::runtime_error("cannot normalize an empty filament rack");
-    const auto normalize_config = [count](auto& config, const bool project) {
+    const auto normalize_config = [count](auto& config, const bool project, int base_slot = 1) {
         for (const auto& key : config.keys()) {
             if (!is_filament_slot_reference_key(key)) continue;
             const auto* option = dynamic_cast<const ConfigOptionInt*>(config.option(key));
             if (option == nullptr || option->value <= static_cast<int>(count)) continue;
             if (key == "extruder")
-                config.set_key_value(key, new ConfigOptionInt(1));
+                config.set_key_value(key, new ConfigOptionInt(base_slot));
             else if (project)
                 config.set_key_value(key, new ConfigOptionInt(key == "wipe_tower_filament" ? 1 : 0));
             else
@@ -657,6 +665,8 @@ void normalize_references_after_rack_restore(PresetBundle& bundle, Model& model,
     for (ModelObject* object : model.objects) {
         // Orca's ObjectList resets an out-of-range object assignment to slot 1.
         normalize_config(object->config, false);
+        for (auto& range : object->layer_config_ranges)
+            normalize_config(range.second, false, 0);
         for (ModelVolume* volume : object->volumes) {
             // Native count normalization clears stale part assignments and
             // limits imported painting before the candidate is validated.
@@ -1016,6 +1026,8 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
     };
     for (const ModelObject* object : model.objects) {
         validate_config_references(object->config);
+        for (const auto& range : object->layer_config_ranges)
+            validate_config_references(range.second);
         for (const ModelVolume* volume : object->volumes) {
             validate_config_references(volume->config);
             const ConfigOption* extruder = volume->config.option("extruder");
@@ -2036,6 +2048,8 @@ void insert_before_mixes(PresetBundle& bundle, Model& model, std::vector<BridgeS
     shift_config(bundle.prints.get_edited_preset().config);
     for (auto* object : model.objects) {
         shift_config(object->config);
+        for (auto& range : object->layer_config_ranges)
+            shift_config(range.second);
         for (auto* volume : object->volumes) {
             shift_config(volume->config);
             if (volume->mmu_segmentation_facets.empty()) continue;
@@ -2366,6 +2380,8 @@ json material_reference_kinds()
         for (const auto& row : projection["assignments"][group]) refs[row.at("effective_slot").get<int>()].insert("Model assignment");
     for (const auto* object : state().model.objects) {
         config_refs(object->config, "Object routing");
+        for (const auto& range : object->layer_config_ranges)
+            config_refs(range.second, "Height range routing");
         for (const auto* volume : object->volumes) {
             config_refs(volume->config, "Part routing");
             for (const auto value : TriangleSelector::extract_used_facet_states(volume->mmu_segmentation_facets.get_data()))
