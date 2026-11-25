@@ -45,6 +45,32 @@ export async function verifyHeightRanges(page: Page) {
   await list.getByRole('button', { name: 'Collapse Layers' }).click();
   await expect(first).toHaveCount(0);
   await list.getByRole('button', { name: 'Expand Layers' }).click();
+  // The Range and its owner select the same geometry. Compare the displayed
+  // pixels at the cube with the original object-only view.
+  await owner.click();
+  await expect(owner).toHaveAttribute('data-state', 'selected');
+  const canvas = await page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]').boundingBox();
+  const pivot = await page.evaluate(() => (window as unknown as { __orcaE2e: {
+    projectSelectionPivot(): { x: number; y: number } | null;
+  } }).__orcaE2e.projectSelectionPivot());
+  if (!canvas || !pivot) throw new Error('Expected the selected cube in the viewport');
+  const clip = { x: Math.round(canvas.x + pivot.x) - 64, y: Math.round(canvas.y + pivot.y) - 64, width: 128, height: 128 };
+  const cubeFrame = () => page.screenshot({ clip });
+  const objectFrame = await cubeFrame();
+  await first.click();
+  await expect.poll(async () => (await planes()).map(p => p.z)).toEqual([0, 2]);
+  await expect.poll(async () => (await cubeFrame()).equals(objectFrame)).toBe(false);
+  await owner.click();
+  await expect(owner).toHaveAttribute('data-state', 'selected');
+  await expect.poll(planes).toEqual([]);
+  await expect.poll(async () => (await cubeFrame()).equals(objectFrame)).toBe(true);
+  await first.click();
+  await expect.poll(async () => (await planes()).map(p => p.z)).toEqual([0, 2]);
+  await page.mouse.click(canvas.x + pivot.x, canvas.y + pivot.y);
+  await expect(owner).toHaveAttribute('data-state', 'selected');
+  await expect.poll(planes).toEqual([]);
+  await expect.poll(async () => (await cubeFrame()).equals(objectFrame)).toBe(true);
+  await layers.click();
   // Clicking Add directly from a dirty endpoint acts after its new bound.
   const initial = interval(0, 2);
   await initial.getByRole('textbox', { name: 'End (mm)' }).fill('3,5');

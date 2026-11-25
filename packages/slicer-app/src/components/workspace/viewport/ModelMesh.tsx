@@ -122,8 +122,8 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
           ...(data instanceof WipeTowerVolume ? { plateId: data.plateId, primeTower: true } : {}) }}
         onPointerDown={interactive ? (event) => {
           if (event.nativeEvent.button !== 0) return;
-          onModelSelection?.();
           if (!sceneInteraction.pointerStartsOnGizmo) {
+            onModelSelection?.();
             event.nativeEvent.stopImmediatePropagation();
           }
           selectedOnPointerDownRef.current = sceneInteraction.prepareBodyDragFromPointerDown(
