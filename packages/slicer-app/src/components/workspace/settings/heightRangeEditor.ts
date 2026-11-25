@@ -4,8 +4,27 @@ import { editRanges } from '../objectList/heightRangeActions';
 import { selectedHeightRanges, useObjectListStore, type HeightRangeSelection } from '../objectList/useObjectListStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { featureOptions } from './featureFilamentSettings';
-import { isGenericScopedKey, type ScopedConfigurationField } from './scopedConfigurationProjection';
+import { isKeyEligibleForScope, type ScopedConfigurationField } from './scopedConfigurationProjection';
 import { isVisiblePrintSetting } from './printSettingsLayout';
+
+function isRangeProcessSetting(key: string, metadata: OptionMetadata) {
+  return (key === 'layer_height' || (metadata[key] && isKeyEligibleForScope(key, metadata[key], 'part'))) &&
+    isVisiblePrintSetting({ key }, 'scoped');
+}
+
+function hasResettableValue(row: HeightRangeRow, key: string, parentHeight: string | undefined) {
+  if (!Object.hasOwn(row.values, key)) return false;
+  // Native ranges retain their layer height and default filament after a reset.
+  if (key === 'extruder') return Number(row.values[key]) !== 0;
+  if (key === 'layer_height') return parentHeight !== undefined && Number(row.values[key]) !== Number(parentHeight);
+  return true;
+}
+
+export function rangeOverrideKeys(row: HeightRangeRow, metadata: OptionMetadata, parentHeight: string | undefined) {
+  return Object.keys(row.values).filter(key =>
+    (isRangeProcessSetting(key, metadata) || key === 'extruder' || featureOptions.some(([option]) => option === key)) &&
+    !metadata[key]?.readonly && hasResettableValue(row, key, parentHeight));
+}
 
 function setting(rows: HeightRangeRow[], key: string, inherited: string, metadata: OptionMetadata,
   label?: string, source: ScopedConfigurationField['source'] = 'object'): ScopedConfigurationField {
@@ -13,10 +32,7 @@ function setting(rows: HeightRangeRow[], key: string, inherited: string, metadat
   const values = rows.map(row => row.values[key] ?? inherited);
   const mixed = values.some(value => value !== values[0]);
   const local = rows.some(row => Object.hasOwn(row.values, key));
-  // Native ranges retain these two entries even after Reset.
-  const resettable = key === 'layer_height' || key === 'extruder'
-    ? rows.some(row => Object.hasOwn(row.values, key) && Number(row.values[key]) !== Number(inherited))
-    : local;
+  const resettable = !meta.readonly && rows.some(row => hasResettableValue(row, key, inherited));
   return { key, label: label ?? (meta.label || meta.full_label || key), category: meta.category || 'Process', meta,
     mixed, local, resettable, value: mixed ? null : values[0], source: mixed ? 'mixed' : local ? 'range' : source };
 }
@@ -49,10 +65,9 @@ export function heightRangeEditor(runtime: SlicerRuntime, scene: SceneInteractio
   const objectValues = snapshot.objects[objectId] ?? {};
   const parentValues = { ...projectValues, ...objectValues };
   const fields: ScopedConfigurationField[] = Object.entries(metadata)
-    .filter(([key, meta]) => key === 'layer_height' || (meta.scopes?.includes('part') && isGenericScopedKey(key, meta)))
+    .filter(([key]) => isRangeProcessSetting(key, metadata))
     .map(([key, meta]) => setting(rows, key, parentValues[key] ?? meta.default ?? '', metadata, undefined,
-      Object.hasOwn(objectValues, key) ? 'object' : Object.hasOwn(snapshot.project, key) ? 'project' : 'preset'))
-    .filter(field => isVisiblePrintSetting(field, 'scoped'));
+      Object.hasOwn(objectValues, key) ? 'object' : Object.hasOwn(snapshot.project, key) ? 'project' : 'preset'));
   if (rack) fields.push(setting(rows, 'extruder', '0', metadata, 'Filament'), ...rangeFilamentFields(objectId, rows, metadata, rack));
   const single = selection.bounds !== 'all' && rows.length === 1 ? rows[0] : undefined;
   async function commit(field: ScopedConfigurationField, value: string) {

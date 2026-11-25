@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle, Box, CircleMinus, CirclePlus, RotateCcw } from 'lucide-react';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { editRanges } from './heightRangeActions';
 import { HeightRangeRows } from './HeightRangeRows';
 import { useObjectListStore } from './useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
@@ -108,29 +109,35 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     return Object.keys(values).some((key) => isKeyEligibleForScope(key, configMetadata[key] ?? { type: 'unknown' }, scope));
   };
 
-  function resetControl(scope: 'object' | 'part', id: number) {
-    if (!hasScopedMarker(scope, id)) return null;
-    const label = scope === 'object' ? 'Object' : 'Part';
+  function resetButton(scope: 'object' | 'part' | 'range', id: number | string, label: string, reset: () => Promise<unknown>) {
     return <TooltipFor content={`Reset all ${scope} overrides`}>
       <Button type="button" variant="ghost" size="icon-xs"
         className="size-4 shrink-0 text-config-override [&>svg]:size-3"
         data-testid={`config-marker-${scope}-${id}`}
-        aria-label={`Reset ${label} ${id} overrides`}
+        aria-label={`Reset ${label} overrides`}
         disabled={resetPending || restorePhase !== 'idle'}
         onPointerDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
           setResetPending(true);
-          void prepareObjectListMutation().then(prepared => prepared.ok ? commitScopedConfigurationMutation(platform, {
-            version: 1, operation: 'reset-all', targets: [{ scope, id }],
-          }) : null).then((mutation) => {
-            if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
-          }).catch(() => {
+          void reset().catch(() => {
             // The shared mutation path publishes the runtime error to the UI.
           }).finally(() => setResetPending(false));
         }}><RotateCcw /></Button>
     </TooltipFor>;
+  }
+
+  function resetControl(scope: 'object' | 'part', id: number) {
+    if (!hasScopedMarker(scope, id)) return null;
+    return resetButton(scope, id, `${scope === 'object' ? 'Object' : 'Part'} ${id}`, async () => {
+      const prepared = await prepareObjectListMutation();
+      if (!prepared.ok) return;
+      const mutation = await commitScopedConfigurationMutation(platform, {
+        version: 1, operation: 'reset-all', targets: [{ scope, id }],
+      });
+      if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    });
   }
 
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
@@ -596,6 +603,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                 ))}
                 {!!obj.heightRanges?.length && <HeightRangeRows object={obj} scene={sceneInteraction}
                   instanceId={obj.instances.find(instance => projection.instanceIds.has(instance.id))?.id}
+                  renderReset={(row, keys, label) => resetButton('range', `${obj.id}-${row.min}-${row.max}`, label,
+                    () => editRanges(platform.runtime, { operation: 'reset', objectId: obj.id, targets: [row], keys }, sceneInteraction))}
                   onMenu={(event, rows) => openContextMenu(event, { kind: 'ranges', object: obj, rows })} />}
                 {obj.instanceCount > 1 && (
                   <div data-testid={`instances-${obj.id}`} className="pl-2">

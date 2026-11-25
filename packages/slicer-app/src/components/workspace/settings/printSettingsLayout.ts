@@ -120,7 +120,7 @@ export function printSettingPlacement(field: ScopedConfigurationField): PrintSet
   return placements.get(field.key);
 }
 
-export function isVisiblePrintSetting(field: ScopedConfigurationField, mode: ConfigurationMode): boolean {
+export function isVisiblePrintSetting(field: Pick<ScopedConfigurationField, 'key'>, mode: ConfigurationMode): boolean {
   return printSettingsPages(mode).some((page) => page.groups.some((group) => group.keys.includes(field.key)));
 }
 

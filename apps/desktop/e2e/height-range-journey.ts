@@ -29,6 +29,10 @@ export async function verifyHeightRanges(page: Page) {
   const panel = page.getByRole('region', { name: 'Height range settings' });
   await expect(panel).toBeVisible();
   const first = list.getByRole('button', { name: 'Range 0.00-2.00 (mm)', exact: true });
+  const firstReset = objects.first().getByRole('button', { name: 'Reset Range 0.00-2.00 (mm) overrides', exact: true });
+  const secondReset = objects.first().getByRole('button', { name: 'Reset Range 2.00-4.00 (mm) overrides', exact: true });
+  const firstLabel = first.getByText('Range 0.00-2.00 (mm)', { exact: true });
+  await expect(firstReset).toHaveCount(0);
   const planes = () => page.evaluate(() => (window as unknown as { __orcaE2e: {
     heightRangePlanes: () => Array<{ z: number; opacity: number }>;
   } }).__orcaE2e.heightRangePlanes());
@@ -84,12 +88,16 @@ export async function verifyHeightRanges(page: Page) {
   await walls.fill('7');
   await walls.press('Enter');
   await expect(panel.getByTestId('config-reset-wall_loops')).toBeVisible();
+  await expect(firstReset).toBeEnabled();
+  await expect(firstLabel).toHaveClass(/text-config-override/);
   await panel.getByRole('button', { name: 'Search settings' }).click();
   const search = panel.getByTestId('scoped-config-search');
   await search.fill('wall_loops');
   await expect(walls).toHaveCount(1);
   await panel.getByTestId('config-category-toggle-Strength / Walls').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Reset Walls' }).click();
+  await expect(firstReset).toHaveCount(0);
+  await expect(firstLabel).not.toHaveClass(/text-config-override/);
   await expect(walls).toHaveValue(ownerWalls);
   await panel.getByRole('button', { name: 'Search settings' }).click();
   await tabs.getByRole('tab', { name: 'Frequent' }).click();
@@ -135,6 +143,21 @@ export async function verifyHeightRanges(page: Page) {
   await page.getByTestId('history-redo').click();
   await second.click();
   await expect(height).toHaveValue('0.16');
+  await list.screenshot({ path: test.info().outputPath('range-overrides.png') });
+  // A row reset is independent of selection and only resets that one interval.
+  await first.click({ modifiers: ['ControlOrMeta'] });
+  await firstReset.click();
+  await expect(firstReset).toHaveCount(0);
+  await expect(firstLabel).not.toHaveClass(/text-config-override/);
+  await expect(secondReset).toBeEnabled();
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  await expect(second).toHaveAttribute('aria-pressed', 'true');
+  await expect(height).toHaveAttribute('placeholder', 'Mixed');
+  await second.click();
+  await expect(height).toHaveValue('0.16');
+  await page.getByTestId('history-undo').click();
+  await expect(firstReset).toBeEnabled();
+  await expect(firstLabel).toHaveClass(/text-config-override/);
   await layers.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Copy ranges' }).click();
   await addPrimitive(page, 'Cube');
@@ -170,6 +193,15 @@ export async function verifyHeightRanges(page: Page) {
   await objects.last().getByRole('button', { name: 'Range 2.00-4.00 (mm)', exact: true }).click();
   await expect(outer).toContainText(/^4 - /);
   await expect(base).toContainText(/^2 - /);
+  const copiedReset = objects.last().getByRole('button', { name: 'Reset Range 2.00-4.00 (mm) overrides', exact: true });
+  await owner.click();
+  await copiedReset.click();
+  await expect(copiedReset).toHaveCount(0);
+  await expect(owner).toHaveAttribute('data-state', 'selected');
+  await expect(panel).toHaveCount(0);
+  await objects.last().getByRole('button', { name: 'Range 2.00-4.00 (mm)', exact: true }).click();
+  await expect(outer.locator('[data-slot="select-value"]')).toHaveText('Default');
+  await expect(base.locator('[data-slot="select-value"]')).toHaveText('Default');
   await owner.click();
   await tabs.getByRole('tab', { name: 'Strength' }).click();
   await expect(walls).toHaveValue(ownerWalls);
@@ -177,7 +209,7 @@ export async function verifyHeightRanges(page: Page) {
   await interval(0, 2).getByRole('textbox', { name: 'End (mm)' }).fill('1.5');
   const ownerSecond = objects.first().getByRole('button', { name: 'Range 2.00-4.00 (mm)', exact: true });
   await ownerSecond.click();
-  await expect(objects.first().getByRole('button', { name: 'Range 0.00-1.50 (mm)' })).toBeVisible();
+  await expect(objects.first().getByRole('button', { name: 'Range 0.00-1.50 (mm)', exact: true })).toBeVisible();
   await expect(ownerSecond).toHaveAttribute('aria-pressed', 'true');
   await objects.first().getByRole('button', { name: 'Layers', exact: true }).click();
   await interval(2, 4).getByRole('button', { name: 'Remove height range' }).click();

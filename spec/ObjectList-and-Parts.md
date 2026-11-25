@@ -452,7 +452,11 @@ single full instance. Both target the owning object. Its Object List group shows
 the ranges in native order. Opening an existing group selects it and exposes
 its ranges. The collapsible Layers node follows the parts and precedes the
 instances. Each child shows its range icon, two-decimal bounds in millimetres
-and base filament. Removing the last range removes the group. A range row targets the
+and base filament. A range with editable overrides shows its label in the
+override color and a reset button beside the filament. The button resets that
+row in one undoable edit and preserves its endpoints and the current selection.
+The default base filament and a layer height equal to the current parent height
+leave the row unmarked. Removing the last range removes the group. A range row targets the
 range configuration, including layer height, supported print-region settings
 such as walls and infill, and filament choices. Structural actions on that row
 must resolve to its owning object and range before changing the model.

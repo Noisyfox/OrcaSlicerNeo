@@ -31,6 +31,8 @@ export async function editRanges(runtime: SlicerRuntime, command: HeightRangeCom
             if (!structure.ok) throw new Error(structure.error);
             list.setStructure(structure.objects);
           }
+          // Reset changes values in place, including when invoked on an unselected row.
+          if (command.operation === 'reset') return;
           const current = useObjectListStore.getState();
           // A blur can save just as the user selects a different tree item.
           if (current.rangeSelectionRevision !== list.rangeSelectionRevision) return;
