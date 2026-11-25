@@ -1,8 +1,33 @@
+import type { HeightRangeBounds, HeightRangeRow } from '@slicer/client';
 import { create } from 'zustand';
 import type { ModelObjectStructure } from '@slicer/client';
 import { EMPTY_PROJECTION, type HighlightLevel, type SelectionProjection } from './projection';
 
+export interface HeightRangeSelection {
+  objectId: number;
+  instanceId?: number;
+  bounds: HeightRangeBounds[] | 'all';
+}
+export function sameBounds(a: HeightRangeBounds, b: HeightRangeBounds) {
+  return a.min === b.min && a.max === b.max;
+}
+export function selectedHeightRanges(object: ModelObjectStructure, selection: HeightRangeSelection): HeightRangeRow[] {
+  const rows = object.heightRanges ?? [];
+  const bounds = selection.bounds;
+  return bounds === 'all' ? rows : rows.filter(row => bounds.some(key => sameBounds(row, key)));
+}
+
 interface ObjectListState {
+  heightRangeSelection: HeightRangeSelection | null;
+  /** Distinguishes deliberate navigation from reconciliation during a pending edit. */
+  rangeSelectionRevision: number;
+  heightRangeFocus: (HeightRangeBounds & { endpoint: 'min' | 'max' }) | null;
+  rangeClipboard: { generation: number; rows: HeightRangeRow[] } | null;
+  selectRanges: (selection: HeightRangeSelection | null) => void;
+  focusRange: (field: ObjectListState['heightRangeFocus']) => void;
+  collapsedLayers: Record<number, boolean>;
+  toggleLayersCollapsed: (objectId: number) => void;
+  copyRanges: (generation: number, rows: HeightRangeRow[]) => void;
   /** Current model structure (from getModelStructure), keyed at the store level. */
   structure: ModelObjectStructure[];
   loaded: boolean;
@@ -25,12 +50,27 @@ interface ObjectListState {
 
 export const useObjectListStore = create<ObjectListState>((set) => ({
   structure: [],
+  rangeSelectionRevision: 0,
   loaded: false,
   expanded: {},
   highlightLevel: {},
-  collapsedInstances: {},
+  collapsedInstances: {}, collapsedLayers: {},
   projection: EMPTY_PROJECTION,
-  setStructure: (structure) => set({ structure }),
+  heightRangeSelection: null, heightRangeFocus: null, rangeClipboard: null,
+  selectRanges: (heightRangeSelection) => set(s => ({
+    heightRangeSelection, heightRangeFocus: null, rangeSelectionRevision: s.rangeSelectionRevision + 1,
+    collapsedLayers: heightRangeSelection ? { ...s.collapsedLayers, [heightRangeSelection.objectId]: false } : s.collapsedLayers,
+    expanded: heightRangeSelection ? { ...s.expanded, [heightRangeSelection.objectId]: true } : s.expanded,
+  })),
+  toggleLayersCollapsed: (id) => set(s => ({ collapsedLayers: { ...s.collapsedLayers, [id]: !s.collapsedLayers[id] } })),
+  focusRange: (heightRangeFocus) => set({ heightRangeFocus }),
+  copyRanges: (generation, rows) => set({ rangeClipboard: { generation, rows } }),
+  setStructure: (structure) => set(s => {
+    const selection = s.heightRangeSelection;
+    const object = selection && structure.find(o => o.id === selection.objectId);
+    return !selection || (object && selectedHeightRanges(object, selection).length)
+      ? { structure } : { structure, heightRangeSelection: null, heightRangeFocus: null };
+  }),
   setLoaded: (loaded) => set({ loaded }),
   toggleExpanded: (objectId) => set((s) => ({
     expanded: { ...s.expanded, [objectId]: !s.expanded[objectId] },
@@ -45,12 +85,14 @@ export const useObjectListStore = create<ObjectListState>((set) => ({
     highlightLevel: { ...s.highlightLevel, [objectId]: level },
   })),
   setProjection: (projection) => set({ projection }),
-  clear: () => set({
+  clear: () => set(s => ({
+    rangeSelectionRevision: s.rangeSelectionRevision + 1,
+    heightRangeSelection: null, heightRangeFocus: null, rangeClipboard: null,
     structure: [],
     loaded: false,
     expanded: {},
     highlightLevel: {},
-    collapsedInstances: {},
+    collapsedInstances: {}, collapsedLayers: {},
     projection: EMPTY_PROJECTION,
-  }),
+  })),
 }));

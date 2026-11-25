@@ -811,7 +811,8 @@ historyCheck('locate out-of-bounds fixture instance', outOfBoundsObject?.instanc
 const outOfBoundsTransform = JSON.stringify({
   offset: [fixturePlateThree ? addedHistoryPlate.plates[2].origin[0] + 120 : 120,
     addedHistoryPlate.plates[2].origin[1], 10],
-  rotation: [0, 0, 0], scale: [30, 30, 30], mirror: [1, 1, 1],
+  // Straddle plate three's front edge without reaching another plate.
+  rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1],
 });
 const movedOutOfBounds = callJson('orc_set_model_transform',
   ['number', 'number', 'number', 'string', 'string'],

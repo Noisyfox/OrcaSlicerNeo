@@ -1,3 +1,6 @@
+import { editRanges } from '../objectList/heightRangeActions';
+import { selectedHeightRanges } from '../objectList/useObjectListStore';
+import { useObjectListStore } from '../objectList/useObjectListStore';
 import { MeshBooleanPanel } from './gizmo/meshBoolean/MeshBooleanControls';
 import { useSetupWizardStore } from '@/stores/useSetupWizardStore';
 // packages/slicer-app/src/components/viewport/Viewport.tsx
@@ -259,6 +262,15 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
         if (slicing || sceneInteraction.owner !== 'none') return;
+        const list = useObjectListStore.getState();
+        const selected = list.heightRangeSelection;
+        if (selected) {
+          event.preventDefault();
+          const object = list.structure.find(o => o.id === selected.objectId);
+          if (object) void editRanges(platform.runtime, { objectId: object.id, operation: 'remove',
+            targets: selectedHeightRanges(object, selected) }, sceneInteraction);
+          return;
+        }
         if (sceneInteraction.selectedObjectIndices().length === 0) return;
         event.preventDefault();
         void deleteSelection(platform.runtime, sceneInteraction);

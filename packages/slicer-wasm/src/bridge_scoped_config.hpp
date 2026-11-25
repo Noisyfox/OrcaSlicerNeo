@@ -43,6 +43,7 @@ bool is_project_print_override_key(const std::string& key);
 // Existing native filament-routing slots are Project-owned for slicing and
 // history, but remain outside the generic Project/Scoped editing catalogue;
 // dedicated filament commands are their only mutation authority.
+void set_scoped_value(DynamicPrintConfig& config, const std::string& key, const std::string& value);
 bool is_bridge_owned_project_routing_key(const std::string& key);
 
 // Apply the Project-scope root split used by scoped mutation and history

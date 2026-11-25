@@ -12,7 +12,7 @@ export interface SettingValues {
 }
 
 export interface SettingConditionContext extends SettingValues {
-  readonly scope: 'printer' | 'filament' | 'project' | 'object' | 'part' | 'plate';
+  readonly scope: 'printer' | 'filament' | 'project' | 'object' | 'part' | 'plate' | 'range';
   readonly printer: SettingValues;
   readonly project: SettingValues;
   readonly isBblPrinter: boolean | undefined;

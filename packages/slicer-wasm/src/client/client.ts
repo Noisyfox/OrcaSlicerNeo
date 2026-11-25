@@ -31,6 +31,7 @@ import type {
   ConfigEditorSnapshot,
   NativeScopedConfigTransport, NativeScopedConfigFullTransport, NativeScopedConfigTargetReplacement,
   ConfigurationStatus,
+  HeightRangeBounds, HeightRangeCommand, HeightRangeEditResult,
   ModelMutationResult, ModelPlateSessionMutation, ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, ModelScenePatchResult, SliceResultStatus, SliceDiagnostic, SliceDiagnosticEvent, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
@@ -1673,9 +1674,20 @@ function modelIds(value: unknown): value is number[] {
   return Array.isArray(value) && value.every(id => normalizeCount(id) !== null && id > 0);
 }
 
+function heightRangeBounds(value: unknown): value is HeightRangeBounds {
+  return isRecord(value) && typeof value.min === 'number' && Number.isFinite(value.min) &&
+    typeof value.max === 'number' && Number.isFinite(value.max);
+}
+
+function heightRangeRow(value: unknown): boolean {
+  return isRecord(value) && heightRangeBounds(value) && Number.isSafeInteger(value.revision) &&
+    isRecord(value.values) && Object.values(value.values).every(option => typeof option === 'string');
+}
+
 function modelStructure(value: unknown): boolean {
   return Array.isArray(value) && value.every(object => isRecord(object) &&
     modelCounts(object, 'id', 'index', 'instanceCount') && object.id !== 0 && typeof object.name === 'string' &&
+    (object.heightRanges === undefined || (Array.isArray(object.heightRanges) && object.heightRanges.every(heightRangeRow))) &&
     typeof object.printable === 'boolean' && typeof object.autoDrop === 'boolean' && typeof object.isCut === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
       isRecord(volume) && modelCounts(volume, 'id', 'index') && volume.id !== 0 && typeof volume.name === 'string' &&
       ['model_part', 'negative_volume', 'parameter_modifier', 'support_blocker', 'support_enforcer'].includes(volume.type as string) &&
@@ -3169,6 +3181,17 @@ export function createClient(
       if (!Array.isArray(patch.object_order) || !modelStructure(patch.objects))
         throw new Error('invalid model scene patch');
       return { ok: true, objectOrder: patch.object_order, objects: patch.objects, ...decoded };
+    },
+
+    async editHeightRanges(command: HeightRangeCommand): Promise<HeightRangeEditResult> {
+      const m = await module();
+      const result = callJson(m, 'orc_edit_height_ranges', ['string'], [JSON.stringify(command)]);
+      if (!isRecord(result) || result.ok !== true)
+        return { ok: false, error: isRecord(result) && typeof result.error === 'string' ? result.error : 'Height range edit failed' };
+      if (typeof result.changed !== 'boolean' || !Array.isArray(result.selection) || !result.selection.every(heightRangeBounds))
+        return { ok: false, error: 'Invalid height range edit response' };
+      if (!result.changed) return { ok: true, changed: false, selection: result.selection };
+      return normalizeStructuralResult<ModelMutationResult<{ changed: true; selection: HeightRangeBounds[] }>>(result);
     },
 
     async getModelStructure(): Promise<ModelStructureResult> {

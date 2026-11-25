@@ -11,7 +11,7 @@ import {
 import { type SelectionKind } from '../viewport/SceneInteractionController';
 
 export type ConfigurationMode = 'project' | 'scoped' | 'plates';
-export type ScopedValueSource = 'preset' | NativeScopedConfigScope | 'mixed';
+export type ScopedValueSource = 'preset' | NativeScopedConfigScope | 'mixed' | 'range';
 
 export interface ScopedSelectionVolume {
   readonly objectId: number;
@@ -267,9 +267,11 @@ export function scopedConfigurationCatalogue(metadata: OptionMetadata, resolutio
       meta, value: null, mixed: false, source: 'preset', local: false, resettable: true }));
 }
 
+export type ScopedFieldTarget = ScopedConfigurationTarget | { scope: 'range'; id: string };
+
 export interface ScopedOptionData {
   readonly field: ScopedConfigurationField;
-  readonly targets: readonly ScopedConfigurationTarget[];
+  readonly targets: readonly ScopedFieldTarget[];
   readonly disabled: boolean;
   readonly selectionGutter: boolean;
   readonly viewKey: string;

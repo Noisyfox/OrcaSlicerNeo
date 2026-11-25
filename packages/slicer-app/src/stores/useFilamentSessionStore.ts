@@ -119,6 +119,14 @@ async function refreshRemappedPaint(runtime: SlicerClient): Promise<void> {
   glVolumeCollection.patch(projection.volumes, revision);
 }
 
+export async function refreshRangeFilamentRows(runtime: Pick<SlicerClient, 'getModelStructure'>): Promise<void> {
+  const list = useObjectListStore.getState();
+  if (!list.structure.some(object => object.heightRanges?.length)) return;
+  const structure = await runtime.getModelStructure();
+  if (!structure.ok) throw new Error(structure.error);
+  list.setStructure(structure.objects);
+}
+
 export const useFilamentSessionStore = create<FilamentSessionState>((set, get) => ({
   snapshot: null,
   pendingKind: null,
@@ -146,6 +154,9 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set, get) =
         if (result.ok) {
           if (result.result.mutation.kind === 'delete' || result.result.mutation.kind === 'merge' || result.result.mutation.kind === 'synchronize')
             await refreshRemappedPaint(runtime);
+          const { mutation, snapshot } = result.result;
+          if (snapshot.slots.length !== get().snapshot?.slots.length || mutation.kind === 'synchronize')
+            await refreshRangeFilamentRows(runtime);
           // The native command and this receipt share one commit. Project it
           // before any dependent session/result publication; do not issue a
           // competing history-status read from this FIFO operation.

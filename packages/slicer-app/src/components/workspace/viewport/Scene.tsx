@@ -1,3 +1,5 @@
+import { HeightRangePlanes } from './HeightRangePlanes';
+import { useObjectListStore } from '../objectList/useObjectListStore';
 import { MeshBooleanBounds } from './gizmo/meshBoolean/MeshBooleanControls';
 // packages/slicer-app/src/components/viewport/Scene.tsx
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -176,6 +178,11 @@ function PreviewScene({ glVolumes, toolpath, structure, plateSession, controller
     controller={controller} wipeTowerVolumes={wipeTowerVolumes} selectionRevision={0} bodyDragEnabled={false} />;
 }
 
+function leaveHeightRangeSelection() {
+  const list = useObjectListStore.getState();
+  if (list.heightRangeSelection) list.selectRanges(null);
+}
+
 function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, structure = [], plateSession, controller, wipeTowerVolumes, selectionRevision, bodyDragEnabled }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
@@ -196,9 +203,10 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, s
     <>
       {!preview && !hidesWipeTowers(isolation) && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} interactive={interactive}
         selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />}
+      {!preview && <HeightRangePlanes volumes={visibleVolumes} />}
       {visibleVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession}
-          selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />
+          selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} onModelSelection={leaveHeightRangeSelection} />
       ))}
       {interactive && <><SelectionBoundsBox /><MeshBooleanBounds /></>}
       {interactive && <SelectionTransformGizmo />}

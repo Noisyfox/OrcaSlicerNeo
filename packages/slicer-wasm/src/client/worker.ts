@@ -83,7 +83,7 @@ const restrictedWhileSerialSlicing = new Set([
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
   'splitVolumeToParts', 'previewSplitObject', 'splitObjectToObjects', 'mergeObjectsToMultipart', 'meshBoolean',
   'separateInstances', 'addInstance', 'removeInstance', 'renameObject',
-  'renameVolume', 'setVolumeType', 'setObjectPrintable', 'setObjectsAutoDrop', 'setInstancePrintable',
+  'renameVolume', 'setVolumeType', 'editHeightRanges', 'setObjectPrintable', 'setObjectsAutoDrop', 'setInstancePrintable',
   'slice', 'slicePlate', 'exportGcodePlate', 'describePrintPlate', 'exportPrintPlate', 'exportProject', 'cancel',
 ]);
 

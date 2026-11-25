@@ -988,6 +988,21 @@ export interface ModelInstanceStructure {
   printable: boolean;
 }
 
+export interface HeightRangeBounds { min: number; max: number }
+export interface HeightRangeTarget extends HeightRangeBounds { revision: number }
+export interface HeightRangeRow extends HeightRangeTarget { values: Record<string, string> }
+
+export type HeightRangeCommand = { objectId: number } & (
+  | { operation: 'initialize' }
+  | { operation: 'append' | 'remove'; targets: HeightRangeTarget[] }
+  | { operation: 'min' | 'max'; targets: HeightRangeTarget[]; value: number }
+  | { operation: 'set'; targets: HeightRangeTarget[]; key: string; value: number | string }
+  | { operation: 'reset'; targets: HeightRangeTarget[]; keys: string[] }
+  | { operation: 'paste'; rows: Pick<HeightRangeRow, 'min' | 'max' | 'values'>[] }
+);
+export type HeightRangeEditResult = ModelMutationResult<{ changed: true; selection: HeightRangeBounds[] }>
+  | { ok: true; changed: false; selection: HeightRangeBounds[]; error?: never; plateSession?: never };
+
 export interface ModelObjectStructure {
   id: number;
   index: number;
@@ -999,6 +1014,8 @@ export interface ModelObjectStructure {
   /** Automatic bed placement is shared by every instance of the object. */
   autoDrop: boolean;
   instanceCount: number;
+  /** Present when the object owns native height ranges. */
+  heightRanges?: HeightRangeRow[];
   volumes: ModelVolumeStructure[];
   instances: ModelInstanceStructure[];
 }
@@ -1945,6 +1962,7 @@ export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethod
   getModelScenePatch(objectIds: readonly number[], knownGeometryKeys: readonly string[],
                      knownPaintGeometryKeys?: readonly string[]): Promise<ModelScenePatchResult>;
   /** Read the complete object/part/instance tree with stable IDs. */
+  editHeightRanges(command: HeightRangeCommand): Promise<HeightRangeEditResult>;
   getModelStructure(): Promise<ModelStructureResult>;
   /** Delete whole objects by their stable ObjectIDs. */
   deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult>;

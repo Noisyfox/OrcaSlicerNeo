@@ -143,3 +143,26 @@ export function replaceEntry(input, name, content) {
   entries[index] = { ...entries[index], content: encoded };
   return writeStoredZip(entries);
 }
+
+export function parseLayerRanges(bytes) {
+  const entry = readZipEntries(bytes).find(({ name }) => name === 'Metadata/layer_config_ranges.xml');
+  if (!entry) return [];
+  const xml = decoder.decode(entry.content);
+  const unescape = (value) => value.replaceAll('&quot;', '"').replaceAll('&apos;', "'")
+    .replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+  const attr = (text, key) => text.match(new RegExp(`${key}="([^"]*)"`))?.[1] ?? '';
+  const ranges = [];
+  for (const objectMatch of xml.matchAll(/<object\b[\s\S]*?<\/object>/g)) {
+    const objectText = objectMatch[0];
+    const objectId = Number(attr(objectText.slice(0, objectText.indexOf('>') + 1), 'id'));
+    for (const rangeMatch of objectText.matchAll(/<range\b[\s\S]*?<\/range>/g)) {
+      const rangeText = rangeMatch[0];
+      const head = rangeText.slice(0, rangeText.indexOf('>') + 1);
+      const values = {};
+      for (const option of rangeText.matchAll(/<option\b[^>]*>([\s\S]*?)<\/option>/g))
+        values[unescape(attr(option[0], 'opt_key'))] = unescape(option[1]);
+      ranges.push({ object_id: objectId, min_z: Number(attr(head, 'min_z')), max_z: Number(attr(head, 'max_z')), values });
+    }
+  }
+  return ranges;
+}

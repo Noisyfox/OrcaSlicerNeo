@@ -5,7 +5,8 @@
 **Status:** The existing object/part-management scope is delivered. Mesh
 Boolean remains unimplemented; section 10 records the agreed design and its
 implementation/qualification requirements.
-Layer ranges, brim points and cut connectors remain deferred.
+The shared Prepare workspace supports [Height Range Modifiers](#91-height-range-modifiers).
+Brim points and cut connectors remain deferred.
 
 
 ## 1. Goal
@@ -65,6 +66,7 @@ Use the approved thin-bridge approach:
 - Separate instances into individual objects (**Set as an individual object** in
   the instance-row context menu).
 - Toggle an instance/object printable state.
+- Edit, batch-configure and copy object [height ranges](#91-height-range-modifiers).
 
 ### 3.4 Explicitly deferred
 
@@ -74,7 +76,7 @@ Use the approved thin-bridge approach:
 - `merge(false)` / `append_menu_item_merge_to_single_object()`: the upstream
   menu function is defined but has no call site and is not part of the
   delivered feature.
-- Layer ranges, brim points and cut connectors.
+- Brim points and cut connectors.
 
 Multi-plate, history, painting and preset editing are delivered under their
 respective specifications; they are not deferred by this document.
@@ -88,6 +90,9 @@ Object
 ├─ Part 1
 ├─ Part 2
 ├─ ...
+├─ Layers
+│   ├─ Range 0.00-2.00 (mm)
+│   └─ ...
 └─ Instances
     ├─ Instance 1
     ├─ Instance 2
@@ -95,12 +100,13 @@ Object
 ```
 
 - Parts are direct children of the object.
-- `Instances` is a group under the object, after all parts.
+- `Layers` appears after the parts when the object has height ranges (§9.1).
+- `Instances` is the last group under the object.
 - The `Instances` group is shown only when the object has more than one
   instance. Like the object line, it has an expand/collapse caret that toggles
   the instance sub-list; clicking the header label selects every instance of the
   object (see §6.1).
-- Settings and Layers nodes are omitted in the first version.
+- The settings for the selected row appear in the sidebar.
 
 ## 5. Sidebar Layout
 
@@ -340,7 +346,7 @@ This follows `MenuFactory::append_menu_items_add_volume` and
 `ObjectList::is_instance_or_object_selected` in the pinned Orca sources.
 
 Each submenu offers Load..., a separator, Cube, Cylinder, Sphere, Cone, Disc,
-and Torus. Text, SVG, precise seam, and height-range editing are omitted until
+and Torus. Text, SVG and precise seam are omitted until
 implemented. Additions use native model volumes, preserve the owning object
 and its instances, and participate in the existing project history and plate
 invalidation flow. Primitive placement follows `load_generic_subobject`;
@@ -431,6 +437,181 @@ Handy-model insertion does not invoke native auto-arrangement for the two
 multi-file entries, nor open String Hell's native preset-edit dialog. It must
 not temporarily alter profiles. Additions use the same operation admission,
 settled-transform, history and current-plate contracts as ordinary imports.
+
+### 9.1 Height range modifiers
+
+The shared Prepare workspace edits the native height ranges used by project loading, saving and
+slicing. An object owns its ranges, and all its instances use them, including
+instances placed on different plates. A range covers a span of object print Z
+in millimetres and carries its own process configuration.
+
+#### Object List and configuration
+
+Open Height Range Modifier from the context menu for a single object or a
+single full instance. Both target the owning object. Its Object List group shows
+the ranges in native order. Opening an existing group selects it and exposes
+its ranges. The collapsible Layers node follows the parts and precedes the
+instances. Each child shows its range icon, two-decimal bounds in millimetres
+and base filament. A range with editable overrides shows its label in the
+override color and a reset button beside the filament. The button resets that
+row in one undoable edit and preserves its endpoints and the current selection.
+The default base filament and a layer height equal to the current parent height
+leave the row unmarked. Removing the last range removes the group. A range row targets the
+range configuration, including layer height, supported print-region settings
+such as walls and infill, and filament choices. Structural actions on that row
+must resolve to its owning object and range before changing the model.
+
+New ranges take the object's effective layer height and use the native default
+base filament (`extruder = 0`). Resetting a range's layer height writes the
+current parent height back into the range. Preserve other native range options
+when editing a single field or moving an endpoint. Ranges use the Objects
+settings panel with its category tabs, collapsible groups, search and local
+override indicators. Selecting Layers opens the interval list beneath the
+object tree. Each row shows Range, two inline millimetre inputs, Remove and
+Add, in that order. Group edits keep the list open. Selecting one range
+shows its two inputs above the process categories. Selecting multiple
+ranges shows their shared process controls. Frequent and Multi. show the base
+filament. The six feature selectors
+appear under Multi. → Filament for Features. Reset on a field, a group or the
+whole panel affects the selected ranges in one undoable edit. Reset preserves
+their endpoints and restores the native defaults for layer height and base filament.
+
+Range rows from one object support multi-selection. The settings panel shows
+common values directly and differing values as `Mixed`. A layer height,
+process setting or filament change applies to all selected ranges as one
+undoable edit. Users edit endpoints one interval at a time in the group list or the single-range view.
+
+Within one project, copying selected range rows copies their bounds and full
+native range configurations. Copying the range group copies all its entries.
+Pasting onto another object uses the same heights in millimetres. Keep an
+existing destination entry when both endpoints match. Add entries with
+different bounds, including partial overlaps. Undo restores the destination
+to its state before the entire paste.
+
+In Prepare, selecting a single range shows a horizontal plane at each of its
+two endpoints. Focusing a minimum or maximum input emphasizes the corresponding
+plane. In the Layers list, focusing an endpoint previews its own interval.
+Leaving the group editor or selecting multiple ranges clears that preview.
+
+#### Range editing and variable layer height
+
+Follow the [pinned Orca range editor](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_ObjectLayers.cpp)
+and its [native add and edit rules](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_ObjectList.cpp).
+
+- The first range is 0–2 mm. The plus button after the last range appends 2 mm.
+  Between ranges, it fills a sufficiently wide gap. At a shared boundary, it
+  splits the following range if both pieces meet the native minimum heights.
+  The lower piece gets the new-range defaults and the upper piece keeps the
+  original settings. An overlap or insufficient space leaves the ranges intact.
+- Commit the two endpoints independently. If the new minimum reaches or passes
+  the previous maximum, set the maximum to the new minimum plus 0.5 mm.
+  Reject a maximum below the minimum and allow equality. Accept overlapping
+  ranges and endpoints above the object. Moving onto an identical pair of
+  endpoints replaces that entry under Orca's native map-key rule.
+- Keep the authored bounds through ordinary project save and reopen. The
+  native slicer resolves overlaps in ascending minimum/maximum order, clips
+  excess height and fills gaps with the object's ordinary layer height. The
+  Z reference excludes raft lift. A fixed first layer retains its own height.
+
+Preserve the [native choice of height profile](../packages/slicer-wasm/cpp/src/libslic3r/PrintObject.cpp).
+A valid saved profile with a matching first layer governs layer spacing even
+after an edit to a range. Other range process and filament settings still
+apply. Opening, editing and saving a range preserves the object's explicit
+profile. This delivery covers the Height Range Modifier only. Adaptive curve
+generation, manual brushing, smoothing and curve Reset belong to the separate
+Variable Layer Height tool. To clear a saved curve for this workflow, use
+Reset in desktop Orca's Variable Layer Height tool, save the 3MF and reopen
+it in Neo. The ranges then govern layer spacing alongside the object's defaults.
+
+#### Range filament assignments
+
+Support a base filament and the six feature selectors for outer and inner
+walls, sparse and internal solid infill, and top and bottom surfaces. Keep
+an absent feature override distinct from an explicit Default (native zero).
+Both physical and mixed slots are available where supported by the slicer.
+
+For an inherited feature, the range editor displays the parent object's
+feature selection, including on multipart objects. For example, the row shows
+inherited white if the object's outer-wall filament is white. If two parts
+explicitly select red and blue outer walls, their walls still slice in red
+and blue while the range inherits. Selecting green on the range applies green
+to both parts' outer walls within the range. Row Reset erases that local
+feature key and restores the inherited display.
+
+In the same rack transaction, visit the ranges of every object, including
+unselected objects, other plates and ranges imported from 3MF. Inserting a
+physical filament before the mixes moves every explicit reference to its
+material's new slot. Merge redirects explicit references to the chosen
+survivor. Later surviving slots follow their material after renumbering.
+Previously absent and explicit Default fields keep their respective states.
+Audit shorter-rack restoration for out-of-range references as well.
+
+Plain Delete sets a range base or feature field that explicitly refers to
+the removed slot to native zero (Default). For example, with blue outer walls
+on the object, a white range base and a green range outer-wall override,
+deleting green makes the range's outer walls white. Resetting the outer-wall
+field then removes its local override and restores the object's blue on a
+part with no further outer-wall assignment.
+
+Prepare must account for the base and feature assignments of effective ranges
+on each plate, including features enabled by the range itself. Expand a used
+mix to its physical components for tower estimates and physical nozzle
+mapping. Arrangement must account for the same range assignments when it
+computes placement restrictions. Slice results report the material actually
+used by generated paths.
+
+#### Ownership and acceptance
+
+Keep the Orca submodule and its pin unchanged. The Neo bridge owns atomic
+edits to `ModelObject::layer_config_ranges`. Both hosts use the existing typed
+client and runtime. Use native object history and standard Orca 3MF range
+metadata (`Metadata/layer_config_ranges.xml`). Each user edit, including
+splitting a range, is one undoable action. Refresh the affected plates and
+their Prepare estimates on edit, undo and redo. A stale target must fail
+without partially editing the model.
+
+Acceptance includes the following real project cases.
+
+- Compare G-code Z spacing inside and outside an edited range, including a
+  fixed first layer, overlaps and a range extending beyond the object.
+  With a valid imported curve, edit a range height and confirm that the saved
+  profile and sliced layer sequence survive a Neo save and reopen. Repeat
+  after resetting the curve in desktop Orca and verify that the range height
+  takes effect. A filament-only range edit must preserve the layer sequence.
+- Configure a mixed filament only on the outer wall of a range. Insert a
+  physical filament before the mix, save and reopen. Check the Object List
+  assignment, Prepare's physical components and the exported G-code. The
+  newly inserted material must have zero usage in this fixture. Exercise
+  Delete, Merge, Undo and Redo with explicit, Default and inherited values.
+- Verify the inherited feature display and the exported toolpath separately
+  on the two-part red/blue example above. Verify that deleting an explicit
+  feature slot and resetting its field produce the two specified wall colors.
+- Round-trip an edited project through desktop Orca and Neo, comparing range
+  bounds, settings and slicing behavior. Cover a shared object with instances
+  on two plates and an independent object on a third plate.
+- Batch-edit two sibling ranges with different initial values and undo once.
+  Paste them onto an object with one exact match and one partial overlap,
+  checking the destination settings before and after undo. Check both planes
+  on single selection, endpoint focus, and their dismissal on unfocused group or batch
+  selection.
+
+#### Implementation and verification
+
+| Step | Independently verifiable result |
+| --- | --- |
+| 1. Rack operations | Imported range assignments follow slot insertion, deletion, merge, history and shorter-rack restoration. Verify the saved [3MF values](../packages/slicer-wasm/harness/height-range-filament-smoke.mjs). |
+| 2. Prepare and arrangement | Effective range and part settings determine physical filament and nozzle usage. [Prepare fixtures](../packages/slicer-wasm/harness/height-range-prepare-smoke.mjs) cover disabled features, covered ranges and ranges above the model. The [arrangement fixture](../packages/slicer-wasm/src/arrangement/HeadlessArrangement.test.cpp) checks nozzle-exclusion placement. |
+| 3. Native editing | The typed bridge implements structural and batch edits, stale-target rejection, history and 3MF persistence. The [native editing journey](../packages/slicer-wasm/harness/height-range-editor-smoke.mjs) also checks that Undo and Redo publish the changed rows to the renderer. |
+| 4. Shared editing interface | Open ranges from the Object List. Edit single or mixed selections with scoped controls, then copy and paste into another object. Both hosts exercise the [same editing journey](../apps/desktop/e2e/height-range-journey.ts). |
+| 5. Viewport and slicing | The selected instance shows both endpoint planes and highlights the focused field. [Layer Z](../packages/slicer-wasm/harness/height-range-slicing-smoke.mjs), [extruded wall tools](../packages/slicer-wasm/harness/height-range-material-slicing-smoke.mjs) and [three-plate history](../packages/slicer-wasm/harness/height-range-plates-smoke.mjs) are checked against the native runtime. |
+
+On macOS, the editing journey passed in Electron with threaded wasm64, Chrome
+with threaded and serial wasm64, and WebKit with threaded and serial wasm32.
+The interoperability check slices a Neo-authored 3MF in desktop Orca, exports
+it and reopens it in Neo. It compares the range metadata and every layer Z
+across both slicers, with and without a saved profile.
+The Reset button in desktop Orca's Variable Layer Height tool requires separate
+GUI verification.
 
 ## 10. Mesh Boolean design
 

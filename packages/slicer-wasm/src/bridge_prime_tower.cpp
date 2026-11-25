@@ -1,3 +1,4 @@
+#include "height_range_filaments.hpp"
 #include "bridge_nozzle_mapping.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_painting.hpp"
@@ -210,6 +211,7 @@ DynamicPrintConfig effective_config(const BridgeState::PlateSessionPlate& plate)
 }
 
 struct UsedSlotContext {
+    const DynamicPrintConfig& config;
     std::size_t slot_count = 0;
     int global_support_interface = 0;
     int global_support = 0;
@@ -221,7 +223,7 @@ struct UsedSlotContext {
     int global_bottom_surface = 0;
     bool global_support_enabled = false;
 
-    explicit UsedSlotContext(const DynamicPrintConfig& config, std::size_t slots) : slot_count(slots)
+    explicit UsedSlotContext(const DynamicPrintConfig& config, std::size_t slots) : config(config), slot_count(slots)
     {
         const auto option_int = [&config](const char* key) {
             const ConfigOption* option = config.option(key);
@@ -283,10 +285,10 @@ struct UsedSlotContext {
                 }
             }
         }
-        for (const auto& layer_range : object.layer_config_ranges) {
-            if (layer_range.second.has("extruder"))
-                append(slots, layer_range.second.option("extruder")->getInt());
-        }
+        if (!object.layer_config_ranges.empty())
+            for (const auto* instance : object.instances)
+                if (instance->is_printable())
+                    Neo::collect_height_range_filaments(*instance, config, slot_count, slots);
 
         bool support_enabled = false;
         const ConfigOption* object_support = object.config.option("enable_support");
@@ -475,6 +477,17 @@ std::vector<int> used_slots_incremental(const BridgeState::PlateSessionPlate& pl
                                         std::size_t slot_count, int plate_index,
                                         UsedSlotLookupKind& kind)
 {
+    // A transformed instance may expose or hide a range without changing its
+    // object id. Only use the id-based summary on plates without ranges.
+    if (std::any_of(model.objects.begin(), model.objects.end(),
+                    [](const ModelObject* object) { return object && !object->layer_config_ranges.empty(); })) {
+        g_used_slot_summaries.erase(plate.id);
+        kind = UsedSlotLookupKind::FullScan;
+#ifdef NEO_PROJECT_HISTORY_TEST
+        record_used_slot_lookup(plate.id, kind);
+#endif
+        return used_slots(model, config, slot_count, plate_index);
+    }
     std::set<std::size_t> object_ids;
     const std::string signature = used_slot_config_signature(config, plate_index);
     auto& summary = g_used_slot_summaries[plate.id];

@@ -1,5 +1,7 @@
+import { openRanges, editRanges } from './heightRangeActions';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { executeMeshBoolean } from '../viewport/gizmo/meshBoolean/meshBooleanCommand';
-import type { FilamentAssignmentTargetRequest, ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
+import type { HeightRangeRow, FilamentAssignmentTargetRequest, ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
 import type { ReactNode } from 'react';
 import { FolderPlus } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
@@ -32,6 +34,7 @@ import { FilamentChoiceContent, filamentSlotChoice } from '../FilamentSwatch';
 
 export type ObjectListCtxTarget =
   | { kind: 'list' }
+  | { kind: 'ranges'; object: ModelObjectStructure; rows: HeightRangeRow[] }
   | { kind: 'object'; object: ModelObjectStructure }
   | { kind: 'part'; object: ModelObjectStructure; volume: ModelVolumeStructure }
   | { kind: 'instance'; object: ModelObjectStructure; instance: ModelInstanceStructure };
@@ -74,6 +77,8 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const projection = useObjectListStore((s) => s.projection);
   const structure = useObjectListStore((s) => s.structure);
+  const clipboard = useObjectListStore(s => s.rangeClipboard);
+  const generation = useProjectStore(s => s.projectGeneration);
   const act = (p: Promise<{ ok: boolean; error?: string }>) => { void p; onClose(); };
 
   const assemblyTargets = resolveAssemblyTargets(structure, projection);
@@ -156,6 +161,14 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   const items: ReactNode[] = [];
   if (target.kind === 'list') {
     if (assembleItem) items.push(assembleItem);
+  } else if (target.kind === 'ranges') {
+    items.push(
+      <MenuItem key="copy" label="Copy ranges" testid="objectlist-copy-ranges" onClick={() => {
+        useObjectListStore.getState().copyRanges(generation, target.rows); onClose();
+      }} />,
+      <MenuItem key="delete" label="Delete ranges" testid="objectlist-delete-ranges" danger
+        onClick={() => act(editRanges(runtime, { operation: 'remove', objectId: target.object.id, targets: target.rows }, sceneInteraction))} />,
+    );
   } else if (target.kind === 'object') {
     const o = target.object;
     // The object menu is selection-based: Delete/Clone/printable act on the
@@ -271,6 +284,14 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   }
 
   if (target.kind === 'object' || target.kind === 'instance') {
+    if (selectedObjectIds.length <= 1 && (target.kind === 'object' || projection.instanceIds.size <= 1)) {
+      const instanceId = target.kind === 'instance' ? target.instance.id : undefined;
+      items.push(<MenuItem key="ranges" label="Height Range Modifier" testid="objectlist-height-ranges"
+        onClick={() => { onClose(); void openRanges(runtime, target.object.id, instanceId, sceneInteraction); }} />);
+      if (clipboard?.generation === generation)
+        items.push(<MenuItem key="paste-ranges" label="Paste height ranges" testid="objectlist-paste-ranges"
+          onClick={() => { onClose(); void editRanges(runtime, { objectId: target.object.id, operation: 'paste', rows: clipboard.rows }, sceneInteraction, instanceId); }} />);
+    }
     const selected = selectedAutoDropObjects(structure, projection);
     const objects = selected.some((object) => object.id === target.object.id) ? selected : [target.object];
     const enabled = objects.every((object) => object.autoDrop);

@@ -396,6 +396,7 @@ target_compile_options(deps_core PRIVATE
 # set outside the pinned Orca submodule; the C bridge and Worker transaction
 # adapters remain Neo code.
 set(ORCA_BRIDGE_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/height_range_filaments.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_arrangement.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
@@ -419,6 +420,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_height_ranges.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_mesh_boolean.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_plate.cpp"
@@ -688,6 +690,7 @@ add_custom_command(TARGET orca_slice POST_BUILD
 get_target_property(_arrange_test_libraries orca_slice LINK_LIBRARIES)
 add_executable(arrangement_core_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/ArrangementCore.test.cpp")
 add_executable(headless_arrangement_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/height_range_filaments.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.test.cpp")
 foreach(_arrange_test arrangement_core_test headless_arrangement_test)
 target_compile_options(${_arrange_test} PRIVATE -fexceptions)

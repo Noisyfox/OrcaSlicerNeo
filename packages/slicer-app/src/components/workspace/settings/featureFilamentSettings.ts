@@ -2,7 +2,7 @@ import type { FilamentRoutingProjection, FilamentRoutingSelector, FilamentRoutin
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import type { ScopedConfigurationField, ScopedTargetResolution } from './scopedConfigurationProjection';
 
-const featureOptions = [
+export const featureOptions = [
   ['outer_wall_filament_id', 'outer-wall', 'Outer walls'],
   ['inner_wall_filament_id', 'inner-wall', 'Inner walls'],
   ['sparse_infill_filament_id', 'sparse-infill', 'Sparse infill'],

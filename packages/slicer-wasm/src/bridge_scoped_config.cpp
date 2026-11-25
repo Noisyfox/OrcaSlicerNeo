@@ -721,12 +721,8 @@ void validate_set_keys(const MutationRequest& request)
 void apply_mutation_to_candidate(const MutationRequest& request, DynamicPrintConfig& candidate)
 {
     if (request.operation == "set") {
-        ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-        for (const auto& [key, requested] : request.values) {
-            const ConfigOptionDef& definition = require_definition(key);
-            const std::string effective_request = clamp_numeric_value(definition, requested);
-            candidate.set_deserialize(key, effective_request, substitutions);
-        }
+        for (const auto& [key, requested] : request.values)
+            set_scoped_value(candidate, key, requested);
         return;
     }
     if (request.operation == "reset") {
@@ -960,6 +956,11 @@ json scoped_editor_snapshot(const json& request)
 }
 
 } // namespace
+
+void set_scoped_value(DynamicPrintConfig& config, const std::string& key, const std::string& value)
+{
+    config.set_deserialize_strict(key, clamp_numeric_value(require_definition(key), value));
+}
 
 namespace {
 

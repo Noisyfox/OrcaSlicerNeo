@@ -50,7 +50,7 @@ export async function synchronizeProjectPrinter(platform: PlatformCapabilities, 
       confirmModelChange, rackMemory: preferences.rememberedFilamentRacks ?? {}, bedMemory: preferences.rememberedBedTypes ?? {},
       context: historyContextForStructure(scene) });
     if (!result.ok) return result;
-    publishPrinterTransition(platform, result);
+    await publishPrinterTransition(platform, result);
     await rememberPrinterTransition(platform, result);
     await publishRememberedNozzleCapacities(platform.preferences, result.profileSnapshot.printer.name,
       { nozzles: source.tools.map((tool, i) => ({ id: i + 1, diameter: tool.diameterMm ?? 0, capacity: tool.capacity })) });

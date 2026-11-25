@@ -61,6 +61,19 @@ void exclusion_tests() {
     CHECK(!solve(feature).placements[0].plate);
     first->get_object()->config.set_key_value("top_shell_layers", new ConfigOptionInt(0));
     CHECK(prepare(mapped.scene, current).movable[0].bed_exclusion_extruder_ids == std::vector<int>({0}));
+    // Range-local enablement inherits the object's top filament. Fully
+    // covered and out-of-bounds rows must not impose nozzle 2's exclusion.
+    mapped.scene.config.set_key_value("filament_colour", new ConfigOptionStrings({"#FFFFFF", "#000000"}));
+    auto& ranges = first->get_object()->layer_config_ranges;
+    ranges[{0, 4}].set_key_value("top_shell_layers", new ConfigOptionInt(0));
+    ranges[{1, 3}].set_key_value("top_shell_layers", new ConfigOptionInt(2));
+    ranges[{11, 15}].set_key_value("top_shell_layers", new ConfigOptionInt(2));
+    CHECK(prepare(mapped.scene, current).movable[0].bed_exclusion_extruder_ids == std::vector<int>({0}));
+    ranges[{3, 6}].set_key_value("top_shell_layers", new ConfigOptionInt(2));
+    auto local_top = prepare(mapped.scene, current);
+    CHECK(local_top.movable[0].bed_exclusion_extruder_ids == std::vector<int>({0, 1}));
+    CHECK(!solve(local_top).placements[0].plate);
+    ranges.clear();
     first->get_object()->config.set_key_value("enable_support", new ConfigOptionBool(true));
     first->get_object()->config.set_key_value("support_filament", new ConfigOptionInt(2));
     CHECK(prepare(mapped.scene, current).movable[0].bed_exclusion_extruder_ids == std::vector<int>({0, 1}));

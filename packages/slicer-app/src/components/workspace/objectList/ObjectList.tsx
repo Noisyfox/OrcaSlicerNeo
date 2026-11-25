@@ -7,6 +7,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle, Box, CircleMinus, CirclePlus, RotateCcw } from 'lucide-react';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { editRanges } from './heightRangeActions';
+import { HeightRangeRows } from './HeightRangeRows';
 import { useObjectListStore } from './useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
@@ -81,6 +83,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
+  const rangeOwner = useObjectListStore(s => s.heightRangeSelection?.objectId);
   const toggleExpanded = useObjectListStore((s) => s.toggleExpanded);
   const toggleInstancesCollapsed = useObjectListStore((s) => s.toggleInstancesCollapsed);
   const setHighlightLevel = useObjectListStore((s) => s.setHighlightLevel);
@@ -106,29 +109,35 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     return Object.keys(values).some((key) => isKeyEligibleForScope(key, configMetadata[key] ?? { type: 'unknown' }, scope));
   };
 
-  function resetControl(scope: 'object' | 'part', id: number) {
-    if (!hasScopedMarker(scope, id)) return null;
-    const label = scope === 'object' ? 'Object' : 'Part';
+  function resetButton(scope: 'object' | 'part' | 'range', id: number | string, label: string, reset: () => Promise<unknown>) {
     return <TooltipFor content={`Reset all ${scope} overrides`}>
       <Button type="button" variant="ghost" size="icon-xs"
         className="size-4 shrink-0 text-config-override [&>svg]:size-3"
         data-testid={`config-marker-${scope}-${id}`}
-        aria-label={`Reset ${label} ${id} overrides`}
+        aria-label={`Reset ${label} overrides`}
         disabled={resetPending || restorePhase !== 'idle'}
         onPointerDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
           setResetPending(true);
-          void prepareObjectListMutation().then(prepared => prepared.ok ? commitScopedConfigurationMutation(platform, {
-            version: 1, operation: 'reset-all', targets: [{ scope, id }],
-          }) : null).then((mutation) => {
-            if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
-          }).catch(() => {
+          void reset().catch(() => {
             // The shared mutation path publishes the runtime error to the UI.
           }).finally(() => setResetPending(false));
         }}><RotateCcw /></Button>
     </TooltipFor>;
+  }
+
+  function resetControl(scope: 'object' | 'part', id: number) {
+    if (!hasScopedMarker(scope, id)) return null;
+    return resetButton(scope, id, `${scope === 'object' ? 'Object' : 'Part'} ${id}`, async () => {
+      const prepared = await prepareObjectListMutation();
+      if (!prepared.ok) return;
+      const mutation = await commitScopedConfigurationMutation(platform, {
+        version: 1, operation: 'reset-all', targets: [{ scope, id }],
+      });
+      if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    });
   }
 
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
@@ -165,7 +174,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       setProjection(nextProjection);
     };
     update();
-    return sceneInteraction.selection.subscribe(update);
+    return sceneInteraction.selection.subscribe(() => {
+      if (restorePhase === 'idle') useObjectListStore.getState().selectRanges(null);
+      update();
+    });
   }, [restorePhase, sceneInteraction, structure, highlightLevel, setProjection]);
 
   function openContextMenu(event: ReactMouseEvent, target: ObjectListCtxTarget) {
@@ -237,6 +249,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   /** Row click with multi-select: Ctrl/Cmd toggles the row; Shift selects a
    *  contiguous range from the previous (non-shift) selection to this row. */
   function handleRowClick(row: SelectableRow, ctrl: boolean, shift: boolean) {
+    useObjectListStore.getState().selectRanges(null);
     if (sceneInteraction?.gizmo === 'mesh-boolean' && row.kind === 'part') {
       const session = sceneInteraction.meshBoolean;
       const object = structure.find(item => item.index === row.target.objectIdx);
@@ -342,6 +355,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
    *  right-click never collapses a multi-selection. The menu opens afterwards
    *  (via `openContextMenu`) so its items see the freshly selected state. */
   function handleRowContextMenu(event: ReactMouseEvent, row: SelectableRow, target: ObjectListCtxTarget) {
+    useObjectListStore.getState().selectRanges(null);
     if (sceneInteraction) {
       const anchor = sceneInteraction.getSelectionInstanceAnchor(row.target.objectIdx);
       if (!rowFullySelected(row, anchor)) {
@@ -422,7 +436,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
           </button>
           {!collapsedGroups[group.key] && group.objects.map((obj) => {
         const objectSelected = projection.objectIds.has(obj.id);
-        const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1;
+        const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1 || !!obj.heightRanges?.length;
         const isExpanded = hasExpandable && !!expanded[obj.id];
         const renamingObject = renaming?.kind === 'object' && renaming.id === obj.id;
         const validity = objectListValidity(obj, plateSession);
@@ -452,7 +466,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             }}
             onContextMenu={(e) => {
               const target = e.target as Element;
-              if (target.closest('[data-testid^="part-"], [data-testid^="instances-select-"], [data-testid^="instance-"]')) return;
+              if (target.closest('[data-height-range-tree], [data-testid^="part-"], [data-testid^="instances-select-"], [data-testid^="instance-"]')) return;
               const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
               if (row) handleRowContextMenu(e, row, { kind: 'object', object: obj });
             }}
@@ -462,7 +476,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               variant="ghost"
               size="xs"
               className={`object-list-row w-full justify-start ${obj.volumes.length > 1 ? 'pr-32' : 'pr-24'}`}
-              data-state={objectSelected ? 'selected' : 'idle'}
+              data-state={objectSelected && rangeOwner !== obj.id ? 'selected' : 'idle'}
               onClick={(e) => {
                 const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
                 if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);
@@ -548,7 +562,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       variant="ghost"
                       size="xs"
                       className="object-list-row min-w-0 flex-1 justify-start pl-1 pr-24"
-                      data-state={projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
+                      data-state={rangeOwner !== obj.id && projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
                       onClick={(e) => {
                         const row = flatRows.find((r) => r.key === `vol:${obj.index}:${vol.index}`);
                         if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);
@@ -587,6 +601,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                     </div>
                   </div>
                 ))}
+                {!!obj.heightRanges?.length && <HeightRangeRows object={obj} scene={sceneInteraction}
+                  instanceId={obj.instances.find(instance => projection.instanceIds.has(instance.id))?.id}
+                  renderReset={(row, keys, label) => resetButton('range', `${obj.id}-${row.min}-${row.max}`, label,
+                    () => editRanges(platform.runtime, { operation: 'reset', objectId: obj.id, targets: [row], keys }, sceneInteraction))}
+                  onMenu={(event, rows) => openContextMenu(event, { kind: 'ranges', object: obj, rows })} />}
                 {obj.instanceCount > 1 && (
                   <div data-testid={`instances-${obj.id}`} className="pl-2">
                     <Button
@@ -609,7 +628,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         openContextMenu(e, { kind: 'object', object: obj });
                       }}
                       className="object-list-row w-full justify-start"
-                      data-state={obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
+                      data-state={rangeOwner !== obj.id && obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
                       onClick={(e) => handleInstancesGroupClick(obj, e.ctrlKey || e.metaKey)}
                     >
                       <span
@@ -636,7 +655,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                           size="xs"
                           variant="ghost"
                           className="object-list-row min-w-0 flex-1 justify-start pl-5 pr-24"
-                          data-state={projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
+                          data-state={rangeOwner !== obj.id && projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
                           onClick={(e) => {
                             const row = flatRows.find((r) => r.key === `inst:${obj.index}:${inst.index}`);
                             if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);

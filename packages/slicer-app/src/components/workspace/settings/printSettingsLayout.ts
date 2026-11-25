@@ -87,8 +87,16 @@ const PLATE_SETTINGS_PAGES: readonly PrintSettingsPage[] = [{ title: 'Plate Sett
     'first_layer_sequence_choice', 'other_layers_sequence_choice'] },
 ] }];
 
-export function printSettingsPages(mode: ConfigurationMode): readonly PrintSettingsPage[] {
-  return mode === 'plates' ? PLATE_SETTINGS_PAGES
+type LayoutMode = ConfigurationMode | 'range';
+const RANGE_PAGES: readonly PrintSettingsPage[] = PRINT_SETTINGS_PAGES.map(page => {
+  if (page.title === 'Multi.') return { ...page, groups: [{ title: 'Filament', keys: ['extruder'] }, ...page.groups] };
+  return page;
+});
+const RANGE_FREQUENT: PrintSettingsPage = { title: 'Frequent', groups: [
+  { title: '', keys: [...FREQUENT_PAGE.groups[0].keys, 'extruder'] }] };
+
+export function printSettingsPages(mode: LayoutMode): readonly PrintSettingsPage[] {
+  return mode === 'range' ? [RANGE_FREQUENT, ...RANGE_PAGES] : mode === 'plates' ? PLATE_SETTINGS_PAGES
     : mode === 'scoped' ? [FREQUENT_PAGE, ...PRINT_SETTINGS_PAGES] : PRINT_SETTINGS_PAGES;
 }
 
@@ -112,17 +120,17 @@ export function printSettingPlacement(field: ScopedConfigurationField): PrintSet
   return placements.get(field.key);
 }
 
-export function isVisiblePrintSetting(field: ScopedConfigurationField, mode: ConfigurationMode): boolean {
+export function isVisiblePrintSetting(field: Pick<ScopedConfigurationField, 'key'>, mode: ConfigurationMode): boolean {
   return printSettingsPages(mode).some((page) => page.groups.some((group) => group.keys.includes(field.key)));
 }
 
 /** Project already-eligible fields into the allow-list in native layout order. */
-export function printSettingsGroups(fields: readonly ScopedConfigurationField[], pageTitle: string | undefined, search: string, mode: ConfigurationMode) {
+export function printSettingsGroups(fields: readonly ScopedConfigurationField[], pageTitle: string | undefined, search: string, mode: LayoutMode) {
   const query = search.trim().toLocaleLowerCase();
   const byKey = new Map(fields.map((field) => [field.key, field]));
   // Frequent duplicates process fields. Cross-page search lists each option
   // once in its full process-page context.
-  const pages = query && mode === 'scoped' ? PRINT_SETTINGS_PAGES : printSettingsPages(mode);
+  const pages = query && mode === 'range' ? RANGE_PAGES : query && mode === 'scoped' ? PRINT_SETTINGS_PAGES : printSettingsPages(mode);
   return pages.flatMap((page) => {
     if (!query && page.title !== pageTitle) return [];
     return page.groups.flatMap((group) => {
