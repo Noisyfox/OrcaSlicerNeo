@@ -499,7 +499,8 @@ device and variant scope rather than claiming untested limits or performance.
 ## Variable Layer Height
 
 **Accepted design.** Electron and Web share the Prepare editor and the pinned
-Orca layer-height algorithms. Implementation and host qualification are pending.
+Orca layer-height algorithms. The implementation proceeds in independently
+verified commits. Each stage below depends on the preceding stage.
 
 ### Entry and selection
 
@@ -657,28 +658,25 @@ on Undo and Redo.
 
 ### Implementation and acceptance
 
-1. **Native editing and persistence.** Expose effective-profile reads and
-   Adaptive, Smooth and Reset through the typed client and shared runtime.
-   On a sloped or curved solid, compare saved and reopened curves and exported
-   per-layer G-code Z with desktop Orca. Cover the fixed first layer, Reset's
-   native predicate, smoothing a default straight line and changing then
-   restoring the first-layer setting.
-2. **Brush and history.** Exercise the four brush actions, holding still,
-   off-bar release and interruption before wiring the shared Prepare controls.
-   Verify separate undo entries after Done, restored editing context, and
-   global versus local smoothing. Place two instances with different XY
-   placements and world-Z rotations on separate plates. Edit through the
-   second and undo once. Check both instances and their plate revisions
-   alongside an independent object on a third plate.
-3. **Prepare integration.** Verify selection, tool and page switches, Save,
-   mixed-color warnings and both directions of slice coordination. Check
-   threaded and serial admission. Confirm that layer colors replace painted
-   colors during editing and that closing restores the original appearance.
-4. **Live preview.** Replay the same continuous stroke in Electron, Chromium
-   and WebKit. Verify synchronized curve and model updates before release.
-   Compare the final curve and per-layer band data with native Orca computation
-   from the same ordered actions. Record observed input-to-display latency on
-   each host. The first release has no common frame-rate threshold.
+1. **Native editing and persistence.** Read the effective curve and implement
+   Adaptive, Smooth and Reset through the typed client. Exercise the fixed first
+   layer, smoothing a straight line, changing and restoring the first-layer
+   setting, 3MF round trips and per-layer G-code Z comparison with desktop Orca.
+2. **Worker brush and preview.** Apply ordered samples to a transient curve.
+   Verify all four actions, cancellation, stale input, no-op release and native
+   band generation. Only a completed stroke may change the project.
+3. **Prepare editor.** Connect the left toolbar, control panel, height bar and
+   model materials. Verify eligibility, follow-selection, pointer capture,
+   stationary repeats, off-bar release, interruption and painted-color restoration.
+4. **Project coordination.** Integrate history, plate invalidation, tools, Save,
+   Slice and Preview. Verify undo through a second instance on another plate,
+   preservation of a third independent plate, and serial/threaded slice admission.
+5. **Mixed-color warning.** Verify both activation orders and the shared persistent
+   suppression preference.
+6. **Host acceptance.** Replay a continuous stroke in Electron, Chromium and
+   WebKit. Compare the final curve and bands with native replay, exercise
+   synchronization before release and record input-to-display latency on each
+   host. The first release has no common frame-rate threshold.
 
 The [existing slicing and 3MF interoperability fixture](../packages/slicer-wasm/harness/height-range-slicing-smoke.mjs)
 provides the per-layer G-code comparison and desktop round trip.

@@ -1,3 +1,4 @@
+import { isLayerHeightProfile } from './layerHeight';
 import { normalizeDeviceMaterialCatalogue } from './deviceMaterials';
 import { linkProfileVendors } from './profileFilesystem';
 import type { FilamentOverrideContext } from './types';
@@ -3181,6 +3182,19 @@ export function createClient(
       if (!Array.isArray(patch.object_order) || !modelStructure(patch.objects))
         throw new Error('invalid model scene patch');
       return { ok: true, objectOrder: patch.object_order, objects: patch.objects, ...decoded };
+    },
+
+    async readLayerHeight(target) {
+      const result = callJson(await module(), 'orc_layer_height', ['string'], [JSON.stringify({ ...target, operation: 'read' })]);
+      if (!isRecord(result) || result.ok !== true || !isLayerHeightProfile(result.profile, target))
+        throw new Error(isRecord(result) && typeof result.error === 'string' ? result.error : 'Invalid layer height profile');
+      return result.profile;
+    },
+
+    async editLayerHeight(command) {
+      const result = callJson(await module(), 'orc_layer_height', ['string'], [JSON.stringify(command)]);
+      if (isRecord(result) && result.ok === true && result.changed === false) return { ok: true, changed: false };
+      return normalizeStructuralResult<ModelMutationResult<{ changed: true }>>(result, value => value.changed === true);
     },
 
     async editHeightRanges(command: HeightRangeCommand): Promise<HeightRangeEditResult> {

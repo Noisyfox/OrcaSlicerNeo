@@ -1,3 +1,4 @@
+import type { LayerHeightApi } from './layerHeight';
 import type { ProfileActivation, SetupWizardMethods } from './setupWizard';
 import type { PaintingApi } from './painting';
 import type { MeasureApi } from './measure';
@@ -1837,7 +1838,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethods, UserPresetMethods, NozzleMappingMethods {
+export interface SlicerClient extends LayerHeightApi, PaintingApi, MeasureApi, SetupWizardMethods, UserPresetMethods, NozzleMappingMethods {
   getBuildInfo(): Promise<BuildInfo>;
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(activation: ProfileActivation | null): Promise<InitResult>;
