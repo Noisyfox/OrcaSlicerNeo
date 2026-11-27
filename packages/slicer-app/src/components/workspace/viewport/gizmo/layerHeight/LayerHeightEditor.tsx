@@ -7,6 +7,9 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { runProjectHistoryMutation } from '../../../actions/historyMutation';
 import { publishModelPlateMutation } from '../../../objectList/actions';
@@ -99,22 +102,29 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
     useLayerHeight.setState({ busy: true });
     void mutation(label, () => runtime.editLayerHeight({ objectId, plateId, stamp: current.profile.stamp, ...command }));
   }
-  return <section aria-label="Variable layer height" data-layer-height-control className="grid gap-2 text-sm">
-    <h3 className="font-semibold">Variable layer height</h3>
-    <label>Quality / Speed <output>{quality.toFixed(2)}</output>
-      <input className="block w-full" type="range" min="0" max="1" step=".01" value={quality}
-        onChange={e => useLayerHeight.setState({ quality: Number(e.target.value) })} /></label>
-    <Button disabled={!current || locked} onClick={() => action('Adaptive layer height', { operation: 'adaptive', quality })}>Adaptive</Button>
-    <label>Smoothing radius <output>{radius}</output>
-      <input className="block w-full" type="range" min="1" max="10" step="1" value={radius}
-        onChange={e => useLayerHeight.setState({ radius: Number(e.target.value) })} /></label>
-    <label><input type="checkbox" checked={keepMin} onChange={e => useLayerHeight.setState({ keepMin: e.target.checked })} /> Keep min</label>
-    <Button disabled={!current || locked} onClick={() => action('Smooth layer height', { operation: 'smooth', radius, keepMin })}>Smooth</Button>
-    <div className="flex gap-2">
-      <Button variant="outline" disabled={!current?.profile.canReset || locked} onClick={() => action('Reset layer height', { operation: 'reset' })}>Reset</Button>
-      <Button disabled={locked} onClick={() => scene.closeGizmo()}>Done</Button>
+  return <section aria-label="Variable layer height" data-layer-height-control className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_4ch] items-center gap-x-2 gap-y-3 text-sm">
+    <div className="col-span-full flex items-center justify-between gap-2">
+      <h2 className="text-module font-semibold">Variable layer height</h2>
+      <Button size="sm" variant="ghost" disabled={locked} onClick={() => scene.closeGizmo()}>Done</Button>
     </div>
-    {error && <p role="alert">{error}</p>}
+    <span className="text-muted-foreground">Quality / Speed</span>
+    <Slider aria-label="Quality / Speed" value={[quality]} min={0} max={1} step={0.01}
+      onValueChange={value => useLayerHeight.setState({ quality: Array.isArray(value) ? value[0] : value })} />
+    <output className="text-right tabular-nums">{quality.toFixed(2)}</output>
+    <Button size="sm" variant="secondary" className="col-span-full" disabled={!current || locked}
+      onClick={() => action('Adaptive layer height', { operation: 'adaptive', quality })}>Adaptive</Button>
+    <span className="text-muted-foreground">Smoothing radius</span>
+    <Slider aria-label="Smoothing radius" value={[radius]} min={1} max={10} step={1}
+      onValueChange={value => useLayerHeight.setState({ radius: Array.isArray(value) ? value[0] : value })} />
+    <output className="text-right tabular-nums">{radius}</output>
+    <Label className="col-span-full"><Checkbox checked={keepMin} onCheckedChange={checked => useLayerHeight.setState({ keepMin: checked })} />Keep min</Label>
+    <div className="col-span-full flex gap-2">
+      <Button size="sm" variant="secondary" className="flex-1" disabled={!current || locked}
+        onClick={() => action('Smooth layer height', { operation: 'smooth', radius, keepMin })}>Smooth</Button>
+      <Button size="sm" variant="outline" className="flex-1" disabled={!current?.profile.canReset || locked}
+        onClick={() => action('Reset layer height', { operation: 'reset' })}>Reset</Button>
+    </div>
+    {error && <p role="alert" className="col-span-full text-destructive">{error}</p>}
     {current && viewport && createPortal(<HeightBar frame={current} cancel={cancel}
       begin={() => {
         if (restoring || useLayerHeight.getState().busy) return false;

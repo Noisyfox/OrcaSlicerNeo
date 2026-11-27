@@ -23,6 +23,9 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
   const { profile } = frame;
   useLayoutEffect(() => {
     const node = canvas.current!;
+    const theme = getComputedStyle(node);
+    const reference = theme.getPropertyValue('--color-muted-foreground').trim();
+    const curve = theme.getPropertyValue('--color-ring').trim();
     function paint() {
       const scale = window.devicePixelRatio || 1;
       const w = node.width = Math.max(1, Math.round(node.clientWidth * scale));
@@ -43,11 +46,11 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
       ctx.drawImage(stripe, 0, 0, strip, h);
       const x = (value: number) => strip + (w - strip - scale) * value / Math.max(profile.maxHeight, profile.firstHeight);
       const y = (z: number) => h * (1 - z / profile.objectHeight);
-      ctx.strokeStyle = '#94a3b8';
+      ctx.strokeStyle = reference;
       ctx.setLineDash([3 * scale, 3 * scale]);
       ctx.beginPath(); ctx.moveTo(x(profile.baseHeight), 0); ctx.lineTo(x(profile.baseHeight), h); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.strokeStyle = '#168675';
+      ctx.strokeStyle = curve;
       ctx.lineWidth = 2 * scale;
       ctx.beginPath();
       for (let i = 0; i < profile.curve.length; i += 2) {
@@ -56,8 +59,10 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
       }
       ctx.stroke();
       if (cursor !== null) {
-        ctx.fillStyle = 'rgba(128,150,160,.25)';
+        ctx.fillStyle = reference;
+        ctx.globalAlpha = .25;
         ctx.fillRect(0, y(cursor + width / 2), w, h * width / profile.objectHeight);
+        ctx.globalAlpha = 1;
       }
       if (__ORCA_E2E__) recordLayerHeightPaint(frame, 'bar');
     }
@@ -85,7 +90,7 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
     useLayerHeight.setState({ cursor: z });
     return { z, width: useLayerHeight.getState().width, action: event.shiftKey ? (button === 2 ? 3 : 2) : (button === 2 ? 0 : 1) };
   }
-  return <div data-layer-height-control className="pointer-events-auto absolute inset-y-0 right-0 z-30 w-16 border-l bg-card/95"
+  return <div data-layer-height-control className="pointer-events-auto absolute inset-y-0 right-0 z-30 w-16 border-l border-border bg-card"
     onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}
     onWheel={event => {
       event.stopPropagation();
@@ -114,7 +119,7 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
       onPointerUp={e => { if (held.current?.pointer === e.pointerId && stop()) release(); }}
       onPointerCancel={e => { if (held.current?.pointer === e.pointerId && stop()) cancel(); }}
       onLostPointerCapture={e => { if (held.current?.pointer === e.pointerId && stop()) cancel(); }} />
-    {cursor !== null && <output className="pointer-events-none absolute right-full rounded bg-card px-1 text-xs whitespace-nowrap"
+    {cursor !== null && <output className="pointer-events-none absolute right-full rounded border border-border bg-popover px-1.5 py-0.5 text-xs whitespace-nowrap text-popover-foreground tabular-nums"
       style={{ top: `clamp(0px, ${100 * (1 - cursor / profile.objectHeight)}%, calc(100% - 1.5rem))` }}>
       Z {cursor.toFixed(2)} · {heightAt(profile.curve, cursor).toFixed(3)} mm
     </output>}

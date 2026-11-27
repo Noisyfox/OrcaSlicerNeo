@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
@@ -52,8 +54,8 @@ export function MixedLayerHeightWarning({ scene }: { scene: SceneInteractionCont
       <DialogHeader><DialogTitle>Variable layer height</DialogTitle>
         <DialogDescription>Using variable layer height together with mixed color sublayer may result in poor color mixing quality.</DialogDescription>
       </DialogHeader>
-      <label><input type="checkbox" checked={suppress} onChange={event => setSuppress(event.target.checked)} /> Do not show again</label>
-      {error && <p role="alert">{error}</p>}
+      <Label><Checkbox checked={suppress} onCheckedChange={setSuppress} disabled={saving} />Do not show again</Label>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <DialogFooter><Button disabled={saving} onClick={() => void acknowledge()}>OK</Button></DialogFooter>
     </DialogContent>
   </Dialog>;

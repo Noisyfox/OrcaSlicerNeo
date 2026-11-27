@@ -18,6 +18,8 @@ vi.mock('@orca/platform-contract', async original => ({
 
 describe('mixed sublayer warning', () => {
   it('checks the stored native curve when enabling, warns on entry and persists one choice for both', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('PointerEvent', MouseEvent);
     let prefs: UserPreferences = DEFAULT_USER_PREFERENCES;
     platform.preferences.load.mockImplementation(async () => prefs);
     platform.preferences.save.mockImplementation(async next => { prefs = normalizeUserPreferences(next); });
@@ -43,7 +45,7 @@ describe('mixed sublayer warning', () => {
       model.mockResolvedValue({ ok: true, objects: [{ hasVariableLayerHeight: true }] });
       await configure(true);
       expect(dialog()).not.toBeNull();
-      await act(async () => dialog()!.querySelector('input')!.click());
+      await act(async () => dialog()!.querySelector<HTMLElement>('[role="checkbox"]')!.click());
       await act(async () => ok().click());
       expect(prefs.suppressMixedLayerHeightWarning).toBe(true);
       await setEditor(true);
@@ -51,6 +53,10 @@ describe('mixed sublayer warning', () => {
       await configure(false);
       await configure(true);
       expect(dialog()).toBeNull();
-    } finally { await act(async () => root.unmount()); node.remove(); }
+    } finally {
+      await act(async () => root.unmount());
+      node.remove();
+      vi.unstubAllGlobals();
+    }
   });
 });

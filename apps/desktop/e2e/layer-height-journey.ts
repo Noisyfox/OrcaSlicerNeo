@@ -1,5 +1,5 @@
 import { verifyLayerHeightReplay } from './layer-height-replay';
-import { expect as baseExpect, type Page } from '@playwright/test';
+import { expect as baseExpect, test, type Page } from '@playwright/test';
 import { ready } from './arrangement-journey';
 import { addPrimitive } from './add-primitive';
 
@@ -18,6 +18,31 @@ export async function verifyLayerHeight(page: Page) {
   const bar = page.getByTestId('layer-height-bar');
   await expect(bar).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Reset' })).toBeDisabled();
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ width: 1024, height: 560 });
+  const card = page.getByTestId('gizmo-options');
+  await expect(panel.getByRole('heading')).toHaveCSS('font-size', '11px');
+  await expect.poll(() => card.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await panel.getByRole('button', { name: 'Smooth', exact: true }).scrollIntoViewIfNeeded();
+  await expect(panel.getByRole('button', { name: 'Smooth', exact: true })).toBeInViewport();
+  await test.info().attach('compact-layer-height-card', { body: await card.screenshot(), contentType: 'image/png' });
+  await page.setViewportSize(viewport);
+  const quality = panel.getByRole('slider', { name: 'Quality / Speed' });
+  const radius = panel.getByRole('slider', { name: 'Smoothing radius' });
+  const keepMin = panel.getByRole('checkbox', { name: 'Keep min' });
+  await quality.focus();
+  await quality.press('ArrowRight');
+  await expect(quality).toHaveValue('0.51');
+  await quality.press('ArrowLeft');
+  await radius.focus();
+  await radius.press('ArrowRight');
+  await expect(radius).toHaveValue('6');
+  await radius.press('ArrowLeft');
+  await keepMin.focus();
+  await keepMin.press('Space');
+  await expect(keepMin).toBeChecked();
+  await keepMin.press('Space');
+  await expect(keepMin).not.toBeChecked();
   const box = await bar.boundingBox();
   if (!box) throw new Error('Missing layer height bar');
   const pixel = () => bar.evaluate(el => (el as HTMLCanvasElement).toDataURL());
@@ -77,6 +102,8 @@ export async function verifyLayerHeight(page: Page) {
   await expect(tool).toHaveAttribute('aria-pressed', 'false');
   await tool.click();
   await expect(warning).toBeVisible();
+  await expect(warning).toHaveCSS('opacity', '1');
+  await test.info().attach('mixed-layer-height-warning', { body: await warning.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await warning.getByRole('checkbox', { name: 'Do not show again' }).check();
   await warning.getByRole('button', { name: 'OK', exact: true }).click();
   await panel.getByRole('button', { name: 'Done' }).click();
