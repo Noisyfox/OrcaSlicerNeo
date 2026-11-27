@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { LayerHeightFrame } from '@slicer/client';
+import { lastPaintedBandCell } from './bandSampling';
 import { useLayerHeight } from './state';
 
 // All instances and printable parts of an object sample the same native atlas.
@@ -25,7 +26,7 @@ export function LayerMaterial({ frame }: { frame: LayerHeightFrame }) {
   const invalidate = useThree(s => s.invalidate);
   const uniforms = useMemo(() => ({
     bands: { value: texture(frame) }, size: { value: new THREE.Vector2(frame.width, frame.height) },
-    cells: { value: frame.cells }, height: { value: frame.profile.objectHeight },
+    cells: { value: frame.cells }, lastCell: { value: lastPaintedBandCell(frame) }, height: { value: frame.profile.objectHeight },
     cursor: { value: -100 }, width: { value: 2 },
   }), [frame]);
   useEffect(() => {
@@ -47,11 +48,11 @@ export function LayerMaterial({ frame }: { frame: LayerHeightFrame }) {
       }`}
     fragmentShader={`uniform sampler2D bands;
       uniform vec2 size;
-      uniform float cells, height, cursor, width;
+      uniform float cells, lastCell, height, cursor, width;
       varying float z;
       varying float light;
       void main() {
-        float cell = clamp(z / height, 0., 1.) * (cells - 1.);
+        float cell = clamp(z / height * (cells - 1.), 0., lastCell);
         vec2 uv = (vec2(mod(cell, size.x - 1.), floor(cell / (size.x - 1.))) + .5) / size;
         vec3 rgb = texture2D(bands, uv).rgb * light;
         float brush = .25 * (1. + cos(min(3.14159, abs(3.14159 * (z - cursor) * 1.8 / width))));

@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, type PointerEvent } from 'react';
+import { useLayoutEffect, useMemo, useRef, type PointerEvent } from 'react';
 import type { LayerHeightFrame, LayerHeightSample } from '@slicer/client';
+import { bandByteOffset, lastPaintedBandCell } from './bandSampling';
 import { useLayerHeight } from './state';
 
 import { recordLayerHeightPaint } from '@/e2e/layerHeightProbe';
@@ -21,6 +22,7 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
   const cursor = useLayerHeight(s => s.cursor);
   const width = useLayerHeight(s => s.width);
   const { profile } = frame;
+  const lastCell = useMemo(() => lastPaintedBandCell(frame), [frame]);
   useLayoutEffect(() => {
     const node = canvas.current!;
     const theme = getComputedStyle(node);
@@ -36,7 +38,7 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
       const img = ctx.createImageData(1, h);
       for (let y = 0; y < h; y++) {
         const cell = Math.round((1 - y / Math.max(1, h - 1)) * (frame.cells - 1));
-        const offset = (cell + Math.floor(cell / (frame.width - 1))) * 4;
+        const offset = bandByteOffset(Math.min(cell, lastCell), frame.width);
         img.data.set(frame.pixels.subarray(offset, offset + 4), y * 4);
       }
       const stripe = document.createElement('canvas');
@@ -70,7 +72,7 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
     const observer = new ResizeObserver(paint);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [frame, profile, width, cursor]);
+  }, [frame, lastCell, profile, width, cursor]);
 
   const stop = () => {
     if (!held.current) return false;
