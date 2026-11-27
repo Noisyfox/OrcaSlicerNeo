@@ -86,16 +86,102 @@ json commit(ModelObject& object, const std::vector<double>& next)
     return PlateSession::attach_plate_mutation({{"ok", true}, {"changed", true}}, mutation);
 }
 
+// A draft owns its inputs across Worker calls. It never retains a ModelObject
+// pointer because opening a project or restoring history can replace the model.
+struct Stroke {
+    uint64_t id;
+    size_t object_id;
+    json revision;
+    SlicingParameters params;
+    std::vector<double> initial;
+    std::vector<double> working;
+};
+std::optional<Stroke> stroke;
+uint64_t last_stroke_id = 0;
+
+json frame(const ModelObject& object, const SlicingParameters& params, const std::vector<double>& curve,
+           const std::string& plate_id)
+{
+    constexpr int cols = 1024;
+    const int rows = int(std::clamp(std::ceil(16. * params.object_print_z_height() /
+                                    params.min_layer_height / (cols - 1)), 1., 1024.));
+    const size_t bytes = size_t(rows) * cols * 4;
+    auto layers = generate_object_layers(params, curve, false);
+    auto pixels = std::unique_ptr<void, decltype(&std::free)>(std::calloc(1, bytes), &std::free);
+    if (!pixels) throw std::bad_alloc();
+    const int cells = generate_layer_height_texture(params, layers, pixels.get(), rows, cols, false);
+    json result = {{"ok", true}, {"profile", snapshot(object, params, curve, plate_id)},
+                   {"width", cols}, {"height", rows}, {"cells", cells},
+                   {"pointer", reinterpret_cast<uintptr_t>(pixels.get())}};
+    pixels.release();
+    return result;
+}
+
+json brush(ModelObject& object, const std::string& plate_id, const json& request, const std::string& op)
+{
+    const auto revision = stamp(object, plate_id);
+    if (op == "begin") {
+        if (request.at("stamp") != revision) throw std::invalid_argument("Layer height target changed");
+        auto params = parameters(object, plate_id);
+        auto curve = effective(object, params);
+        stroke.emplace(Stroke{++last_stroke_id, object.id().id, revision, params, curve, curve});
+        return {{"ok", true}, {"strokeId", stroke->id}};
+    }
+    if (!stroke || request.at("strokeId") != stroke->id || stroke->object_id != object.id().id ||
+        stroke->revision.at("plateId") != plate_id)
+        throw std::invalid_argument("Unknown layer height stroke");
+    if (op == "cancel") {
+        stroke.reset();
+        return {{"ok", true}};
+    }
+    if (stroke->revision != revision) {
+        stroke.reset();
+        throw std::invalid_argument("Layer height target changed");
+    }
+    if (op == "finish") {
+        auto completed = std::move(*stroke);
+        stroke.reset();
+        if (completed.working == completed.initial) return {{"ok", true}, {"changed", false}};
+        return commit(object, completed.working);
+    }
+    const auto& samples = request.at("samples");
+    if (!samples.is_array() || samples.empty()) throw std::invalid_argument("Missing layer height samples");
+    for (const auto& sample : samples) {
+        const double z = sample.at("z").get<double>(), width = sample.at("width").get<double>();
+        const auto& action = sample.at("action");
+        if (!action.is_number_unsigned() || action > 3 || !std::isfinite(z) || width < 1.5 || width > 10)
+            throw std::invalid_argument("Invalid layer height sample");
+    }
+    for (const auto& sample : samples) {
+        const double z = sample.at("z"), width = sample.at("width");
+        // Orca's resampler needs a preceding knot when the brush begins at
+        // zero on a raft. Supply a temporary knot at negative epsilon.
+        const bool pad = !stroke->params.first_object_layer_height_fixed() && z >= 0 && z <= width * 0.5;
+        auto& curve = stroke->working;
+        if (pad) {
+            const auto first = curve[1];
+            curve.insert(curve.begin(), {-EPSILON, first});
+        }
+        adjust_layer_height_profile(object, stroke->params, curve, z, double(0.005f), width,
+                                    LayerHeightEditActionType(sample.at("action").get<unsigned>()));
+        if (pad) curve.erase(curve.begin(), curve.begin() + 2);
+    }
+    return frame(object, stroke->params, stroke->working, plate_id);
+}
+
 json command(const json& request)
 {
     auto& object = target(request);
     const auto plate_id = request.at("plateId").get<std::string>();
     if (!PlateSession::find_plate(plate_id)) throw std::invalid_argument("Layer height plate is unavailable");
     const auto op = request.at("operation").get<std::string>();
-    if (op != "read" && request.at("stamp") != stamp(object, plate_id))
+    if (op == "begin" || op == "samples" || op == "finish" || op == "cancel")
+        return brush(object, plate_id, request, op);
+    if (op != "read" && op != "preview" && request.at("stamp") != stamp(object, plate_id))
         throw std::invalid_argument("Layer height target changed");
     const auto params = parameters(object, plate_id);
     const auto curve = effective(object, params);
+    if (op == "preview") return frame(object, params, curve, plate_id);
     if (op == "read") return {{"ok", true}, {"profile", snapshot(object, params, curve, plate_id)}};
     std::vector<double> next;
     if (op == "adaptive") {

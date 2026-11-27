@@ -99,4 +99,4 @@ export { installProfileArchive, linkProfileVendors, safeProfilePath } from './pr
 export { configVectorElementAt } from './configElements';
 export type { DeviceMaterialCatalogueRequest, DeviceMaterialCatalogue, DeviceMaterialPreset } from './deviceMaterials';
 
-export type { LayerHeightTarget, LayerHeightStamp, LayerHeightProfile, LayerHeightAction, LayerHeightEditResult } from './layerHeight';
+export type { LayerHeightFrame, LayerHeightStroke, LayerHeightSample, LayerHeightTarget, LayerHeightStamp, LayerHeightProfile, LayerHeightAction, LayerHeightEditResult } from './layerHeight';

@@ -33,6 +33,15 @@ describe('layer height native contract', () => {
     'rejects malformed or stale profile data', async invalid => {
       await expect(clientReply({ ok: true, profile: { ...profile, ...invalid } }, read).readLayerHeight(target)).rejects.toThrow();
     });
+  it('retains the native stroke identity across ordered sample batches', async () => {
+    const start = { ...target, stamp: profile.stamp };
+    expect(await clientReply({ ok: true, strokeId: 3 }, { ...start, operation: 'begin' }).beginLayerHeightStroke(start)).toBe(3);
+    const sample = { ...target, strokeId: 3, samples: [{ action: 1 as const, width: 2, z: 5 }] };
+    const frame = await clientReply({ ok: true, profile, cells: 2, width: 3, height: 1, pointer: 128 },
+      { ...sample, operation: 'samples' }).sampleLayerHeightStroke(sample);
+    expect(frame.profile).toEqual(profile);
+    expect(frame.pixels).toHaveLength(12);
+  });
   it('requires a plate receipt on a changed edit', async () => {
     const edit = { ...target, stamp: profile.stamp, operation: 'adaptive', quality: 0.5 } as const;
     expect(await clientReply({ ok: true, changed: true }, edit).editLayerHeight(edit)).toMatchObject({ ok: false });
