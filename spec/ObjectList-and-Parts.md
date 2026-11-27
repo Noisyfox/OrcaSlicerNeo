@@ -519,7 +519,8 @@ after an edit to a range. Other range process and filament settings still
 apply. Opening, editing and saving a range preserves the object's explicit
 profile. This delivery covers the Height Range Modifier only. Adaptive curve
 generation, manual brushing, smoothing and curve Reset belong to the separate
-Variable Layer Height tool. To clear a saved curve for this workflow, use
+[Variable Layer Height tool](Viewport%20Interaction.md#variable-layer-height).
+Until that editor is implemented in Neo, use
 Reset in desktop Orca's Variable Layer Height tool, save the 3MF and reopen
 it in Neo. The ranges then govern layer spacing alongside the object's defaults.
 

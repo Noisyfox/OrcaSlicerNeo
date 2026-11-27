@@ -1,8 +1,9 @@
 # Viewport Interaction
 
-**Updated:** 2026-11-13
-**Status:** Delivered behavior, including Measure; release-wide qualification
-is separate.
+**Updated:** 2026-11-27
+**Status:** Measure and the existing viewport interactions are delivered.
+Variable Layer Height has an accepted design and awaits implementation.
+Release-wide qualification is separate.
 **Scope:** Shared Electron/Web model selection, transforms, camera and rendering.
 
 ## Coordinates and rendering
@@ -494,6 +495,193 @@ affected host. Mock tests are not evidence for native results or memory
 behavior. Apply the staged package, host and variant checks in the
 [testing guidelines](../doc/testing_guidelines.md); report the measured model,
 device and variant scope rather than claiming untested limits or performance.
+
+## Variable Layer Height
+
+**Accepted design.** Electron and Web share the Prepare editor and the pinned
+Orca layer-height algorithms. Implementation and host qualification are pending.
+
+### Entry and selection
+
+The Prepare left toolbar provides the sole entry for creating and reopening an
+object's layer-height curve. Enable its button when the eligible FFF selection
+resolves to one owning model object. This includes a part, a full instance and
+multiple instances or parts of that same object. An empty selection or a
+selection spanning several objects disables the button. Every eligible
+selection edits the curve of the owning object and all its instances.
+The first release omits the variable-height icon from the Object List.
+
+### Target changes and pointer behavior
+
+Between strokes the editor follows selection. Picking another eligible object
+keeps the tool open and displays that object's curve and color bands. Picking a
+different part or instance of the same object retains the current curve.
+Switching targets is read-only and creates no undo entry. Clicking empty canvas
+preserves the target. A selection that no longer resolves to one eligible
+object closes the editor.
+
+A brush stroke begins on the height bar and captures the pointer. Dragging
+sideways off the bar continues the same stroke at the height given by the
+pointer's vertical position. Normal button release commits an effective stroke
+as one edit, including release outside the bar. On window blur or pointer
+cancellation, stop continuous brushing and discard the current draft. Earlier
+completed strokes remain in the project. A drag starting on a model outside
+the bar retains ordinary Prepare model movement. Camera gestures outside the
+bar follow the current navigation controls.
+
+### Object ownership and slicing
+
+One `ModelObject::layer_height_profile` holds the ordered Z and layer-height
+pairs for all instances of an object. Instances share scale, X/Y tilt and world
+Z. Their independent XY placement and rotation about world Z preserve vertex
+heights and surface inclination. Orca's adaptive analysis uses the first
+instance's transform. Editing through any instance uses the same object profile.
+[Native mesh preparation](../packages/slicer-wasm/cpp/src/libslic3r/SlicingAdaptive.cpp)
+
+### Profile display, Smooth and Reset
+
+Opening the editor reads the effective curve chosen by Orca. A first-layer
+setting change can make a saved curve temporarily inapplicable. Display the
+current effective curve directly, without a warning. Keep the saved curve so
+restoring the previous setting can make it effective again. Completing a new
+edit writes the new curve. Native 3MF persistence uses
+`Metadata/layer_heights_profile.txt`.
+[Native profile selection](../packages/slicer-wasm/cpp/src/libslic3r/PrintObject.cpp)
+
+Smooth writes its result to the object even when the curve keeps the same
+shape. In particular, smoothing a default straight line can create a saved
+profile. Use Orca's `check_object_layers_fixed` on the effective curve to
+determine Reset availability. Disable Reset when that check succeeds.
+Activating Reset clears the object's saved profile and refreshes the display.
+[Desktop controls](../packages/slicer-wasm/cpp/src/slic3r/GUI/GLCanvas3D.cpp)
+and [fixed-layer check](../packages/slicer-wasm/cpp/src/libslic3r/Slicing.cpp).
+
+### Editing and visual feedback
+
+The Prepare tool follows the pinned desktop Orca controls.
+[Desktop editor](../packages/slicer-wasm/cpp/src/slic3r/GUI/GLCanvas3D.cpp)
+and [native layer algorithms](../packages/slicer-wasm/cpp/src/libslic3r/Slicing.cpp).
+
+| Control | Orca behavior used as the design baseline |
+| --- | --- |
+| Adaptive | Generate a curve from the mesh on activation. Quality / Speed ranges from 0 to 1 and starts at 0.5. |
+| Height bar | Left adds detail, right removes detail, Shift + left moves toward the base height and Shift + right smooths locally. Holding the button repeats the action. The wheel changes the brush width from 1.5 to 10 mm, initially 2 mm. |
+| Smooth | Smooth the effective curve with radius 1–10, initially 5. Keep min starts off and, when enabled, prevents smoothing from increasing a sample above its previous height. |
+| Reset and Done | Reset clears the explicit object profile. Done closes the tool after completed edits have taken effect. |
+
+Use the pinned native brush and smoothing algorithms.
+
+### Layout, model colors and tool settings
+
+Place the controls beside the left Prepare toolbar in the shared tool-panel
+position. Reserve the right edge of the canvas for the height bar. The bar
+spans the object's full height and shows the base-height reference, curve,
+sampled height at the pointer and brush band.
+
+During editing, layer colors replace the normal filament or painted appearance
+on the printable geometry of every visible instance of the target object.
+This applies even when a part was selected to open the editor. Other objects
+keep their ordinary appearance. Restore the target's normal materials on exit.
+Surface coloring data stays intact throughout.
+
+Keep Quality / Speed, smoothing radius, Keep min and brush width in window
+state. Switching targets or closing and reopening the editor in the same
+window retains all four settings. A fresh window starts with the defaults
+listed above. The project's 3MF stores the object's layer-height curve.
+
+### Mixed-color warning and slicing behavior
+
+When mixed-color sublayers are enabled, opening the layer-height editor shows
+Orca's warning that varying the sublayer thickness may reduce mixing quality.
+Also show it when the user enables mixed-color sublayers with an existing
+variable-height object, following the pinned Orca object check. Acknowledging
+the warning continues the action. Both entry points share one persistent
+“Do not show again” preference.
+[Orca tool entry](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp) and
+[mixed-color setting](../packages/slicer-wasm/cpp/src/slic3r/GUI/ConfigManipulation.cpp).
+
+Follow the [painting tool's slice coordination](Surface%20Painting%20Architecture.md#75-existing-slice-jobs-and-runtime-admission).
+In threaded WASM, an existing slice can continue during editing. An effective
+commit invalidates results on all plates containing an instance of the edited
+object and requests cancellation if the active job belongs to one of those
+plates. Unaffected jobs continue. Replacement slicing requires a user request.
+In serial WASM, editing is unavailable until the slice ends.
+
+A user-initiated Slice between strokes closes the editor before starting the
+job with the committed curve. During a stroke, ignore Slice from any entry
+point, including shortcuts. Releasing the pointer does not launch a deferred
+job. See the [painting Slice command](Surface%20Painting%20Architecture.md#72-user-initiated-slicing).
+
+### Navigation, tool switching and saving
+
+A manual switch to Preview hides the layer-height editor. Returning to Prepare
+resumes editing when the target remains eligible. This differs from requesting
+Slice, which closes the editor before the job starts.
+
+Between strokes, selecting another available tool closes the layer-height
+editor and activates that tool directly. Opening the layer-height editor
+similarly replaces the previous tool. Completed edits are retained. During
+a stroke, ignore tool-switch shortcuts without queuing them.
+
+Between strokes, Save writes the committed project and keeps the editor open.
+During a stroke, ignore Save without opening a dialog or scheduling a save on
+release. A later explicit Save writes the newly committed curve.
+
+### Runtime
+
+Use the shared runtime and typed client to call the native algorithms on the
+slicer Worker. Build slicing parameters from the effective plate and object
+configuration, nozzle selection, first layer and shrinkage compensation. Keep
+the working curve in the Worker while brushing. Use native layer boundaries
+and texture generation for the display. During a stroke, update the height bar and model bands together
+from the same revision of the working curve. The renderer may skip superseded
+display frames. Apply every accepted brush action in order, including repeated
+actions while the pointer is held still. On release, publish the committed
+curve and its matching layer texture.
+
+### Undo and Redo behavior
+
+Keep separate history entries for individual committed strokes and for Adaptive,
+Smooth and Reset edits. Done leaves these entries available individually.
+Opening the tool and closing it with Done create no history entries of their
+own. Capture the tool's open state with the selection in the project history
+frame. On Undo or Redo, restore the curve and the frame's editing context.
+Reopen the tool when it was open and the restored target is eligible, and
+close it when the restored frame had it closed.
+
+Commit the native object mutation once, update the object's
+member plates and preserve results on independent plates. A no-op brush
+produces no history entry. A stale object or configuration must not receive
+a late stroke. Refresh the curve, model bands and affected plate results
+on Undo and Redo.
+
+### Implementation and acceptance
+
+1. **Native editing and persistence.** Expose effective-profile reads and
+   Adaptive, Smooth and Reset through the typed client and shared runtime.
+   On a sloped or curved solid, compare saved and reopened curves and exported
+   per-layer G-code Z with desktop Orca. Cover the fixed first layer, Reset's
+   native predicate, smoothing a default straight line and changing then
+   restoring the first-layer setting.
+2. **Brush and history.** Exercise the four brush actions, holding still,
+   off-bar release and interruption before wiring the shared Prepare controls.
+   Verify separate undo entries after Done, restored editing context, and
+   global versus local smoothing. Place two instances with different XY
+   placements and world-Z rotations on separate plates. Edit through the
+   second and undo once. Check both instances and their plate revisions
+   alongside an independent object on a third plate.
+3. **Prepare integration.** Verify selection, tool and page switches, Save,
+   mixed-color warnings and both directions of slice coordination. Check
+   threaded and serial admission. Confirm that layer colors replace painted
+   colors during editing and that closing restores the original appearance.
+4. **Live preview.** Replay the same continuous stroke in Electron, Chromium
+   and WebKit. Verify synchronized curve and model updates before release.
+   Compare the final curve and per-layer band data with native Orca computation
+   from the same ordered actions. Record observed input-to-display latency on
+   each host. The first release has no common frame-rate threshold.
+
+The [existing slicing and 3MF interoperability fixture](../packages/slicer-wasm/harness/height-range-slicing-smoke.mjs)
+provides the per-layer G-code comparison and desktop round trip.
 
 ## Context menus and output modes
 
