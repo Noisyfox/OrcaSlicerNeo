@@ -6,7 +6,7 @@ import { meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
 // overlays the canvas (outside the R3F tree). Selection and the armed gizmo
 // are observed separately so transform frames do not rerender the toolbar.
-import { FolderPlus, Move, Rotate3d, Scaling, Combine, Paintbrush, Scissors, Sparkles, Blocks, Ruler } from 'lucide-react';
+import { FolderPlus, Move, Rotate3d, Scaling, Combine, Paintbrush, Scissors, Sparkles, Blocks, Ruler, Layers } from 'lucide-react';
 import type { PaintingChannel } from '@slicer/client';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
@@ -31,6 +31,7 @@ const GIZMO_BUTTONS: ReadonlyArray<{
   { mode: 'rotate', label: 'Rotate', icon: Rotate3d, testId: 'gizmo-btn-rotate' },
   { mode: 'scale', label: 'Scale', icon: Scaling, testId: 'gizmo-btn-scale' },
   { mode: 'mesh-boolean', label: 'Mesh Boolean', icon: Combine, testId: 'gizmo-btn-mesh-boolean' },
+  { mode: 'layer-height', label: 'Variable layer height', icon: Layers, testId: 'gizmo-btn-layer-height' },
   { mode: 'measure', label: 'Measure', icon: Ruler, testId: 'gizmo-btn-measure' },
 ];
 
@@ -115,7 +116,8 @@ export function GizmoToolbar({
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
         const disabled = (towerSelected ? !towerMode : sceneInteraction.selection.empty) || (paintActive && paintState?.phase !== 'idle') ||
-          (mode === 'measure' && !armed && !!platform.runtime.getRuntimeExecutionState?.().serialSliceActive) ||
+          (mode === 'layer-height' && sceneInteraction.layerHeightObjectId === null) ||
+          ((mode === 'measure' || mode === 'layer-height') && !armed && !!platform.runtime.getRuntimeExecutionState?.().serialSliceActive) ||
           (mode === 'mesh-boolean' && ((!armed && !meshBooleanTarget(sceneInteraction.selectedVolumes(), glVolumeCollection.volumes)) ||
             !!platform.runtime.getRuntimeExecutionState?.().sliceActive));
         return (

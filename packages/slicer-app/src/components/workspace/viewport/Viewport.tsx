@@ -1,3 +1,4 @@
+import { LayerHeightEditor } from './gizmo/layerHeight/LayerHeightEditor';
 import { editRanges } from '../objectList/heightRangeActions';
 import { selectedHeightRanges } from '../objectList/useObjectListStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
@@ -408,7 +409,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       // Shift+click keeps today's behavior (select the body, clear on empty).
       const volume = pickTopmostModelVolume(sceneStateRef.current, gesture.start);
       if (volume) controller.selectFromClick(volume, gesture.additive);
-      else controller.clearSelection();
+      else if (controller.gizmo !== 'layer-height') controller.clearSelection();
     }
     controller.releasePointer();
     setCameraGestureActive(false);
@@ -453,6 +454,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         if (previewTab || paintingActive || measureActive) event.stopPropagation();
       }}
       onPointerDownCapture={(event) => {
+        if ((event.target as HTMLElement).closest('[data-layer-height-control]')) return;
         if ((event.target as HTMLElement).closest('canvas')) closeArrangement();
         if (useArrangementStore.getState().active) return;
         if (paintingActive) return;
@@ -508,7 +510,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             onPointerMissed={(event) => {
               if (event.button !== 0) return;
               if (useArrangementStore.getState().active) return;
-              if (sceneInteractionRef.current?.gizmo === 'mesh-boolean') return;
+              if (sceneInteractionRef.current?.gizmo === 'mesh-boolean' || sceneInteractionRef.current?.gizmo === 'layer-height') return;
               if (sceneInteractionRef.current?.gizmo === 'measure') return;
               if (!previewTab && !paintingActive) {
                 const rect = viewportRef.current.getBoundingClientRect();
@@ -602,6 +604,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             <RotatePanel sceneInteraction={sceneInteraction} />
             <ScalePanel sceneInteraction={sceneInteraction} />
             <MeasurePanel sceneInteraction={sceneInteraction} />
+            {sceneInteraction && <LayerHeightEditor scene={sceneInteraction} viewport={viewportRef.current} />}
             {paintingActive && (paintState?.channel === 'support' ? <SupportPaintingPanel /> : paintState?.channel === 'seam' ? <SeamPaintingPanel /> : paintState?.channel === 'fuzzy' ? <FuzzyPaintingPanel /> : <MmuPaintingPanel />)}
           </div>
         </div>}

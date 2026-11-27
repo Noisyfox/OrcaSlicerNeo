@@ -27,7 +27,7 @@ import {
   type BoxRect,
 } from './boxSelectionMath';
 
-export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | 'measure' | null;
+export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | 'measure' | 'layer-height' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box' | 'external';
@@ -158,6 +158,12 @@ export class SceneInteractionController {
   notifyTransformsChanged(): void { this.emit(); }
 
   get gizmo(): OpenGizmo { return this.openGizmo; }
+  get layerHeightObjectId(): number | null {
+    if (this.hasWipeTowerSelection) return null;
+    const ids = new Set(this.selectedVolumes().map(volume => volume.buffer.objectId));
+    return ids.size === 1 ? [...ids][0] : null;
+  }
+
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
   get selectionMode(): SelectionMode { return this.selectionModeState; }
@@ -185,6 +191,7 @@ export class SceneInteractionController {
     if (this.meshBoolean.publishing) return false;
     if (this.selection.empty) return false;
     if (this.hasWipeTowerSelection && mode !== 'move') return false;
+    if (mode === 'layer-height' && this.layerHeightObjectId === null) return false;
     if (mode === 'mesh-boolean' && this.openGizmo !== mode) {
       const target = meshBooleanTarget(this.selectedVolumes(), this.getVolumes());
       if (!target) return false;
@@ -1440,7 +1447,7 @@ export class SceneInteractionController {
   private syncGizmoToSelection(): void {
     if (this.openGizmo === 'mesh-boolean') {
       if (!this.meshBoolean.reconcile(this.selectedVolumes())) this.closeGizmo();
-    } else if (this.selectedVolumes().length === 0 || (this.hasWipeTowerSelection && this.openGizmo !== 'move')) {
+    } else if ((this.openGizmo === 'layer-height' && this.layerHeightObjectId === null) || this.selectedVolumes().length === 0 || (this.hasWipeTowerSelection && this.openGizmo !== 'move')) {
       this.openGizmo = null;
     }
   }
