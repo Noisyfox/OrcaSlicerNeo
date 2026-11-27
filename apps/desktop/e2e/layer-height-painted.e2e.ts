@@ -60,7 +60,7 @@ test('restores painted surfaces on both instances after layer height editing', a
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     await page.mouse.up();
     await expect(reset).toBeDisabled();
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.getByRole('button', { name: 'Close variable layer height', exact: true }).click();
     await expect.poll(read).toEqual(before);
   } finally { await app.close(); }
 });

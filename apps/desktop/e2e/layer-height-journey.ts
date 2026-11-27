@@ -66,8 +66,10 @@ export async function verifyLayerHeight(page: Page) {
   await panel.getByRole('button', { name: 'Adaptive' }).click();
   await expect(reset).toBeEnabled();
   await panel.getByRole('button', { name: 'Smooth', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'Done' })).toBeEnabled();
-  await panel.getByRole('button', { name: 'Done' }).click();
+  const close = panel.getByRole('button', { name: 'Close variable layer height', exact: true });
+  await expect(close).toHaveText('Close');
+  await expect(close).toBeEnabled();
+  await close.click();
   await expect(bar).toHaveCount(0);
   await tool.click();
   await expect(reset).toBeEnabled();
@@ -75,7 +77,7 @@ export async function verifyLayerHeight(page: Page) {
   await expect(bar).toHaveCount(0);
   await page.locator('#app-tab-prepare').click();
   await expect(bar).toBeVisible();
-  await panel.getByRole('button', { name: 'Done' }).click();
+  await close.click();
   const lifecycle = () => page.evaluate(() => (window as unknown as {
     __orcaE2e: { historyRestoreLifecycle(): { phase: string; revision: number; error: string | null } };
   }).__orcaE2e.historyRestoreLifecycle());
@@ -86,7 +88,7 @@ export async function verifyLayerHeight(page: Page) {
   await page.getByTestId('history-redo').click();
   await expect.poll(lifecycle).toMatchObject({ phase: 'idle', revision: previous.revision + 2, error: null });
   await expect(reset).toBeEnabled();
-  await panel.getByRole('button', { name: 'Done' }).click();
+  await close.click();
   await page.getByTestId('config-mode-project').click();
   await page.getByTestId('config-page-Quality').click();
   await expect(page.locator('[data-testid="configuration-option-lock"]:not([disabled])')).toBeVisible();
@@ -106,7 +108,7 @@ export async function verifyLayerHeight(page: Page) {
   await test.info().attach('mixed-layer-height-warning', { body: await warning.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await warning.getByRole('checkbox', { name: 'Do not show again' }).check();
   await warning.getByRole('button', { name: 'OK', exact: true }).click();
-  await panel.getByRole('button', { name: 'Done' }).click();
+  await close.click();
   await tool.click();
   await expect(reset).toBeEnabled();
   await expect(warning).toHaveCount(0);

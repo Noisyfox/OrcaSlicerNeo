@@ -567,7 +567,7 @@ and [native layer algorithms](../packages/slicer-wasm/cpp/src/libslic3r/Slicing.
 | Adaptive | Generate a curve from the mesh on activation. Quality / Speed ranges from 0 to 1 and starts at 0.5. |
 | Height bar | Left adds detail, right removes detail, Shift + left moves toward the base height and Shift + right smooths locally. Holding the button repeats the action. The wheel changes the brush width from 1.5 to 10 mm, initially 2 mm. |
 | Smooth | Smooth the effective curve with radius 1–10, initially 5. Keep min starts off and, when enabled, prevents smoothing from increasing a sample above its previous height. |
-| Reset and Done | Reset clears the explicit object profile. Done closes the tool after completed edits have taken effect. |
+| Reset and Close | Reset clears the explicit object profile. Close exits the tool and retains completed edits. |
 
 Use the pinned native brush and smoothing algorithms.
 
@@ -642,9 +642,9 @@ curve and its matching layer texture.
 ### Undo and Redo behavior
 
 Keep separate history entries for individual committed strokes and for Adaptive,
-Smooth and Reset edits. Done leaves these entries available individually.
-Opening the tool and closing it with Done create no history entries of their
-own. Capture the tool's open state with the selection in the project history
+Smooth and Reset edits. These entries remain available after closing the tool.
+Opening or closing the tool creates no history entry of its own.
+Capture the tool's open state with the selection in the project history
 frame. On Undo or Redo, restore the curve and the frame's editing context.
 Reopen the tool when it was open and the restored target is eligible, and
 close it when the restored frame had it closed.

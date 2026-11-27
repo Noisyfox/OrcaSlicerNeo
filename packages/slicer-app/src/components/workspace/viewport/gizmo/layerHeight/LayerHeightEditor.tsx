@@ -105,7 +105,7 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
   return <section aria-label="Variable layer height" data-layer-height-control className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_4ch] items-center gap-x-2 gap-y-3 text-sm">
     <div className="col-span-full flex items-center justify-between gap-2">
       <h2 className="text-module font-semibold">Variable layer height</h2>
-      <Button size="sm" variant="ghost" disabled={locked} onClick={() => scene.closeGizmo()}>Done</Button>
+      <Button size="sm" variant="ghost" aria-label="Close variable layer height" disabled={locked} onClick={() => scene.closeGizmo()}>Close</Button>
     </div>
     <span className="text-muted-foreground">Quality / Speed</span>
     <Slider aria-label="Quality / Speed" value={[quality]} min={0} max={1} step={0.01}
