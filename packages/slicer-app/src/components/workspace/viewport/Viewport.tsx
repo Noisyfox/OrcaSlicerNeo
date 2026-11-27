@@ -1,3 +1,4 @@
+import { registerLayerHeightScene, useLayerHeight } from './gizmo/layerHeight/state';
 import { LayerHeightEditor } from './gizmo/layerHeight/LayerHeightEditor';
 import { editRanges } from '../objectList/heightRangeActions';
 import { selectedHeightRanges } from '../objectList/useObjectListStore';
@@ -107,6 +108,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
   const platform = usePlatform();
+  useEffect(() => registerLayerHeightScene(sceneInteraction), [sceneInteraction]);
   const painting = usePaintingController();
   const measure = useMeasureController();
   const measureState = useMeasureState();
@@ -245,6 +247,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (useLayerHeight.getState().busy) return;
       const key = event.key.toLowerCase();
       if (painting?.active) {
         if (key === 'u' && painting.getSnapshot().phase === 'idle' && !platform.runtime.getRuntimeExecutionState?.().serialSliceActive) {

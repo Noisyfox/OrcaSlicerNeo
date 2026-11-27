@@ -1,3 +1,4 @@
+import { closeLayerHeightForSlice, useLayerHeight } from './viewport/gizmo/layerHeight/state';
 import { paintingCommandAllowed, closePaintingForCommand } from './viewport/gizmo/painting/projectCommands';
 import { closeMeasureForCommand } from './viewport/gizmo/measure/projectCommands';
 import { waitForSettledModelTransforms } from './actions/persistModelTransforms';
@@ -34,7 +35,7 @@ export function createWorkspaceSliceCoordinator({
   let inFlight: Promise<void> | null = null;
 
   const ensureSlice = (pending = waitForSettledModelTransforms()): Promise<void> => {
-    if (!paintingCommandAllowed() || !isModelLoaded()) return Promise.resolve();
+    if (useLayerHeight.getState().busy || !paintingCommandAllowed() || !isModelLoaded()) return Promise.resolve();
 
     if (inFlight) return inFlight;
 
@@ -63,7 +64,7 @@ export function createWorkspaceSliceCoordinator({
   return {
     ensureSlice,
     requestPreviewSlice: async () => {
-      if (!paintingCommandAllowed()) return;
+      if (!paintingCommandAllowed() || !closeLayerHeightForSlice()) return;
       const pending = waitForSettledModelTransforms();
       if (!await closePaintingForCommand()) return;
       const measureCleanup = closeMeasureForCommand();

@@ -1,3 +1,4 @@
+import { useLayerHeight } from './components/workspace/viewport/gizmo/layerHeight/state';
 import { sendActivity } from '@orca/printer-control';
 import { useSendExitGuard } from './components/send/SendExitGuard';
 import { MeshBooleanWait } from './components/workspace/viewport/gizmo/meshBoolean/MeshBooleanControls';
@@ -242,6 +243,7 @@ function AppContent() {
     setHistoryRestoreCoordinator(coordinator);
   }, []);
   const requestPreviewSlice = useCallback(() => {
+    if (useLayerHeight.getState().busy) return Promise.resolve();
     const coordinator = workspaceSliceCoordinatorRef.current;
     if (coordinator) return coordinator.requestPreviewSlice();
     // The Workspace is always mounted once the shell is ready, but preserve a

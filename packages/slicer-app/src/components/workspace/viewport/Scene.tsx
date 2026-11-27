@@ -75,9 +75,8 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
   );
   const previousActiveTabRef = useRef<'prepare' | 'preview' | null>(null);
   useEffect(() => {
-    if (hasEnteredPreview(previousActiveTabRef.current, activeTab)) {
-      // Preview retains the shared selection for sidebar use, but never an
-      // armed viewport gizmo. Prepare will render that selection again.
+    if (hasEnteredPreview(previousActiveTabRef.current, activeTab) && sceneInteraction.gizmo !== 'layer-height') {
+      // The layer-height editor resumes on return to Prepare.
       sceneInteraction.closeGizmo();
     }
     previousActiveTabRef.current = activeTab;

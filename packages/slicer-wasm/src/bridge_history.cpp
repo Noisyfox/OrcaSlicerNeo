@@ -592,6 +592,12 @@ json restore_timestamped_result(const Runtime& runtime,
             if (before == before_objects.end()) { add_object_plates(*after->second, state().instance_plate_ids); continue; }
             if (after == after_objects.end()) { add_object_plates(*before->second, before_membership); continue; }
 
+            if (before->second->layer_height_profile.get() != after->second->layer_height_profile.get()) {
+                add_object_plates(*before->second, before_membership);
+                add_object_plates(*after->second, state().instance_plate_ids);
+                continue;
+            }
+
             std::map<std::size_t, const ModelVolume*> before_volumes, after_volumes;
             for (const auto* volume : before->second->volumes) before_volumes.emplace(volume->id().id, volume);
             for (const auto* volume : after->second->volumes) after_volumes.emplace(volume->id().id, volume);

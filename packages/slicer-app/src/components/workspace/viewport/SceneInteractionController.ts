@@ -1,3 +1,4 @@
+import { useLayerHeight } from './gizmo/layerHeight/state';
 import { MeshBooleanSession, meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
 import { InstanceHider, visibleToolVolumes, type InstanceHiderLease } from './InstanceHider';
 import * as THREE from 'three';
@@ -188,6 +189,7 @@ export class SceneInteractionController {
    * armed one.
    */
   toggleGizmo(mode: Exclude<OpenGizmo, null>): boolean {
+    if (this.openGizmo === 'layer-height' && useLayerHeight.getState().busy) return false;
     if (this.meshBoolean.publishing) return false;
     if (this.selection.empty) return false;
     if (this.hasWipeTowerSelection && mode !== 'move') return false;
@@ -204,6 +206,7 @@ export class SceneInteractionController {
 
   /** Close the armed gizmo without changing the shared selection. */
   closeGizmo(): boolean {
+    if (this.openGizmo === 'layer-height' && useLayerHeight.getState().busy) return false;
     if (this.meshBoolean.publishing) return false;
     if (this.openGizmo === null) return false;
     this.openGizmo = null;
@@ -844,7 +847,7 @@ export class SceneInteractionController {
     // pick individual Parts. Alt remains the explicit per-click Part override.
     this.selectionModeState = context.selection.mode === 'part' ? 'instance' : context.selection.mode;
     this.selection.replaceIds([...selected]);
-    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale' || context.gizmo?.type === 'measure'
+    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale' || context.gizmo?.type === 'measure' || context.gizmo?.type === 'layer-height'
       ? context.gizmo.type : null;
     this.syncGizmoToSelection();
     this.emit();

@@ -561,8 +561,10 @@ export function Workspace({
   useEffect(() => {
     const enteredPreview = hasEnteredPreview(previousActiveTabRef.current, activeTab);
     previousActiveTabRef.current = activeTab;
-    if (enteredPreview) void sliceCoordinator.ensureSlice();
-  }, [activeTab, sliceCoordinator]);
+    // Opening Preview from the layer editor displays the current plate result.
+    // An explicit Slice command owns starting a replacement job.
+    if (enteredPreview && sceneInteraction.gizmo !== 'layer-height') void sliceCoordinator.ensureSlice();
+  }, [activeTab, sliceCoordinator, sceneInteraction]);
 
   const selectPreviewPlate = useCallback(async (plateId: string) => {
     if (previewPlateSelectionPending) return;

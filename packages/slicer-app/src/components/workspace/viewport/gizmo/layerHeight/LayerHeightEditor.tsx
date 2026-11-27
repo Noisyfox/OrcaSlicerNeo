@@ -7,7 +7,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { Button } from '@/components/ui/button';
 import { runProjectHistoryMutation } from '../../../actions/historyMutation';
-import { refreshAfterModelMutation } from '../../../objectList/actions';
+import { publishModelPlateMutation } from '../../../objectList/actions';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import { BrushQueue } from './BrushQueue';
 import { HeightBar } from './HeightBar';
@@ -74,7 +74,7 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
     try {
       await runProjectHistoryMutation(runtime, label, edit, scene, {
         publish: async result => {
-          if (result.ok && result.changed) await refreshAfterModelMutation(runtime, result.plateSession);
+          if (result.ok && result.changed) await publishModelPlateMutation(runtime, result.plateSession);
         },
       });
     } catch (reason) { if (mounted.current) setError(String(reason)); }

@@ -1,3 +1,4 @@
+import { useLayerHeight } from '../viewport/gizmo/layerHeight/state';
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
 import { LayoutGrid, X } from 'lucide-react';
 import { usePlatform, type ArrangementPreferences } from '@orca/platform-contract';
@@ -53,7 +54,8 @@ export function ArrangementButton({ sceneInteraction, open, onOpenChange }: {
   const controls = useArrangementControls(sceneInteraction);
   const painting = usePaintingController();
   const paintState = usePaintingState();
-  const disabled = controls.disabled || (painting?.active === true && !['idle', 'error'].includes(paintState?.phase ?? 'closed'));
+  const layerBusy = useLayerHeight(s => s.busy);
+  const disabled = layerBusy || controls.disabled || (painting?.active === true && !['idle', 'error'].includes(paintState?.phase ?? 'closed'));
   return (
     <TooltipFor content="Arrange models" disabled={disabled}>
       <Button variant="gizmo" size="icon" disabled={disabled}

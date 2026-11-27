@@ -1,3 +1,4 @@
+import { useLayerHeight } from './gizmo/layerHeight/state';
 import { glVolumeCollection } from './GLVolume';
 import { meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
 // Left-side vertical scene toolbar: Add Model first, followed by arrangement
@@ -58,6 +59,7 @@ export function GizmoToolbar({
   useSyncExternalStore(subscribeSelection, () => selection?.revision ?? 0);
   const gizmo = useSyncExternalStore(subscribeGizmo, () => sceneInteraction?.gizmo ?? null);
   const platform = usePlatform();
+  const layerBusy = useLayerHeight(state => state.busy);
   const painting = usePaintingController();
   const paintState = usePaintingState();
   const slotCount = useFilamentSessionStore((s) => s.snapshot?.slots.length ?? 0);
@@ -76,7 +78,7 @@ export function GizmoToolbar({
   if (!sceneInteraction) return null;
   const towerSelected = sceneInteraction.hasWipeTowerSelection;
   const openPainting = (channel: PaintingChannel) => {
-    if (!painting) return;
+    if (!painting || layerBusy) return;
     const target = paintingTarget(sceneInteraction);
     if (!target) return;
     const closingMeasure = sceneInteraction.gizmo === 'measure' || measureSessionActive();
@@ -103,7 +105,7 @@ export function GizmoToolbar({
           size="icon"
           variant="ghost"
           onClick={() => { onArrangementOpenChange(false); void addModel(platform, sceneInteraction, onModelAdded); }}
-          disabled={!presetsLoaded || !!painting?.unfinished}
+          disabled={layerBusy || !presetsLoaded || !!painting?.unfinished}
           aria-label="Add Model"
           data-testid="btn-add-model"
         >
@@ -115,7 +117,7 @@ export function GizmoToolbar({
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
-        const disabled = (towerSelected ? !towerMode : sceneInteraction.selection.empty) || (paintActive && paintState?.phase !== 'idle') ||
+        const disabled = layerBusy || (towerSelected ? !towerMode : sceneInteraction.selection.empty) || (paintActive && paintState?.phase !== 'idle') ||
           (mode === 'layer-height' && sceneInteraction.layerHeightObjectId === null) ||
           ((mode === 'measure' || mode === 'layer-height') && !armed && !!platform.runtime.getRuntimeExecutionState?.().serialSliceActive) ||
           (mode === 'mesh-boolean' && ((!armed && !meshBooleanTarget(sceneInteraction.selectedVolumes(), glVolumeCollection.volumes)) ||
@@ -144,7 +146,7 @@ export function GizmoToolbar({
         <Button size="icon" variant="gizmo" aria-label="Support painting" aria-pressed={paintActive && paintState?.channel === 'support'} data-testid="gizmo-btn-support"
           disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
           onClick={() => {
-            if (!painting) return;
+            if (!painting || layerBusy) return;
             onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'support') { void painting.close(); return; }
             openPainting('support');
@@ -154,7 +156,7 @@ export function GizmoToolbar({
         <Button size="icon" variant="gizmo" aria-label="Seam painting" aria-pressed={paintActive && paintState?.channel === 'seam'} data-testid="gizmo-btn-seam"
           disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
           onClick={() => {
-            if (!painting) return;
+            if (!painting || layerBusy) return;
             onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'seam') { void painting.close(); return; }
             openPainting('seam');
@@ -164,7 +166,7 @@ export function GizmoToolbar({
         <Button size="icon" variant="gizmo" aria-label="Fuzzy skin painting" aria-pressed={paintActive && paintState?.channel === 'fuzzy'} data-testid="gizmo-btn-fuzzy"
           disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
           onClick={() => {
-            if (!painting) return;
+            if (!painting || layerBusy) return;
             onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'fuzzy') { void painting.close(); return; }
             openPainting('fuzzy');
@@ -174,7 +176,7 @@ export function GizmoToolbar({
         <Button size="icon" variant="gizmo" aria-label="Surface painting" aria-pressed={paintActive && paintState?.channel === 'mmu'} data-testid="gizmo-btn-paint"
           disabled={paintActive && paintState?.channel === 'mmu' ? paintState?.phase !== 'idle' : slotCount < 2 || (paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive)}
           onClick={() => {
-            if (!painting) return;
+            if (!painting || layerBusy) return;
             onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'mmu') { void painting.close(); return; }
             openPainting('mmu');

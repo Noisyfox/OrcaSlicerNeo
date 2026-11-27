@@ -84,6 +84,21 @@ export async function assignFilamentInList(runtime: SlicerRuntime, targets: Fila
   });
 }
 
+export async function publishModelPlateMutation(runtime: SlicerRuntime, plateSession: PlateSessionMutation) {
+  invalidateAffectedPlateResults(runtime, plateSession.affectedPlateIds ?? []);
+  if (plateSession.nativeScopedConfig) {
+    const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(plateSession.nativeScopedConfig);
+    if (outcome === 'refresh-required') {
+      const refreshed = await runtime.getNativeScopedConfig();
+      if (refreshed.ok) useSettingsStore.getState().applyNativeScopedConfigTransport(refreshed.nativeScopedConfig);
+    }
+  }
+  applyPlateSessionTransforms(plateSession, glVolumeCollection.volumes);
+  const previousPlateSession = usePlateSessionStore.getState().snapshot;
+  usePlateSessionStore.getState().setSnapshot(plateSession);
+  applyPlateResultMutation(plateSession, previousPlateSession);
+}
+
 /** Publish result/plate state after the committed SceneDelta updated the scene. */
 export async function refreshAfterModelMutation(
   runtime: SlicerRuntime,
@@ -94,20 +109,7 @@ export async function refreshAfterModelMutation(
   slicer.setResultExported(false);
   slicer.setError(null);
   slicer.resetPreviewState();
-  if (plateSession) {
-    invalidateAffectedPlateResults(runtime, plateSession.affectedPlateIds ?? []);
-    if (plateSession.nativeScopedConfig) {
-      const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(plateSession.nativeScopedConfig);
-      if (outcome === 'refresh-required') {
-        const refreshed = await runtime.getNativeScopedConfig();
-        if (refreshed.ok) useSettingsStore.getState().applyNativeScopedConfigTransport(refreshed.nativeScopedConfig);
-      }
-    }
-    applyPlateSessionTransforms(plateSession, glVolumeCollection.volumes);
-    const previousPlateSession = usePlateSessionStore.getState().snapshot;
-    usePlateSessionStore.getState().setSnapshot(plateSession);
-    applyPlateResultMutation(plateSession, previousPlateSession);
-  }
+  if (plateSession) await publishModelPlateMutation(runtime, plateSession);
   const structure = useObjectListStore.getState().structure;
   if (structure.length === 0) {
     useSettingsStore.getState().setModelLoadedFromSceneDelta(false);

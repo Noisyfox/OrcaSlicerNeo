@@ -25,6 +25,8 @@ export async function verifyLayerHeight(page: Page) {
   const initial = await pixel();
   await page.mouse.down();
   await expect.poll(pixel).not.toBe(initial);
+  await page.keyboard.press('m');
+  await expect(tool).toHaveAttribute('aria-pressed', 'true');
   const first = await pixel();
   await expect.poll(pixel).not.toBe(first);
   await page.mouse.move(x - box.width * 2, y - 15);
@@ -40,5 +42,14 @@ export async function verifyLayerHeight(page: Page) {
   await panel.getByRole('button', { name: 'Done' }).click();
   await expect(bar).toHaveCount(0);
   await tool.click();
+  await expect(reset).toBeEnabled();
+  await page.locator('#app-tab-preview').click();
+  await expect(bar).toHaveCount(0);
+  await page.locator('#app-tab-prepare').click();
+  await expect(bar).toBeVisible();
+  await panel.getByRole('button', { name: 'Done' }).click();
+  await page.getByTestId('history-undo').click();
+  await expect(bar).toBeVisible();
+  await page.getByTestId('history-redo').click();
   await expect(reset).toBeEnabled();
 }
