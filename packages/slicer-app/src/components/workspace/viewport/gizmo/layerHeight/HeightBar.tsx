@@ -2,6 +2,9 @@ import { useLayoutEffect, useRef, type PointerEvent } from 'react';
 import type { LayerHeightFrame, LayerHeightSample } from '@slicer/client';
 import { useLayerHeight } from './state';
 
+import { recordLayerHeightPaint } from '@/e2e/layerHeightProbe';
+declare const __ORCA_E2E__: boolean;
+
 function heightAt(curve: number[], z: number) {
   let i = 0;
   while (i + 2 < curve.length && curve[i + 2] <= z) i += 2;
@@ -56,6 +59,7 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
         ctx.fillStyle = 'rgba(128,150,160,.25)';
         ctx.fillRect(0, y(cursor + width / 2), w, h * width / profile.objectHeight);
       }
+      if (__ORCA_E2E__) recordLayerHeightPaint(frame, 'bar');
     }
     paint();
     const observer = new ResizeObserver(paint);
@@ -88,7 +92,7 @@ export function HeightBar({ frame, begin, append, release, cancel }: {
       if (!event.deltaY) return;
       const next = Math.max(1.5, Math.min(10, width * (event.deltaY < 0 ? 1.1 : 1 / 1.1)));
       useLayerHeight.setState({ width: next });
-      if (held.current) held.current.sample.width = next;
+      if (held.current) held.current.sample = { ...held.current.sample, width: next };
     }}>
     <canvas ref={canvas} aria-label="Variable layer height brush" data-testid="layer-height-bar"
       className="h-full w-full touch-none cursor-crosshair"

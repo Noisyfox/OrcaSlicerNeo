@@ -1,3 +1,4 @@
+import { verifyLayerHeightReplay } from './layer-height-replay';
 import { expect as baseExpect, type Page } from '@playwright/test';
 import { ready } from './arrangement-journey';
 import { addPrimitive } from './add-primitive';
@@ -35,6 +36,8 @@ export async function verifyLayerHeight(page: Page) {
   await expect(reset).toBeEnabled();
   await reset.click();
   await expect(reset).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Adaptive' })).toBeEnabled();
+  await verifyLayerHeightReplay(page, bar, reset);
   await panel.getByRole('button', { name: 'Adaptive' }).click();
   await expect(reset).toBeEnabled();
   await panel.getByRole('button', { name: 'Smooth', exact: true }).click();
@@ -48,9 +51,15 @@ export async function verifyLayerHeight(page: Page) {
   await page.locator('#app-tab-prepare').click();
   await expect(bar).toBeVisible();
   await panel.getByRole('button', { name: 'Done' }).click();
+  const lifecycle = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e: { historyRestoreLifecycle(): { phase: string; revision: number; error: string | null } };
+  }).__orcaE2e.historyRestoreLifecycle());
+  const previous = await lifecycle();
   await page.getByTestId('history-undo').click();
+  await expect.poll(lifecycle).toMatchObject({ phase: 'idle', revision: previous.revision + 1, error: null });
   await expect(bar).toBeVisible();
   await page.getByTestId('history-redo').click();
+  await expect.poll(lifecycle).toMatchObject({ phase: 'idle', revision: previous.revision + 2, error: null });
   await expect(reset).toBeEnabled();
   await panel.getByRole('button', { name: 'Done' }).click();
   await page.getByTestId('config-mode-project').click();

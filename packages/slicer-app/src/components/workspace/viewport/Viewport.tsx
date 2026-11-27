@@ -334,7 +334,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   }, []);
 
   const selectPlate = useCallback(async (plateId: string) => {
-    if (plateActionPending) return;
+    if (plateActionPending || (sceneInteraction.gizmo === 'layer-height' && plateId === plateSession?.currentPlateId)) return;
     setPlateActionPending(true);
     try {
       await selectPlateSessionAndClearSelection(platform, plateId, () => {

@@ -1,9 +1,11 @@
+import { beginLayerHeightProbe, recordLayerHeightSample, registerLayerHeightProbe, releaseLayerHeightProbe } from '@/e2e/layerHeightProbe';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { usePlatform } from '@orca/platform-contract';
 import type { LayerHeightAction, LayerHeightEditResult, LayerHeightFrame } from '@slicer/client';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
+import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { Button } from '@/components/ui/button';
 import { runProjectHistoryMutation } from '../../../actions/historyMutation';
@@ -13,6 +15,8 @@ import { BrushQueue } from './BrushQueue';
 import { HeightBar } from './HeightBar';
 import { releaseLayerTexture } from './LayerMaterial';
 import { useLayerHeight } from './state';
+
+declare const __ORCA_E2E__: boolean;
 
 function display(frame: LayerHeightFrame | null) {
   const old = useLayerHeight.getState().frame;
@@ -33,6 +37,8 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
 }) {
   const { runtime } = usePlatform();
   const { quality, radius, keepMin, busy, frame } = useLayerHeight();
+  const restoring = useHistoryRestoreStore(s => s.phase !== 'idle');
+  const locked = busy || restoring;
   const revision = useHistoryNavigationStore(s => s.status?.revision);
   const inputRevision = usePlateSessionStore(s => s.snapshot?.inputRevisions?.[plateId]);
   const generation = useProjectStore(s => s.projectGeneration);
@@ -41,6 +47,10 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
   const stroke = useRef<BrushQueue | null>(null);
   const mounted = useRef(false);
   const current = frame?.profile.objectId === objectId && frame.profile.stamp.plateId === plateId ? frame : null;
+
+  useEffect(() => {
+    if (__ORCA_E2E__) return registerLayerHeightProbe(runtime, () => useLayerHeight.getState().frame);
+  }, [runtime]);
 
   const cancel = useCallback(() => {
     const active = stroke.current;
@@ -64,11 +74,12 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
     let valid = true;
     cancel();
     setError('');
+    if (restoring) return;
     void runtime.previewLayerHeight({ objectId, plateId }).then(next => {
       if (valid) display(next);
     }).catch(reason => { if (valid) { display(null); setError(String(reason)); } });
     return () => { valid = false; };
-  }, [runtime, objectId, plateId, generation, revision, inputRevision, refresh, cancel]);
+  }, [runtime, objectId, plateId, generation, revision, inputRevision, refresh, restoring, cancel]);
 
   async function mutation(label: string, edit: () => Promise<LayerHeightEditResult>) {
     try {
@@ -84,7 +95,7 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
     }
   }
   function action(label: string, command: LayerHeightAction) {
-    if (!current || useLayerHeight.getState().busy) return;
+    if (!current || restoring || useLayerHeight.getState().busy) return;
     useLayerHeight.setState({ busy: true });
     void mutation(label, () => runtime.editLayerHeight({ objectId, plateId, stamp: current.profile.stamp, ...command }));
   }
@@ -93,21 +104,22 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
     <label>Quality / Speed <output>{quality.toFixed(2)}</output>
       <input className="block w-full" type="range" min="0" max="1" step=".01" value={quality}
         onChange={e => useLayerHeight.setState({ quality: Number(e.target.value) })} /></label>
-    <Button disabled={!current || busy} onClick={() => action('Adaptive layer height', { operation: 'adaptive', quality })}>Adaptive</Button>
+    <Button disabled={!current || locked} onClick={() => action('Adaptive layer height', { operation: 'adaptive', quality })}>Adaptive</Button>
     <label>Smoothing radius <output>{radius}</output>
       <input className="block w-full" type="range" min="1" max="10" step="1" value={radius}
         onChange={e => useLayerHeight.setState({ radius: Number(e.target.value) })} /></label>
     <label><input type="checkbox" checked={keepMin} onChange={e => useLayerHeight.setState({ keepMin: e.target.checked })} /> Keep min</label>
-    <Button disabled={!current || busy} onClick={() => action('Smooth layer height', { operation: 'smooth', radius, keepMin })}>Smooth</Button>
+    <Button disabled={!current || locked} onClick={() => action('Smooth layer height', { operation: 'smooth', radius, keepMin })}>Smooth</Button>
     <div className="flex gap-2">
-      <Button variant="outline" disabled={!current?.profile.canReset || busy} onClick={() => action('Reset layer height', { operation: 'reset' })}>Reset</Button>
-      <Button disabled={busy} onClick={() => scene.closeGizmo()}>Done</Button>
+      <Button variant="outline" disabled={!current?.profile.canReset || locked} onClick={() => action('Reset layer height', { operation: 'reset' })}>Reset</Button>
+      <Button disabled={locked} onClick={() => scene.closeGizmo()}>Done</Button>
     </div>
     {error && <p role="alert">{error}</p>}
     {current && viewport && createPortal(<HeightBar frame={current} cancel={cancel}
       begin={() => {
-        if (useLayerHeight.getState().busy) return false;
+        if (restoring || useLayerHeight.getState().busy) return false;
         useLayerHeight.setState({ busy: true });
+        if (__ORCA_E2E__) beginLayerHeightProbe(current);
         const active = new BrushQueue(runtime, current.profile, next => {
           if (stroke.current === active && mounted.current) display(next);
         });
@@ -116,6 +128,7 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
       }}
       append={sample => {
         const active = stroke.current;
+        if (__ORCA_E2E__ && active) recordLayerHeightSample(sample);
         void active?.append(sample)?.catch(reason => {
           if (active === stroke.current) { setError(String(reason)); cancel(); }
         });
@@ -123,6 +136,7 @@ function TargetEditor({ scene, objectId, plateId, viewport }: {
       release={() => {
         const active = stroke.current;
         if (!active) return;
+        if (__ORCA_E2E__) releaseLayerHeightProbe();
         void active.release().then(target => {
           if (stroke.current !== active) return;
           stroke.current = null;

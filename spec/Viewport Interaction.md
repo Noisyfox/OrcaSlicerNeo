@@ -498,9 +498,8 @@ device and variant scope rather than claiming untested limits or performance.
 
 ## Variable Layer Height
 
-**Accepted design.** Electron and Web share the Prepare editor and the pinned
-Orca layer-height algorithms. The implementation proceeds in independently
-verified commits. Each stage below depends on the preceding stage.
+Electron and Web share the Prepare editor and the pinned Orca layer-height
+algorithms. The implementation and acceptance sequence is recorded below.
 
 ### Entry and selection
 
@@ -678,8 +677,37 @@ on Undo and Redo.
    synchronization before release and record input-to-display latency on each
    host. The first release has no common frame-rate threshold.
 
-The [existing slicing and 3MF interoperability fixture](../packages/slicer-wasm/harness/height-range-slicing-smoke.mjs)
-provides the per-layer G-code comparison and desktop round trip.
+The [native layer-height fixture](../packages/slicer-wasm/harness/layer-height-smoke.mjs)
+checks the 3MF profile and compares every sphere G-code layer Z with desktop
+Orca. The P1P 0.4 mm preset produced 118 layers on threaded wasm64. The
+Ender-3 0.4 mm preset produced 94 layers on serial wasm32. On serial wasm32
+the P1P sphere also traps during slicing with fixed layers on a build from
+before the layer-height editor. The [brush fixture](../packages/slicer-wasm/harness/layer-height-brush-smoke.mjs)
+compares batched and single-sample results. The
+[multi-plate fixture](../packages/slicer-wasm/harness/layer-height-plates-smoke.mjs)
+checks history through a second instance and reads back G-code on the independent plate.
+
+The [host replay](../apps/desktop/e2e/layer-height-replay.ts) drives the Prepare
+height bar with three samples at Z 12.75 mm and a fourth at 15.9375 mm, all with
+a 2 mm brush. It waits for the canvas draw and the model draw with the matching
+native texture before releasing the pointer. After Reset it replays the recorded
+samples through the host's native Worker and compares every curve value and
+every atlas byte with the final displayed frame. The
+[continuous brush journey](../apps/desktop/e2e/layer-height-journey.ts)
+also exercises the normal stationary-repeat timer and release outside the bar.
+
+On 2026-11-27, each run on Apple M1 with macOS 15.8.3 matched all 43
+Z/height pairs and all 20,480 atlas bytes. Latency measures one pointer-down
+through the first changed frame drawn by both surfaces while the button was
+held. These are draw-submission timings from individual runs. Display scanout
+and frame-rate distributions were outside the measurement.
+
+| Host | Worker build | First matching draw |
+| --- | --- | ---: |
+| Electron | threaded wasm64 | 25.3 ms |
+| Chromium | threaded wasm64 | 53.2 ms |
+| WebKit | threaded wasm32 | 11.9 ms |
+| WebKit | serial wasm32 | 11.0 ms |
 
 ## Context menus and output modes
 

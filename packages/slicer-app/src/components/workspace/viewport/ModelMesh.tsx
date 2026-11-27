@@ -1,3 +1,4 @@
+import { recordLayerHeightPaint } from '@/e2e/layerHeightProbe';
 import { LayerMaterial } from './gizmo/layerHeight/LayerMaterial';
 import { useLayerHeight } from './gizmo/layerHeight/state';
 // One renderer GLVolume. Prepare models forward pointer events to the scene
@@ -155,7 +156,11 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
             <meshStandardMaterial color={band.colour} transparent opacity={band.opacity} depthWrite roughness={0.7}
               polygonOffset polygonOffsetFactor={BAND_Z_FUDGE} />
           </mesh>
-        )) : layerFrame ? <mesh name="orca-layer-height-model" geometry={data.geometry} raycast={BVH_RAYCAST}>
+        )) : layerFrame ? <mesh name="orca-layer-height-model" geometry={data.geometry} raycast={BVH_RAYCAST}
+          onAfterRender={__ORCA_E2E__ ? (_renderer, _scene, _camera, _geometry, material) => {
+            if ((material as THREE.ShaderMaterial).uniforms.bands.value.image.data === layerFrame.pixels)
+              recordLayerHeightPaint(layerFrame, 'model');
+          } : undefined}>
           <LayerMaterial frame={layerFrame} />
         </mesh> : paintedPrintable && data.paintGeometry ? <>
           <mesh name="orca-painted-model-display" geometry={data.paintGeometry} raycast={NO_RAYCAST}

@@ -5,7 +5,7 @@ import playwright from '../desktop/node_modules/@playwright/test/index.js';
 // renderer and Worker. Keep the normal Chrome suite on the wasm64 path.
 export default playwright.defineConfig({
   ...base,
-  testMatch: ['wasm32-fallback.e2e.ts', 'height-range.e2e.ts'],
+  testMatch: ['wasm32-fallback.e2e.ts', 'height-range.e2e.ts', 'layer-height.e2e.ts'],
   use: { ...base.use, browserName: 'webkit', launchOptions: {} },
   metadata: { runtime: process.env.ORCA_WEB_NO_ISOLATION === '1' ? 'serial-wasm32' : 'threaded-wasm32' },
 });

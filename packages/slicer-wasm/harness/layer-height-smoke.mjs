@@ -26,6 +26,7 @@ const file = (archive, name) => readZipEntries(archive).find(entry => entry.name
 const decode = bytes => new TextDecoder().decode(bytes);
 const levels = gcode => [...gcode.matchAll(/^;\s*(?:Z_HEIGHT|Z):\s*([\d.]+)/gm)].map(match => Number(match[1]));
 
+if (process.argv[4]) ok(call('orc_select_preset', ['string', 'string'], ['printer', process.argv[4]]));
 ok(call('orc_add_shape', ['string', 'string'], ['Sphere', 'Variable layers']));
 const base = read();
 assert.equal(base.canReset, false);
