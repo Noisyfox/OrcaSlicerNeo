@@ -1,3 +1,6 @@
+import { recordLayerHeightPaint } from '@/e2e/layerHeightProbe';
+import { LayerMaterial } from './gizmo/layerHeight/LayerMaterial';
+import { useLayerHeight } from './gizmo/layerHeight/state';
 // One renderer GLVolume. Prepare models forward pointer events to the scene
 // controller; Preview models are passive render-only shells.
 import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
@@ -69,6 +72,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   const invalidate = useThree((s) => s.invalidate);
   const sceneInteraction = useSceneInteraction();
   const filamentSnapshot = useFilamentSessionStore((state) => state.snapshot);
+  const layerFrame = useLayerHeight(s => !preview && s.frame?.profile.objectId === data.buffer.objectId && canRenderPreparePaint(data, structure) ? s.frame : null);
   const selected = !preview && sceneInteraction.selection.has(data);
   const markedUnprintable = !preview && !(data instanceof WipeTowerVolume)
     && isModelInstanceMarkedUnprintable(data, structure);
@@ -152,7 +156,13 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
             <meshStandardMaterial color={band.colour} transparent opacity={band.opacity} depthWrite roughness={0.7}
               polygonOffset polygonOffsetFactor={BAND_Z_FUDGE} />
           </mesh>
-        )) : paintedPrintable && data.paintGeometry ? <>
+        )) : layerFrame ? <mesh name="orca-layer-height-model" geometry={data.geometry} raycast={BVH_RAYCAST}
+          onAfterRender={__ORCA_E2E__ ? (_renderer, _scene, _camera, _geometry, material) => {
+            if ((material as THREE.ShaderMaterial).uniforms.bands.value.image.data === layerFrame.pixels)
+              recordLayerHeightPaint(layerFrame, 'model');
+          } : undefined}>
+          <LayerMaterial frame={layerFrame} />
+        </mesh> : paintedPrintable && data.paintGeometry ? <>
           <mesh name="orca-painted-model-display" geometry={data.paintGeometry} raycast={NO_RAYCAST}
             userData={{ orcaModelSurface: 'paint-display' }}>
             {paintMaterials.map((paintMaterial, index) => (

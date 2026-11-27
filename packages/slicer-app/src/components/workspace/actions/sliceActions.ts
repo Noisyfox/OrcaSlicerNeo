@@ -1,3 +1,4 @@
+import { closeLayerHeightForSlice, useLayerHeight } from '../viewport/gizmo/layerHeight/state';
 import { mappingConfirmation } from '../nozzleMapping/mappingConfirmation';
 import { commitNozzleMapping } from '../nozzleMapping/nozzleMappingActions';
 import { synchronizeDeviceMaterials } from '../nozzleMapping/deviceMaterials';
@@ -71,7 +72,7 @@ export async function cancelSlice(platform: PlatformCapabilities): Promise<boole
  * function so validation, transform persistence, and result state cannot drift.
  */
 export async function sliceModel(platform: PlatformCapabilities, plateId?: string): Promise<void> {
-  if (!paintingCommandAllowed() || sliceAdmission || useSlicerStore.getState().activeSliceTarget || useSlicerStore.getState().status === 'slicing') return;
+  if (useLayerHeight.getState().busy || !paintingCommandAllowed() || sliceAdmission || useSlicerStore.getState().activeSliceTarget || useSlicerStore.getState().status === 'slicing') return;
   const targetPlateId = plateId ?? usePlateSessionStore.getState().snapshot?.currentPlateId;
   sliceAdmission = true;
   try { await sliceRequestedPlate(platform, targetPlateId); }
@@ -81,7 +82,7 @@ export async function sliceModel(platform: PlatformCapabilities, plateId?: strin
 async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlateId?: string): Promise<void> {
   const pending = waitForSettledModelTransforms();
   let notificationAttempt: NotificationAttempt | null = null;
-  if (!await closePaintingForCommand()) return;
+  if (!closeLayerHeightForSlice() || !await closePaintingForCommand()) return;
   const initialSession = usePlateSessionStore.getState().snapshot;
   const initialRevision = requestedPlateId ? initialSession?.inputRevisions?.[requestedPlateId] : undefined;
   let failureTarget: PlateOperationTarget | undefined = requestedPlateId && Number.isSafeInteger(initialRevision)

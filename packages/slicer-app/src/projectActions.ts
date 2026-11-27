@@ -1,3 +1,4 @@
+import { useLayerHeight } from './components/workspace/viewport/gizmo/layerHeight/state';
 import { configurePrinterProjectPreferences } from './preferences';
 import { waitForSettledModelTransforms } from './components/workspace/actions/persistModelTransforms';
 import { captureProjectThumbnails } from './components/workspace/projectThumbnails';
@@ -169,7 +170,7 @@ export function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectAc
   return saveProjectFile(platform, true);
 }
 async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean): Promise<ProjectActionResult> {
-  if (!paintingCommandAllowed()) return { status: 'cancelled' };
+  if (useLayerHeight.getState().busy || !paintingCommandAllowed()) return { status: 'cancelled' };
   const pending = waitForSettledModelTransforms();
   if (pending) {
     const settled = await pending;
@@ -180,6 +181,7 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
   }
   return runProjectSaveOperation(runtimeOf(platform), projectedHistoryContext, async (markSaved, readRevision) => {
     const session = useProjectStore.getState();
+    if (useLayerHeight.getState().busy) return { status: 'cancelled' };
     if (!session.hasContent && !session.dirty) return errorResult(new Error('there is no project to save'));
     setOperation('saving', 0, 'Rendering plate thumbnails');
     try {

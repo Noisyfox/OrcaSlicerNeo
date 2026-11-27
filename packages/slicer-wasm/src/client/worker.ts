@@ -60,6 +60,7 @@ const historyMutationOperations = new Set([
 // must fail before postMessage so no edit, history frame, Slice, or Export can
 // wait behind the running task and execute against a later epoch.
 const paintingOperations = new Set(['openPaintingSession', 'targetPaintingSession', 'readPaintingSession', 'closePaintingSession', 'previewPainting', 'beginPaintingStroke', 'samplePaintingStroke', 'finishPaintingStroke', 'cancelPaintingStroke', 'commitPaintingStroke', 'getPaintingGeometry', 'settlePainting']);
+const layerHeightReads = new Set(['readLayerHeight', 'previewLayerHeight', 'beginLayerHeightStroke', 'sampleLayerHeightStroke', 'cancelLayerHeightStroke']);
 const measureOperations = new Set(['openMeasureSession', 'readMeasureSession', 'getMeasureDisplay', 'clickMeasure', 'resetMeasure', 'rebaseMeasure', 'getMeasurePlane']);
 const setupWizardOperations = new Set([
   'openSetupWizardCatalogue', 'closeSetupWizardCatalogue', 'prepareProfileActivation', 'applyProfileActivation',
@@ -83,7 +84,8 @@ const restrictedWhileSerialSlicing = new Set([
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
   'splitVolumeToParts', 'previewSplitObject', 'splitObjectToObjects', 'mergeObjectsToMultipart', 'meshBoolean',
   'separateInstances', 'addInstance', 'removeInstance', 'renameObject',
-  'renameVolume', 'setVolumeType', 'editHeightRanges', 'setObjectPrintable', 'setObjectsAutoDrop', 'setInstancePrintable',
+  'renameVolume', 'setVolumeType', 'editHeightRanges', 'editLayerHeight',
+  ...layerHeightReads, 'finishLayerHeightStroke', 'setObjectPrintable', 'setObjectsAutoDrop', 'setInstancePrintable',
   'slice', 'slicePlate', 'exportGcodePlate', 'describePrintPlate', 'exportPrintPlate', 'exportProject', 'cancel',
 ]);
 
@@ -423,8 +425,8 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     const id = nextId++;
     if (arrangementActive && restrictedWhileSerialSlicing.has(op)) return Promise.reject(new Error('arrangement_busy'));
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
-      if (op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession' || setupWizardOperations.has(op)) return Promise.reject(new Error('slice_busy'));
-      if (op === 'previewSplitObject') return Promise.resolve({ ok: false, error: 'slice_busy' });
+      if (layerHeightReads.has(op) || op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession' || setupWizardOperations.has(op)) return Promise.reject(new Error('slice_busy'));
+      if (op === 'previewSplitObject' || op === 'editLayerHeight' || op === 'finishLayerHeightStroke') return Promise.resolve({ ok: false, error: 'slice_busy' });
       if (op === 'setProjectFlow' || op === 'configureProjectFlowMemory' || op === 'configureNozzleCapacityMemory' || op === 'mutateNozzleMapping') return Promise.resolve({ ok: false, error: 'slice_busy', errorCode: 'slice_busy' });
       return Promise.resolve({ error: 'slice_busy' });
     }

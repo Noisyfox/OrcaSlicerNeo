@@ -64,6 +64,23 @@ describe('SceneInteractionController', () => {
     controller.registerBoxSelectProjector((world) => ({ x: world.x, y: world.y }));
   }
 
+  it('edits one object through any selected part or sibling instance and follows eligible targets', () => {
+    expect(controller.toggleGizmo('layer-height')).toBe(false);
+    const unrelated = makeVolume(1, 0, 0, [40, 0, 0]);
+    volumes.push(unrelated);
+    controller.selectComposite(0);
+    expect(controller.layerHeightObjectId).toBe(100);
+    expect(controller.toggleGizmo('layer-height')).toBe(true);
+    controller.selectComposite(0, 1, 1);
+    expect(controller.layerHeightObjectId).toBe(100);
+    controller.selectFromHit(unrelated, false);
+    expect(controller.gizmo).toBe('layer-height');
+    expect(controller.layerHeightObjectId).toBe(101);
+    controller.selectFromHit(volumes[0], true);
+    expect(controller.layerHeightObjectId).toBeNull();
+    expect(controller.gizmo).toBeNull();
+  });
+
   it('shares Boolean isolation with pointer and marquee selection while allowing list retargeting', () => {
     const unrelated = makeVolume(1, 0, 0, [40, 0, 0]); volumes.push(unrelated);
     controller.selectFromHit(volumes[0], false);

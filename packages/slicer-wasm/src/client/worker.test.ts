@@ -388,6 +388,10 @@ describe('worker protocol', () => {
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.cloneObjects([1]))
       .resolves.toMatchObject({ error: 'slice_busy' });
+    const layerTarget = { objectId: 1, plateId: 'plate' };
+    await expect(workerClient.previewLayerHeight(layerTarget)).rejects.toThrow('slice_busy');
+    await expect(workerClient.finishLayerHeightStroke({ ...layerTarget, strokeId: 1 }))
+      .resolves.toEqual({ ok: false, error: 'slice_busy' });
     await expect(workerClient.previewSplitObject(1))
       .resolves.toEqual({ ok: false, error: 'slice_busy' });
     await expect(workerClient.setObjectsAutoDrop([1], false))
@@ -450,6 +454,11 @@ describe('worker protocol', () => {
     transport.emit({ type: 'response', id: requests[2].id, ok: true, result: { error: 'unused' } });
     await expect(measure).resolves.toMatchObject({ error: 'unused' });
     expect(workerClient.getRuntimeExecutionState().sliceActive).toBe(true);
+    const frame = workerClient.previewLayerHeight({ objectId: 1, plateId: 'plate' });
+    const preview = transport.posted.at(-1);
+    if (preview?.type !== 'request' || preview.op !== 'previewLayerHeight') throw new Error('layer preview was not admitted');
+    transport.emit({ type: 'response', id: preview.id, ok: false, result: null, error: 'fixture response' });
+    await expect(frame).rejects.toThrow('fixture response');
     const rejectedSlice = workerClient.slice({});
     const overlapping = transport.posted.at(-1);
     if (overlapping?.type !== 'request') throw new Error('overlapping slice was not posted');

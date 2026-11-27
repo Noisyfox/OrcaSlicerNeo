@@ -1,3 +1,4 @@
+import { isLayerHeightProfile, layerHeightRequest, layerHeightFrame } from './layerHeight';
 import { normalizeDeviceMaterialCatalogue } from './deviceMaterials';
 import { linkProfileVendors } from './profileFilesystem';
 import type { FilamentOverrideContext } from './types';
@@ -1686,6 +1687,7 @@ function heightRangeRow(value: unknown): boolean {
 
 function modelStructure(value: unknown): boolean {
   return Array.isArray(value) && value.every(object => isRecord(object) &&
+    (object.hasVariableLayerHeight === undefined || object.hasVariableLayerHeight === true) &&
     modelCounts(object, 'id', 'index', 'instanceCount') && object.id !== 0 && typeof object.name === 'string' &&
     (object.heightRanges === undefined || (Array.isArray(object.heightRanges) && object.heightRanges.every(heightRangeRow))) &&
     typeof object.printable === 'boolean' && typeof object.autoDrop === 'boolean' && typeof object.isCut === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
@@ -3181,6 +3183,44 @@ export function createClient(
       if (!Array.isArray(patch.object_order) || !modelStructure(patch.objects))
         throw new Error('invalid model scene patch');
       return { ok: true, objectOrder: patch.object_order, objects: patch.objects, ...decoded };
+    },
+
+    async previewLayerHeight(target) {
+      return layerHeightFrame(await module(), target, 'preview');
+    },
+
+    async beginLayerHeightStroke(target) {
+      const { strokeId } = layerHeightRequest(await module(), target, 'begin');
+      if (typeof strokeId !== 'number' || !Number.isSafeInteger(strokeId) || strokeId <= 0)
+        throw new Error('Invalid layer height stroke');
+      return strokeId;
+    },
+
+    async sampleLayerHeightStroke(command) {
+      return layerHeightFrame(await module(), command, 'samples');
+    },
+
+    async cancelLayerHeightStroke(command) {
+      layerHeightRequest(await module(), command, 'cancel');
+    },
+
+    async finishLayerHeightStroke(command) {
+      const result = callJson(await module(), 'orc_layer_height', ['string'], [JSON.stringify({ ...command, operation: 'finish' })]);
+      if (isRecord(result) && result.ok === true && result.changed === false) return { ok: true, changed: false };
+      return normalizeStructuralResult<ModelMutationResult<{ changed: true }>>(result, value => value.changed === true);
+    },
+
+    async readLayerHeight(target) {
+      const result = callJson(await module(), 'orc_layer_height', ['string'], [JSON.stringify({ ...target, operation: 'read' })]);
+      if (!isRecord(result) || result.ok !== true || !isLayerHeightProfile(result.profile, target))
+        throw new Error(isRecord(result) && typeof result.error === 'string' ? result.error : 'Invalid layer height profile');
+      return result.profile;
+    },
+
+    async editLayerHeight(command) {
+      const result = callJson(await module(), 'orc_layer_height', ['string'], [JSON.stringify(command)]);
+      if (isRecord(result) && result.ok === true && result.changed === false) return { ok: true, changed: false };
+      return normalizeStructuralResult<ModelMutationResult<{ changed: true }>>(result, value => value.changed === true);
     },
 
     async editHeightRanges(command: HeightRangeCommand): Promise<HeightRangeEditResult> {

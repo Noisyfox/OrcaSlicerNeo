@@ -1,3 +1,4 @@
+import type { LayerHeightApi } from './layerHeight';
 import type { ProfileActivation, SetupWizardMethods } from './setupWizard';
 import type { PaintingApi } from './painting';
 import type { MeasureApi } from './measure';
@@ -1014,6 +1015,8 @@ export interface ModelObjectStructure {
   /** Automatic bed placement is shared by every instance of the object. */
   autoDrop: boolean;
   instanceCount: number;
+  /** Orca's mixed-sublayer warning checks the stored profile for more than two knots. */
+  hasVariableLayerHeight?: true;
   /** Present when the object owns native height ranges. */
   heightRanges?: HeightRangeRow[];
   volumes: ModelVolumeStructure[];
@@ -1837,7 +1840,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient extends PaintingApi, MeasureApi, SetupWizardMethods, UserPresetMethods, NozzleMappingMethods {
+export interface SlicerClient extends LayerHeightApi, PaintingApi, MeasureApi, SetupWizardMethods, UserPresetMethods, NozzleMappingMethods {
   getBuildInfo(): Promise<BuildInfo>;
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(activation: ProfileActivation | null): Promise<InitResult>;

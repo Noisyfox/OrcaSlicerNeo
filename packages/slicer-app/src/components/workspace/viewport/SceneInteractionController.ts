@@ -1,3 +1,4 @@
+import { useLayerHeight } from './gizmo/layerHeight/state';
 import { MeshBooleanSession, meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
 import { InstanceHider, visibleToolVolumes, type InstanceHiderLease } from './InstanceHider';
 import * as THREE from 'three';
@@ -27,7 +28,7 @@ import {
   type BoxRect,
 } from './boxSelectionMath';
 
-export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | 'measure' | null;
+export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | 'measure' | 'layer-height' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box' | 'external';
@@ -158,6 +159,12 @@ export class SceneInteractionController {
   notifyTransformsChanged(): void { this.emit(); }
 
   get gizmo(): OpenGizmo { return this.openGizmo; }
+  get layerHeightObjectId(): number | null {
+    if (this.hasWipeTowerSelection) return null;
+    const ids = new Set(this.selectedVolumes().map(volume => volume.buffer.objectId));
+    return ids.size === 1 ? [...ids][0] : null;
+  }
+
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
   get selectionMode(): SelectionMode { return this.selectionModeState; }
@@ -182,9 +189,11 @@ export class SceneInteractionController {
    * armed one.
    */
   toggleGizmo(mode: Exclude<OpenGizmo, null>): boolean {
+    if (this.openGizmo === 'layer-height' && useLayerHeight.getState().busy) return false;
     if (this.meshBoolean.publishing) return false;
     if (this.selection.empty) return false;
     if (this.hasWipeTowerSelection && mode !== 'move') return false;
+    if (mode === 'layer-height' && this.layerHeightObjectId === null) return false;
     if (mode === 'mesh-boolean' && this.openGizmo !== mode) {
       const target = meshBooleanTarget(this.selectedVolumes(), this.getVolumes());
       if (!target) return false;
@@ -197,6 +206,7 @@ export class SceneInteractionController {
 
   /** Close the armed gizmo without changing the shared selection. */
   closeGizmo(): boolean {
+    if (this.openGizmo === 'layer-height' && useLayerHeight.getState().busy) return false;
     if (this.meshBoolean.publishing) return false;
     if (this.openGizmo === null) return false;
     this.openGizmo = null;
@@ -837,7 +847,7 @@ export class SceneInteractionController {
     // pick individual Parts. Alt remains the explicit per-click Part override.
     this.selectionModeState = context.selection.mode === 'part' ? 'instance' : context.selection.mode;
     this.selection.replaceIds([...selected]);
-    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale' || context.gizmo?.type === 'measure'
+    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale' || context.gizmo?.type === 'measure' || context.gizmo?.type === 'layer-height'
       ? context.gizmo.type : null;
     this.syncGizmoToSelection();
     this.emit();
@@ -1440,7 +1450,7 @@ export class SceneInteractionController {
   private syncGizmoToSelection(): void {
     if (this.openGizmo === 'mesh-boolean') {
       if (!this.meshBoolean.reconcile(this.selectedVolumes())) this.closeGizmo();
-    } else if (this.selectedVolumes().length === 0 || (this.hasWipeTowerSelection && this.openGizmo !== 'move')) {
+    } else if ((this.openGizmo === 'layer-height' && this.layerHeightObjectId === null) || this.selectedVolumes().length === 0 || (this.hasWipeTowerSelection && this.openGizmo !== 'move')) {
       this.openGizmo = null;
     }
   }
