@@ -20,6 +20,7 @@ const target = () => ({
 const command = request => call('orc_layer_height', ['string'], [JSON.stringify({ ...target(), ...request })]);
 const read = () => ok(command({ operation: 'read' })).profile;
 const edit = action => ok(command({ stamp: read().stamp, ...action }));
+const warningApplies = () => ok(call('orc_get_model_structure')).objects.some(object => object.hasVariableLayerHeight === true);
 const profileName = 'Metadata/layer_heights_profile.txt';
 const file = (archive, name) => readZipEntries(archive).find(entry => entry.name === name)?.content;
 const decode = bytes => new TextDecoder().decode(bytes);
@@ -28,10 +29,12 @@ const levels = gcode => [...gcode.matchAll(/^;\s*(?:Z_HEIGHT|Z):\s*([\d.]+)/gm)]
 ok(call('orc_add_shape', ['string', 'string'], ['Sphere', 'Variable layers']));
 const base = read();
 assert.equal(base.canReset, false);
+assert.equal(warningApplies(), false);
 assert.equal(base.hasSavedCurve, false);
 assert.equal(file(saveProject(module, call), profileName), undefined);
 assert.equal(edit({ operation: 'smooth', radius: 5, keepMin: false }).changed, true);
 assert.deepEqual(read().curve, base.curve);
+assert.equal(warningApplies(), false);
 assert.ok(file(saveProject(module, call), profileName));
 assert.equal(command({ stamp: base.stamp, operation: 'adaptive', quality: 0.5 }).ok === true, false);
 assert.equal(edit({ operation: 'adaptive', quality: 0.3 }).changed, true);
@@ -47,6 +50,7 @@ const stored = decode(exported).trim().split('|')[1].split(';').map(Number);
 assert.deepEqual(stored, smooth.map(v => Number(v.toFixed(6))));
 ok(setNativeScopedConfig(call, 'project', undefined, 'initial_layer_print_height', '0.24'));
 assert.equal(read().firstHeight, 0.24);
+assert.equal(warningApplies(), true);
 assert.equal(read().canReset, false);
 assert.deepEqual(file(saveProject(module, call), profileName), exported);
 ok(setNativeScopedConfig(call, 'project', undefined, 'initial_layer_print_height', String(base.firstHeight)));
@@ -73,6 +77,7 @@ if (desktop) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 assert.equal(edit({ operation: 'reset' }).changed, true);
+assert.equal(warningApplies(), false);
 assert.deepEqual(read().curve.map(v => Number(v.toFixed(6))), base.curve.map(v => Number(v.toFixed(6))));
 assert.equal(file(saveProject(module, call), profileName), undefined);
 console.log('PASS native layer height edits, 3MF and', z.length, 'G-code layers', desktop ? '(desktop Orca matched)' : '');

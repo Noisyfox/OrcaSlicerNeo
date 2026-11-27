@@ -165,6 +165,8 @@ json model_structure_json_filtered(const std::set<std::size_t>* object_ids) {
         objects.push_back(json{{"id", object->id().id}, {"index", oi}, {"name", object->name},
             {"printable", object->printable}, {"autoDrop", object->auto_drop}, {"isCut", object->is_cut()}, {"instanceCount", object->instances.size()},
             {"volumes", std::move(volumes)}, {"instances", std::move(instances)}});
+        if (object->layer_height_profile.get().size() > 4)
+            objects.back()["hasVariableLayerHeight"] = true;
         if (!object->layer_config_ranges.empty())
             objects.back()["heightRanges"] = Neo::Bridge::HeightRanges::rows(*object);
     }

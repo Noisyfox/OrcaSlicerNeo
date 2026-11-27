@@ -1,3 +1,4 @@
+import { MixedLayerHeightWarning } from './gizmo/layerHeight/MixedLayerHeightWarning';
 import { registerLayerHeightScene, useLayerHeight } from './gizmo/layerHeight/state';
 import { LayerHeightEditor } from './gizmo/layerHeight/LayerHeightEditor';
 import { editRanges } from '../objectList/heightRangeActions';
@@ -613,6 +614,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         </div>}
         {actionControls && <div className="pointer-events-auto absolute top-0 -left-0.5 z-40 max-w-full" data-testid="viewport-actions">{actionControls}</div>}
       </div>
+      <MixedLayerHeightWarning scene={sceneInteraction} />
       {measureScaleRequest && measure && <MeasureScaleDialog scene={sceneInteraction} measure={measure}
         request={measureScaleRequest} onClose={() => setMeasureScaleRequest(null)} />}
     </div>

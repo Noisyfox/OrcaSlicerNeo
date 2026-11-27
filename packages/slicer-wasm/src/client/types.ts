@@ -1015,6 +1015,8 @@ export interface ModelObjectStructure {
   /** Automatic bed placement is shared by every instance of the object. */
   autoDrop: boolean;
   instanceCount: number;
+  /** Orca's mixed-sublayer warning checks the stored profile for more than two knots. */
+  hasVariableLayerHeight?: true;
   /** Present when the object owns native height ranges. */
   heightRanges?: HeightRangeRow[];
   volumes: ModelVolumeStructure[];

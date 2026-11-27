@@ -52,4 +52,26 @@ export async function verifyLayerHeight(page: Page) {
   await expect(bar).toBeVisible();
   await page.getByTestId('history-redo').click();
   await expect(reset).toBeEnabled();
+  await panel.getByRole('button', { name: 'Done' }).click();
+  await page.getByTestId('config-mode-project').click();
+  await page.getByTestId('config-page-Quality').click();
+  await expect(page.locator('[data-testid="configuration-option-lock"]:not([disabled])')).toBeVisible();
+  const sublayer = page.getByTestId('config-input-enable_mixed_color_sublayer');
+  await expect(sublayer).toHaveAttribute('aria-checked', 'false');
+  await sublayer.click();
+  const warning = page.getByRole('dialog', { name: 'Variable layer height' });
+  await expect(warning).toContainText('poor color mixing quality');
+  await warning.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(page.locator('[data-testid="configuration-option-lock"]:not([disabled])')).toBeVisible();
+  await expect(sublayer).toHaveAttribute('aria-checked', 'true');
+  await expect(tool).toHaveAttribute('aria-pressed', 'false');
+  await tool.click();
+  await expect(warning).toBeVisible();
+  await warning.getByRole('checkbox', { name: 'Do not show again' }).check();
+  await warning.getByRole('button', { name: 'OK', exact: true }).click();
+  await panel.getByRole('button', { name: 'Done' }).click();
+  await tool.click();
+  await expect(reset).toBeEnabled();
+  await expect(warning).toHaveCount(0);
 }

@@ -1687,6 +1687,7 @@ function heightRangeRow(value: unknown): boolean {
 
 function modelStructure(value: unknown): boolean {
   return Array.isArray(value) && value.every(object => isRecord(object) &&
+    (object.hasVariableLayerHeight === undefined || object.hasVariableLayerHeight === true) &&
     modelCounts(object, 'id', 'index', 'instanceCount') && object.id !== 0 && typeof object.name === 'string' &&
     (object.heightRanges === undefined || (Array.isArray(object.heightRanges) && object.heightRanges.every(heightRangeRow))) &&
     typeof object.printable === 'boolean' && typeof object.autoDrop === 'boolean' && typeof object.isCut === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
