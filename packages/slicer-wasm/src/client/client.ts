@@ -3342,7 +3342,9 @@ export function createClient(
           return { count: loop.count, hole: loop.hole };
         });
         if (loops.reduce((n, loop) => n + loop.count * 2, 0) !== floats) throw new Error('Invalid Cut section length');
-        return { ok: true, loops, xy: new Float32Array(m.HEAPU8.buffer, ptr, floats).slice() };
+        if (!Array.isArray(raw.invalidConnectors) || !raw.invalidConnectors.every(v => normalizeCount(v) !== null))
+          throw new Error('Invalid Cut connector validation result');
+        return { ok: true, loops, invalidConnectors: raw.invalidConnectors as number[], xy: new Float32Array(m.HEAPU8.buffer, ptr, floats).slice() };
       } finally { if (ptr) m._free(ptr); }
     },
 

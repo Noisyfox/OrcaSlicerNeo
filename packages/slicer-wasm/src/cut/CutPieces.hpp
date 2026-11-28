@@ -8,6 +8,8 @@ struct CutPieces {
     std::vector<Cut::Part> parts;
     ExPolygons sections;
     std::vector<std::vector<size_t>> section_pieces;
+    bool section_active(size_t index, const std::set<size_t>& toggled) const;
+    bool accepts_connector(const Vec3d& plane_local, const std::set<size_t>& toggled) const;
 };
 
 // Volume index in this staged multipart object identifies a piece for the

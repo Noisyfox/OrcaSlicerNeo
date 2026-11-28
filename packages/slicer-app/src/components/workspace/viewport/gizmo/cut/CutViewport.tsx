@@ -5,6 +5,7 @@ import type { SceneInteractionController } from '../../SceneInteractionControlle
 import { useSceneInteractionVersion } from '../../SceneInteractionContext';
 import { drawnPlane, normalOf, quaternionOf, rotationOf, type CutPose } from './CutSession';
 
+import { CutConnectorViewport } from './CutConnectorViewport';
 import { CutPieceViewport } from './CutPieceViewport';
 import { CutPreview } from './CutPreview';
 import { CutVertices } from './CutVertices';
@@ -44,7 +45,7 @@ export function CutViewport({ scene }: { scene: SceneInteractionController }) {
     let click: { id: number; point: Vector3; x: number; y: number } | null = null;
     const pick = (event: PointerEvent) => vertices.pick(event, canvas.getBoundingClientRect(), camera);
     const down = (event: PointerEvent) => {
-      if (!group.current || !cut.draft || !cut.target || cut.busy || drag || event.button !== 0 ||
+      if (cut.editor || !group.current || !cut.draft || !cut.target || cut.busy || drag || event.button !== 0 ||
           event.altKey || event.ctrlKey || event.metaKey) return;
       const point = !event.shiftKey && pick(event);
       if (point) click = { id: event.pointerId, x: event.clientX, y: event.clientY, point };
@@ -72,6 +73,7 @@ export function CutViewport({ scene }: { scene: SceneInteractionController }) {
       cut.begin();
     };
     const move = (event: PointerEvent) => {
+      if (cut.editor) return;
       if (click && Math.hypot(event.clientX - click.x, event.clientY - click.y) > 4) click = null;
       if (!drag) {
         setHover(event.buttons || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey ? null : pick(event));
@@ -139,7 +141,8 @@ export function CutViewport({ scene }: { scene: SceneInteractionController }) {
   const r = target.radius;
   return <>
     <CutPieceViewport cut={cut}/>
-    <CutPreview target={target} pose={draft} revision={cut.revision} volumes={volumes}/>
+    <CutConnectorViewport cut={cut}/>
+    <CutPreview cut={cut} target={target} pose={draft} revision={cut.revision} volumes={volumes}/>
     {hover && <ScreenMarker position={hover.toArray()} color="#72e8ff"/>}
     <group ref={group} position={draft.center} quaternion={quaternionOf(draft)}>
     <mesh userData={{ cutHandle: 'translate' }} renderOrder={2}><planeGeometry args={[r*2,r*2]}/>

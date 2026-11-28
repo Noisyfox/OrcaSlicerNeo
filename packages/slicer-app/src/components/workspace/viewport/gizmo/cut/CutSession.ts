@@ -1,11 +1,11 @@
 import { Box3, Matrix3, Matrix4, Quaternion, Ray, Vector3 } from 'three';
 import { create } from 'zustand';
-import type { CutRequest } from '@slicer/client';
+import type { CutConnector, CutRequest } from '@slicer/client';
 import type { GLVolume } from '../../GLVolume';
 import { matrixFromTransform } from '../../transformDeltaMath';
 
 export type CutPose = Pick<CutRequest, 'center' | 'rotation'>;
-type Draft = CutPose & Pick<CutRequest, 'upper' | 'lower' | 'asParts' | 'grouping'>;
+type Draft = CutPose & Pick<CutRequest, 'upper' | 'lower' | 'asParts' | 'grouping' | 'connectors'>;
 export interface CutTarget {
   objectId: number;
   instanceId: number;
@@ -60,6 +60,50 @@ export class CutSession {
   draft: Draft | null = null;
   revision: number | null = null;
   busy = false;
+  editor: { items: CutConnector[]; selected: number } | null = null;
+  private validation: { pose: CutPose; grouping: Draft['grouping']; list: CutConnector[]; invalid: number[] } | null = null;
+  get connectors() { return this.editor?.items ?? this.draft?.connectors; }
+  get invalidConnectors() {
+    const v = this.validation;
+    return v && v.list === this.connectors && v.pose.center === this.draft?.center &&
+      v.pose.rotation === this.draft.rotation && v.grouping === this.draft.grouping ? v.invalid : null;
+  }
+  get connectorsReady() { return !this.connectors?.length || this.invalidConnectors?.length === 0; }
+  validateConnectors(pose: CutPose, list: CutConnector[], invalid: number[]) {
+    if (this.connectors !== list || pose.center !== this.draft?.center || pose.rotation !== this.draft?.rotation) return;
+    this.validation = { pose, grouping: this.draft.grouping, list, invalid }; this.emit();
+  }
+  editConnectors() {
+    if (!this.draft || this.draft.asParts || this.busy || this.draft.upper === 'discard' || this.draft.lower === 'discard') return;
+    this.editor = { items: this.draft.connectors ?? [], selected: 0 }; this.emit();
+  }
+  selectConnector(index: number) {
+    if (this.editor) { this.editor = { ...this.editor, selected: index }; this.emit(); }
+  }
+  addConnector(position: CutConnector['position']) {
+    if (!this.editor) return;
+    const template = this.editor.items[this.editor.selected] ?? { type: 'plug', shape: 'circle', style: 'prism',
+      diameter: 4, depth: 3, diameterTolerance: 0.2, depthTolerance: 0.1, angle: 0 } as const;
+    this.editor = { selected: this.editor.items.length, items: [...this.editor.items, { ...template, position }] };
+    this.emit();
+  }
+  changeConnector(patch: Partial<CutConnector>) {
+    if (!this.editor) return;
+    const { selected, items } = this.editor;
+    this.editor = { selected, items: items.map((c,i) => i === selected ? { ...c, ...patch } : c) };
+    this.emit();
+  }
+  removeConnectors(all: boolean) {
+    if (!this.editor) return;
+    const items = all ? [] : this.editor.items.filter((_,i) => i !== this.editor!.selected);
+    this.editor = { items, selected: Math.max(0, Math.min(items.length-1, this.editor.selected)) }; this.emit();
+  }
+  endConnectorEdit(confirm: boolean) {
+    if (!this.editor || (confirm && !this.connectorsReady)) return;
+    const items = this.editor.items; this.editor = null;
+    if (confirm) this.update({ connectors: items.length ? items : undefined });
+    this.emit();
+  }
   pickPiece: ((ray: Ray) => void) | null = null;
   togglePiece(pose: CutPose, id: number) {
     const draft = this.draft;
@@ -71,21 +115,23 @@ export class CutSession {
   private past: Draft[] = [];
   private future: Draft[] = [];
   private start: Draft | null = null;
-  private remembered: { signature: string; pose: CutPose } | null = null;
+  private remembered: { signature: string; pose: CutPose; connectors?: CutConnector[] } | null = null;
   constructor(private readonly emit: () => void) {}
 
   open(target: CutTarget, revision: number | null) {
     this.target = target;
     this.revision = revision;
     const pose = this.remembered?.signature === target.signature ? this.remembered.pose : target.initial;
-    this.draft = { ...pose, upper: 'place', lower: 'keep', asParts: false };
+    this.editor = null; this.validation = null;
+    this.draft = { ...pose, connectors: this.remembered?.signature === target.signature ? this.remembered.connectors : undefined, upper: 'place', lower: 'keep', asParts: false };
     this.past = []; this.future = []; this.start = null;
     this.notify();
   }
   close(remember = true) {
     if (!this.target || !this.draft) return;
     const { center, rotation } = this.start ?? this.draft;
-    this.remembered = remember ? { signature: this.target.signature, pose: { center, rotation } } : null;
+    this.remembered = remember ? { signature: this.target.signature, pose: { center, rotation }, connectors: (this.start ?? this.draft).connectors } : null;
+    this.editor = null; this.validation = null;
     this.target = null; this.draft = null; this.start = null;
     this.past = []; this.future = [];
     this.notify();
@@ -99,6 +145,13 @@ export class CutSession {
   update(patch: Partial<Draft>) {
     if (!this.draft || this.busy) return;
     const next = { ...this.draft, ...patch };
+    if (next.connectors?.length && (next.center !== this.draft.center || next.rotation !== this.draft.rotation)) {
+      const n = normalOf(next), center = new Vector3(...next.center);
+      next.connectors = next.connectors.map(c => {
+        const pos = new Vector3(...c.position);
+        return { ...c, position: pos.addScaledVector(n, center.clone().sub(pos).dot(n)).toArray() };
+      });
+    }
     if (next.grouping && (next.asParts || !sameCutPlane(next, next.grouping))) delete next.grouping;
     if (next.asParts && (next.upper === 'discard' || next.lower === 'discard')) {
       if (next.upper === 'discard') next.upper = 'keep';

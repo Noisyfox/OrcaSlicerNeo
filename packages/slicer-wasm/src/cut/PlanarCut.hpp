@@ -15,6 +15,7 @@ struct PlanarCutOptions {
         std::vector<size_t> toggled;
     };
     std::optional<Grouping> grouping;
+    CutConnectors connectors;
     SideAction upper = SideAction::PlaceOnCut;
     SideAction lower = SideAction::Keep;
     bool as_parts = false;

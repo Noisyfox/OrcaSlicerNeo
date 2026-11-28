@@ -5,6 +5,7 @@
 #include "cut/PlanarCut.hpp"
 #include "cut/CutSection.hpp"
 #include "cut/CutPieces.hpp"
+#include "cut/CutConnectors.hpp"
 #include "bridge_buffers.hpp"
 #include <algorithm>
 #include <emscripten/emscripten.h>
@@ -50,9 +51,41 @@ PlanarCutOptions read_pose(const json& request)
         throw std::invalid_argument("Invalid Cut plane");
     return options;
 }
+CutConnectors read_connectors(const json& request)
+{
+    CutConnectors result;
+    if (!request.contains("connectors")) return result;
+    const auto& list = request.at("connectors");
+    if (!list.is_array()) throw std::invalid_argument("Invalid Cut connector list");
+    for (const auto& row : list) {
+        const auto type = row.at("type").get<std::string>(), style = row.at("style").get<std::string>();
+        const auto shape = row.at("shape").get<std::string>();
+        CutConnector c;
+        c.attribs.type = type == "plug" ? CutConnectorType::Plug : type == "dowel" ? CutConnectorType::Dowel :
+            type == "snap" ? CutConnectorType::Snap : CutConnectorType::Undef;
+        c.attribs.style = style == "prism" ? CutConnectorStyle::Prism : style == "frustum" ? CutConnectorStyle::Frustum : CutConnectorStyle::Undef;
+        c.attribs.shape = shape == "circle" ? CutConnectorShape::Circle : shape == "square" ? CutConnectorShape::Square :
+            shape == "hexagon" ? CutConnectorShape::Hexagon : shape == "triangle" ? CutConnectorShape::Triangle : CutConnectorShape::Undef;
+        if (c.attribs.type == CutConnectorType::Undef || c.attribs.shape == CutConnectorShape::Undef || c.attribs.style == CutConnectorStyle::Undef ||
+            (type == "snap" && (shape != "circle" || style != "prism"))) throw std::invalid_argument("Invalid Cut connector shape");
+        const auto& pos = row.at("position");
+        if (!pos.is_array() || pos.size() != 3) throw std::invalid_argument("Invalid Cut connector position");
+        c.pos = Vec3d(pos[0].get<double>(), pos[1].get<double>(), pos[2].get<double>());
+        c.radius = row.at("diameter").get<float>() * 0.5f;
+        c.height = row.at("depth").get<float>();
+        c.radius_tolerance = row.at("diameterTolerance").get<float>() * 0.5f;
+        c.height_tolerance = row.at("depthTolerance").get<float>();
+        c.z_angle = row.at("angle").get<float>() * float(PI/180.);
+        if (!std::isfinite(c.z_angle)) throw std::invalid_argument("Invalid Cut connector angle");
+        result.push_back(c);
+    }
+    return result;
+}
+
 PlanarCutOptions read_options(const json& request)
 {
     auto options = read_pose(request);
+    options.connectors = read_connectors(request);
     options.upper = side_action(request.at("upper").get<std::string>());
     options.lower = side_action(request.at("lower").get<std::string>());
     options.as_parts = request.at("asParts").get<bool>();
@@ -239,21 +272,23 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_cut_section(const char* data
             }
         };
         for (size_t i = 0; i < contours->size(); ++i) {
-            if (grouped && !grouped->section_pieces[i].empty()) {
-                bool a = false, b = false;
-                for (size_t id : grouped->section_pieces[i]) {
-                    const bool upper = grouped->parts[id].selected != bool(toggled.count(id));
-                    a |= upper; b |= !upper;
-                }
-                if (!a || !b) continue;
-            }
+            if (grouped && !grouped->section_active(i, toggled)) continue;
             const auto& polygon = contours->at(i);
             append_loop(polygon.contour, false);
             for (const auto& hole : polygon.holes) append_loop(hole, true);
         }
+        const auto connectors = read_connectors(request);
+        const int index = int(std::find(source->instances.begin(), source->instances.end(), instance)-source->instances.begin());
+        auto invalid = invalid_cut_connectors(*source, index, plane, connectors);
+        if (grouped) {
+            const Transform3d to_original = (plane * to_display).inverse();
+            for (size_t i = 0; i < connectors.size(); ++i)
+                if (!grouped->accepts_connector(to_original * connectors[i].pos, toggled) &&
+                    std::find(invalid.begin(), invalid.end(), i) == invalid.end()) invalid.push_back(i);
+        }
         MallocBuffer buffer;
         if (!xy.empty()) buffer.append(xy.data(), xy.size() * sizeof(float));
-        const auto* result = Profiles::duplicate_json(json{{"ok", true}, {"loops", loops},
+        const auto* result = Profiles::duplicate_json(json{{"ok", true}, {"loops", loops}, {"invalidConnectors", invalid},
             {"ptr", reinterpret_cast<uintptr_t>(buffer.data)}, {"floats", xy.size()}}.dump());
         if (result) buffer.release();
         return result;

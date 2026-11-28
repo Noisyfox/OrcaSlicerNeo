@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';
+import { writeFile, readFile } from 'node:fs/promises';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, fixtureProfileOptions, installProfilePackages } from './profile-installer.mjs';
 import { buildPaintingChannelProject } from './painted-facet-fixture-builder.mjs';
@@ -74,6 +75,56 @@ describe.skipIf(!artifact)('Cut on a real Worker protocol and WASM module', () =
     const result = await apply({ ...request, grouping });
     expect(result, result.error).toMatchObject({ ok: true, changed: true });
     expect(result.objects).toHaveLength(2);
+  }, 120_000);
+  it.each(['plug','dowel','snap'])('validates and roundtrips a %s connector using Orca cut metadata', async type => {
+    expect(await client.loadProject(await buildPaintingChannelProject())).toMatchObject({ ok: true });
+    const source = (await client.getModelStructure()).objects[0], request = await requestFor(source);
+    const section = await client.getCutSection(request);
+    const xs = Array.from(section.xy).filter((_,i) => i%2===0), ys = Array.from(section.xy).filter((_,i) => i%2===1);
+    const position = [request.center[0]+(Math.min(...xs)+Math.max(...xs))/2,
+      request.center[1]+(Math.min(...ys)+Math.max(...ys))/2, request.center[2]];
+    const connector = { type, shape:'circle', style:'prism', depth:3, diameter:4,
+      depthTolerance:0.2, diameterTolerance:0.3, angle:0, position };
+    if (type === 'plug') {
+      const preview = await client.getCutPieces(request);
+      const grouping = { center:request.center, rotation:request.rotation, toggled:[preview.pieces[0].id] };
+      expect((await client.getCutSection({ ...request, grouping, connectors:[connector] })).invalidConnectors).toEqual([0]);
+      expect(await apply({ ...request, grouping, connectors:[connector] })).toMatchObject({ ok:false });
+    }
+    expect((await client.getCutSection({ ...request, connectors:[connector,connector] })).invalidConnectors).toEqual([0,1]);
+    expect((await client.getCutSection({ ...request, connectors:[{ ...connector, depth:500 }] })).invalidConnectors).toEqual([0]);
+    expect(await apply({ ...request, connectors:[{ ...connector, position:[999,999,10] }] })).toMatchObject({ ok:false });
+    expect((await client.getModelStructure()).objects).toEqual([source]);
+    const result = await apply({ ...request, connectors:[connector] });
+    expect(result, result.error).toMatchObject({ ok:true, changed:true });
+    expect(result.objects).toHaveLength(type === 'dowel' ? 3 : 2);
+    expect(result.objects.filter(o => o.standaloneDowel)).toHaveLength(type === 'dowel' ? 1 : 0);
+    const saved = await client.exportProject();
+    const metadata = bytes => decoder.decode(readZipEntries(bytes).find(e => e.name === 'Metadata/cut_information.xml').content);
+    const xml = metadata(saved.bytes);
+    const ids = Array.from(xml.matchAll(/<cut_id[^>]* id="(\d+)"/g), m => m[1]);
+    expect(ids.length).toBe(result.objects.length);
+    expect(new Set(ids).size).toBe(1);
+    expect(xml).toContain('connectors_cnt="1"');
+    expect(xml).toContain('h_tolerance=');
+    if (type === 'dowel' && process.env.ORCA_CUT_INTERCHANGE_OUT) await writeFile(process.env.ORCA_CUT_INTERCHANGE_OUT,saved.bytes);
+    expect(await client.loadProject(saved.bytes)).toMatchObject({ ok:true });
+    expect(metadata((await client.exportProject()).bytes)).toContain('connectors_cnt="1"');
+    if (type === 'dowel') {
+      const target = (await client.getModelStructure()).objects[1];
+      const recut = await apply({ ...await requestFor(target), center:[100,100,5] });
+      expect(recut, recut.error).toMatchObject({ ok:true, changed:true });
+      const updated = metadata((await client.exportProject()).bytes);
+      const checksums = Array.from(updated.matchAll(/check_sum="(\d+)"/g), m => Number(m[1]));
+      expect(checksums).toHaveLength(4);
+      expect(new Set(checksums).size).toBe(1);
+      expect(checksums[0]).toBe(Number(xml.match(/check_sum="(\d+)"/)[1])+1);
+    }
+  }, 120_000);
+  it.skipIf(!process.env.ORCA_CUT_INTERCHANGE_IN)('opens the desktop Orca re-export with its detached pin and group', async () => {
+    expect(await client.loadProject(await readFile(process.env.ORCA_CUT_INTERCHANGE_IN))).toMatchObject({ ok:true, objects:3 });
+    expect((await client.getModelStructure()).objects.filter(o => o.standaloneDowel)).toHaveLength(1);
+    expect(readZipEntries((await client.exportProject()).bytes).some(e => e.name === 'Metadata/cut_information.xml')).toBe(true);
   }, 120_000);
   it.each([true, false])('preserves cross-plate instances, history and 3MF with painting %s', async keepPainting => {
     expect(await client.loadProject(await buildPaintingChannelProject())).toMatchObject({ ok: true });

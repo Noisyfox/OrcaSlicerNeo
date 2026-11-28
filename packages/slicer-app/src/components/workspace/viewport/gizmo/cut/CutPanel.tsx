@@ -7,6 +7,7 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import { useSceneInteractionVersion } from '../../SceneInteractionContext';
 import { captureTransformReservationState } from '../../../actions/historyMutation';
+import { CutConnectorPanel } from './CutConnectorPanel';
 import { applyCut } from './cutCommand';
 
 export function CutPanel({ scene }: { scene: SceneInteractionController }) {
@@ -28,6 +29,7 @@ export function CutPanel({ scene }: { scene: SceneInteractionController }) {
     return () => { live = false; };
   }, [cut, target, platform.runtime]);
   if (scene.gizmo !== 'cut' || !draft || !target) return null;
+  if (cut.editor) return <CutConnectorPanel cut={cut}/>;
   const instances = snapshot?.instances?.filter(i => i.objectId === target.objectId) ?? [];
   const plates = new Set(instances.filter(i => i.member).map(i => i.plateId)).size;
   const commitHeight = () => {
@@ -59,17 +61,20 @@ export function CutPanel({ scene }: { scene: SceneInteractionController }) {
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
       <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => cut.flip()}>Flip plane</Button>
         <Button size="sm" variant="outline" onClick={() => cut.update(target.initial)}>Reset plane</Button></div>
+      <Button size="sm" variant="outline" disabled={draft.asParts || draft.upper === 'discard' || draft.lower === 'discard'}
+        onClick={() => cut.editConnectors()}>Connectors{draft.connectors?.length ? ' ('+draft.connectors.length+')' : ''}</Button>
+      {!!cut.invalidConnectors?.length && <p role="alert">Check connector positions and dimensions.</p>}
       {draft.grouping && <p data-testid="cut-piece-count">{draft.grouping.toggled.length} reassigned</p>}
-      <label className="flex gap-2"><input type="checkbox" disabled={!!draft.grouping} checked={draft.asParts}
+      <label className="flex gap-2"><input type="checkbox" disabled={!!draft.grouping || !!draft.connectors?.length} checked={draft.asParts}
         onChange={e => cut.update({ asParts: e.target.checked })}/>Cut to parts</label>
       {!draft.asParts && (['upper','lower'] as const).map((side, i) =>
         <label key={side} className="flex items-center justify-between gap-2">Side {i === 0 ? 'A' : 'B'}
           <select aria-label={i === 0 ? 'Side A' : 'Side B'} value={draft[side]}
             onChange={e => cut.update({ [side]: e.target.value as CutSideAction })}>
             <option value="keep">Keep orientation</option><option value="place">Place on cut</option>
-            <option value="flip">Flip</option><option value="discard">Discard</option>
+            <option value="flip">Flip</option><option value="discard" disabled={!!draft.connectors?.length}>Discard</option>
           </select></label>)}
-      <div className="flex gap-2"><Button size="sm" disabled={cut.revision === null || (draft.upper === 'discard' && draft.lower === 'discard')}
+      <div className="flex gap-2"><Button size="sm" disabled={!cut.connectorsReady || cut.revision === null || (draft.upper === 'discard' && draft.lower === 'discard')}
         onClick={() => void perform('ask')}>Perform cut</Button>
         <Button size="sm" variant="outline" onClick={() => { cut.close(false); scene.closeGizmo(); }}>Cancel</Button></div>
     </fieldset>

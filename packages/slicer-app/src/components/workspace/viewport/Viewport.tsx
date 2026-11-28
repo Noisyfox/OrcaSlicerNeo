@@ -261,10 +261,15 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       }
       if (sceneInteraction.gizmo === 'cut') {
         if (key === 'escape') {
-          if (!sceneInteraction.cut.busy) { sceneInteraction.cut.close(false); sceneInteraction.closeGizmo(); }
+          if (sceneInteraction.cut.editor) sceneInteraction.cut.endConnectorEdit(false);
+          else if (!sceneInteraction.cut.busy) { sceneInteraction.cut.close(false); sceneInteraction.closeGizmo(); }
           event.preventDefault(); return;
         }
+        if (sceneInteraction.cut.editor && (key === 'delete' || key === 'backspace')) {
+          event.preventDefault(); sceneInteraction.cut.removeConnectors(false); return;
+        }
         if (key === 'arrowup' || key === 'arrowdown') {
+          if (sceneInteraction.cut.editor) return;
           if (!viewportRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
           sceneInteraction.cut.move(key === 'arrowup' ? 1 : -1);
           event.preventDefault(); return;

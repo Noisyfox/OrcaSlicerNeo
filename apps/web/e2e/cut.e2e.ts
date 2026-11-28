@@ -49,3 +49,27 @@ test('right release reassigns the nearest cut piece; a right drag pans', async (
   await page.getByTestId('history-undo').click();
   await expect(panel.getByTestId('cut-piece-count')).toHaveText('1 reassigned');
 });
+
+test('connector editor confirms a dowel, cancels a second visit and applies the detached pin', async ({ page }) => {
+  await page.goto('/');
+  const { viewport, panel, objects } = await openCutCube(page);
+  const editor = page.getByTestId('cut-connectors');
+  await panel.getByRole('button', { name: 'Connectors' }).click();
+  const center = await page.evaluate(() => {
+    const probe = (window as any).__orcaE2e, { center } = probe.selectionBoundsWorld();
+    probe.setCameraView([center[0],center[1],300], center);
+    return probe.projectWorldToScreen(center);
+  });
+  const rect = (await viewport.locator('canvas[data-engine^="three.js"]').boundingBox())!;
+  await page.mouse.click(rect.x+center.x, rect.y+center.y);
+  await editor.getByRole('combobox',{name:'Type',exact:true}).selectOption('dowel');
+  await editor.getByRole('button',{name:'Confirm'}).click();
+  await panel.getByRole('button',{name:'Connectors (1)'}).click();
+  await editor.getByRole('button',{name:'Remove all'}).click();
+  await editor.getByRole('button',{name:'Cancel'}).click();
+  await expect(panel.getByRole('button',{name:'Connectors (1)'})).toBeVisible();
+  await panel.getByRole('button',{name:'Perform cut'}).click();
+  await expect(objects).toHaveCount(3, { timeout: 40_000 });
+  await page.getByTestId('history-undo').click();
+  await expect(objects).toHaveCount(1);
+});

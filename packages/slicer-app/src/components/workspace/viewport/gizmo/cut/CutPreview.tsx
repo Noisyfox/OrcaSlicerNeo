@@ -6,7 +6,7 @@ import type { CutSectionRequest, CutSectionResult } from '@slicer/client';
 import type { GLVolume } from '../../GLVolume';
 import { matrixFromTransform } from '../../transformDeltaMath';
 import { CutSectionQueue } from './CutSectionQueue';
-import { normalOf, quaternionOf, type CutPose, type CutTarget } from './CutSession';
+import { normalOf, quaternionOf, type CutPose, type CutTarget, type CutSession } from './CutSession';
 
 const noRaycast = () => {};
 function sectionLines(section: CutSectionResult) {
@@ -23,7 +23,8 @@ function sectionLines(section: CutSectionResult) {
   return new BufferGeometry().setAttribute('position', new Float32BufferAttribute(positions, 3));
 }
 
-export function CutPreview({ target, pose, revision, volumes }: {
+export function CutPreview({ target, pose, revision, volumes, cut }: {
+  cut: CutSession;
   target: CutTarget; pose: CutPose & Pick<CutSectionRequest, 'grouping'>; revision: number | null; volumes: GLVolume[];
 }) {
   const { runtime } = usePlatform();
@@ -32,14 +33,19 @@ export function CutPreview({ target, pose, revision, volumes }: {
     (key, result) => setReply({ key, result })), [runtime]);
   const liveRevision = useHistoryNavigationStore(s => s.status?.revision);
   const stale = liveRevision !== undefined && revision !== liveRevision;
+  const connectors = cut.connectors;
   const request: CutSectionRequest | null = useMemo(() => revision === null || stale ? null : ({
-    revision, grouping: pose.grouping, center: pose.center, rotation: pose.rotation, objectId: target.objectId, instanceId: target.instanceId,
-  }), [revision, stale, pose.grouping, pose.center, pose.rotation, target]);
+    revision, connectors, grouping: pose.grouping, center: pose.center, rotation: pose.rotation, objectId: target.objectId, instanceId: target.instanceId,
+  }), [revision, stale, connectors, pose.grouping, pose.center, pose.rotation, target]);
   const key = target.signature + JSON.stringify(request);
   useLayoutEffect(() => {
     if (request) queue.request(request, key);
     return () => queue.clear();
   }, [request, key, queue]);
+  useEffect(() => {
+    if (connectors && request && reply?.key === key && reply.result.ok)
+      cut.validateConnectors(request, connectors, reply.result.invalidConnectors);
+  }, [cut, connectors, request, reply, key]);
   const section = useMemo(() => reply?.key === key ? sectionLines(reply.result) : null, [key, reply]);
   useEffect(() => () => section?.dispose(), [section]);
   const material = useMemo(() => new ShaderMaterial({

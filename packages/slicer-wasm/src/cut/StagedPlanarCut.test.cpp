@@ -214,6 +214,37 @@ void grouped_multipart()
     }
     expect(modifies > 0, "modifier was lost during regrouping");
 }
+void connector_dimensions()
+{
+    for (const auto type : {CutConnectorType::Plug, CutConnectorType::Dowel, CutConnectorType::Snap}) {
+        Model model;
+        auto& source = cube(model);
+        source.auto_drop = false;
+        PlanarCutOptions options;
+        options.upper = options.lower = SideAction::Keep;
+        options.center = Vec3d(10.,10.,10.) + source.instances.front()->get_offset();
+        CutConnector c;
+        c.pos = options.center; c.attribs.type = type; c.height = 3.; c.radius = 2.;
+        c.height_tolerance = 0.2; c.radius_tolerance = 0.1;
+        options.connectors.push_back(c);
+        auto result = stage_planar_cut(source, source.instances.front()->id(), options);
+        const bool dowel = type == CutConnectorType::Dowel;
+        expect(result.objects.size() == (dowel ? 3u : 2u), "connector object count");
+        const auto* socket = result.objects[0];
+        const auto vol = std::find_if(socket->volumes.begin(), socket->volumes.end(), [](const ModelVolume* v) {
+            return v->cut_info.is_connector && v->is_negative_volume();
+        });
+        expect(vol != socket->volumes.end(), "missing connector socket");
+        const auto bbox = (*vol)->mesh().transformed_bounding_box(socket->instances.front()->get_matrix() * (*vol)->get_matrix());
+        expect(std::abs((bbox.max.z()-options.center.z())-(dowel ? 3.1 : 3.2)) < 1e-4, "incorrect socket depth tolerance");
+        expect(bbox.size().x() > 4., "missing socket radius tolerance");
+        if (dowel) {
+            const auto* pin = result.objects.back()->volumes.front();
+            expect(std::abs(pin->mesh().transformed_bounding_box(pin->get_matrix()).size().z()-6.) < 1e-4,
+                   "detached dowel length");
+        }
+    }
+}
 } // namespace
 
 void test_staged_planar_cut()
@@ -225,5 +256,6 @@ void test_staged_planar_cut()
     rejected_requests();
     multipart_source();
     grouped_multipart();
+    connector_dimensions();
     failed_staging();
 }

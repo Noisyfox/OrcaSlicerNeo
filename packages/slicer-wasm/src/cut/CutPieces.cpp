@@ -3,6 +3,23 @@
 #include <stdexcept>
 
 namespace Slic3r::Neo::Cutting {
+bool CutPieces::section_active(size_t index, const std::set<size_t>& toggled) const
+{
+    if (section_pieces.at(index).empty()) return true;
+    bool a = false, b = false;
+    for (size_t id : section_pieces[index]) {
+        const bool upper = parts[id].selected != bool(toggled.count(id));
+        a |= upper; b |= !upper;
+    }
+    return a && b;
+}
+bool CutPieces::accepts_connector(const Vec3d& local, const std::set<size_t>& toggled) const
+{
+    for (size_t i = 0; i < sections.size(); ++i)
+        if (section_active(i, toggled) && sections[i].contains(Point::new_scale(local))) return true;
+    return false;
+}
+
 CutPieces prepare_cut_pieces(const ModelObject& source, int index, const Transform3d& world_plane)
 {
     auto local = world_plane;

@@ -9,7 +9,7 @@ it('coalesces a drag, a reversal and a session exit without publishing stale sec
   const compute = vi.fn(() => new Promise<CutSectionResult>(resolve => pending.push(resolve)));
   const publish = vi.fn(), queue = new CutSectionQueue(compute, publish);
   const request: CutSectionRequest = { objectId: 1, instanceId: 2, revision: 3, center: [0,0,0], rotation: [1,0,0,0,1,0,0,0,1] };
-  const result: CutSectionResult = { ok: true, loops: [], xy: new Float32Array() };
+  const result: CutSectionResult = { ok: true, invalidConnectors: [], loops: [], xy: new Float32Array() };
   for (const z of [1,2,-1]) queue.request({ ...request, center: [0,0,z] }, String(z));
   expect(compute).toHaveBeenCalledTimes(1);
   pending.shift()!(result); await Promise.resolve();

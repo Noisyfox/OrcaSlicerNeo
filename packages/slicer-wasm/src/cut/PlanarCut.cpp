@@ -1,5 +1,6 @@
 #include "PlanarCut.hpp"
 #include "CutPieces.hpp"
+#include "CutConnectors.hpp"
 #include "libslic3r/CutUtils.hpp"
 
 #include <algorithm>
@@ -66,7 +67,11 @@ Model stage_planar_cut(const ModelObject& source, ObjectID reference, const Plan
         || !options.rotation.isUnitary(1e-8) || options.rotation.determinant() < 0.)
         throw std::invalid_argument("Invalid world-space Cut pose");
 
-    const auto flags = attributes(options) | only_if(!source.is_cut(), Attribute::InvalidateCutInfo);
+    const bool connected = !options.connectors.empty();
+    const int dowels = int(std::count_if(options.connectors.begin(), options.connectors.end(),
+        [](const CutConnector& c) { return c.attribs.type == CutConnectorType::Dowel; }));
+    const auto flags = attributes(options) | only_if(!source.is_cut() && !connected, Attribute::InvalidateCutInfo)
+        | only_if(dowels > 0, Attribute::CreateDowels);
     Transform3d plane = Transform3d::Identity();
     plane.linear() = options.rotation;
     plane.translation() = options.center - (*selected)->get_offset();
@@ -92,11 +97,31 @@ Model stage_planar_cut(const ModelObject& source, ObjectID reference, const Plan
                 throw std::invalid_argument("Invalid connected Cut piece");
             assignment[id].selected = !assignment[id].selected;
         }
+        for (const auto& connector : options.connectors)
+            if (!reviewed->accepts_connector(original.inverse() * connector.pos, unique))
+                throw std::invalid_argument("Connector lies on a reassigned section");
     }
-    Cut cut(reviewed ? reviewed->model.objects.front() : &source, index, plane, flags);
-    const auto& objects = reviewed ? cut.perform_by_contour(&source, assignment, 0) : cut.perform_with_plane();
+    Model connector_model;
+    const auto* input = reviewed ? reviewed->model.objects.front() : &source;
+    if (connected) {
+        if (options.as_parts || options.upper == SideAction::Discard || options.lower == SideAction::Discard)
+            throw std::invalid_argument("Connectors require both cut objects");
+        Transform3d world = plane;
+        world.translation() = options.center;
+        if (!invalid_cut_connectors(source, index, world, options.connectors).empty())
+            throw std::invalid_argument("Invalid Cut connector layout");
+        for (const auto& [name, material] : source.get_model()->materials)
+            connector_model.add_material(name, *material);
+        auto* staged = connector_model.add_object(*input);
+        if (!staged->is_cut()) staged->cut_id.init();
+        add_cut_connectors(*staged, (*selected)->get_offset(), world, options.connectors);
+        staged->cut_id.increase_check_sum(1+dowels);
+        input = staged;
+    }
+    Cut cut(input, index, plane, flags);
+    const auto& objects = reviewed ? cut.perform_by_contour(&source, assignment, dowels) : cut.perform_with_plane();
     const bool both = flags.has(Attribute::KeepUpper) && flags.has(Attribute::KeepLower);
-    const size_t expected = both && !options.as_parts ? 2 : 1;
+    const size_t expected = both && !options.as_parts ? 2 + dowels : 1;
     if (objects.size() != expected)
         throw std::runtime_error("Cut did not produce all requested outputs");
 
@@ -117,7 +142,7 @@ Model stage_planar_cut(const ModelObject& source, ObjectID reference, const Plan
             }
         }
         ModelObject* output = result.add_object(*object);
-        if (source.is_cut() && both)
+        if (source.is_cut() && both && !connected)
             output->cut_id.increase_check_sum(1);
         output->auto_drop = source.auto_drop;
         output->ensure_on_bed();

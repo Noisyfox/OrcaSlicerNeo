@@ -730,6 +730,9 @@ Step 7 stages connected pieces on the first right click. The Worker keeps the
 reviewed parts and their cap-to-section associations. Assigning both sides of
 a section to the same object hides that contour. The renderer picks the nearest
 triangle on release and uses the same piece indices when applying the cut.
+Step 8 adds the manual connector editor. The native layout check accounts for
+section holes, depth, socket clearance and overlaps. Plug, Dowel and Snap use
+the pinned mesh generators, cut attributes and Orca 3MF cut metadata.
 
 ### Native behavior
 

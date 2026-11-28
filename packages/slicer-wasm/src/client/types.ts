@@ -922,7 +922,19 @@ export interface AssemblyTarget {
 }
 export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
 export type CutSideAction = 'discard' | 'keep' | 'place' | 'flip';
+export interface CutConnector {
+  position: [number, number, number];
+  type: 'plug' | 'dowel' | 'snap';
+  style: 'prism' | 'frustum';
+  shape: 'triangle' | 'square' | 'hexagon' | 'circle';
+  depth: number;
+  diameter: number;
+  depthTolerance: number;
+  diameterTolerance: number;
+  angle: number;
+}
 export interface CutRequest {
+  connectors?: CutConnector[];
   objectId: number;
   instanceId: number;
   revision: number;
@@ -936,10 +948,10 @@ export interface CutRequest {
   keepPainting: boolean;
   openEdges: 'ask' | 'repair' | 'apply';
 }
-export type CutSectionRequest = Pick<CutRequest, 'objectId' | 'instanceId' | 'revision' | 'center' | 'rotation' | 'grouping'>;
+export type CutSectionRequest = Pick<CutRequest, 'objectId' | 'instanceId' | 'revision' | 'center' | 'rotation' | 'grouping' | 'connectors'>;
 export type CutPiecesResult = { ok: true; positions: Float32Array; pieces: Array<{ id: number; upper: boolean; triangles: number }> }
   | { ok: false; error: string };
-export type CutSectionResult = { ok: true; xy: Float32Array; loops: Array<{ count: number; hole: boolean }> }
+export type CutSectionResult = { ok: true; invalidConnectors: number[]; xy: Float32Array; loops: Array<{ count: number; hole: boolean }> }
   | { ok: false; error: string };
 export type CutResult = ModelMutationResult<{ changed: true; newObjectIds: number[]; objects: ModelObjectStructure[] }>
   | { ok: true; changed: false; warning: 'open_edges' };
