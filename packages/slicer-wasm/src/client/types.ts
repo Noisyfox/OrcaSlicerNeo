@@ -1027,6 +1027,7 @@ export interface ModelObjectStructure {
   name: string;
   /** Native cut identity; cut objects cannot participate in Assemble. */
   isCut: boolean;
+  standaloneDowel?: true;
   /** Object-level flag; distinct from per-instance `printable`. */
   printable: boolean;
   /** Automatic bed placement is shared by every instance of the object. */

@@ -46,6 +46,7 @@ import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/
 import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
+import { useCutHistory } from './components/workspace/viewport/gizmo/cut/CutSession';
 import { historyNavigationIntentAllowed, historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
 import { isSerialSliceBusy } from './runtimeExecution';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
@@ -465,6 +466,8 @@ function AppContent() {
       if (setupRef.current || !isPrepareTab(activeTab) || isEditableHistoryTarget(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
       const action = historyShortcutAction(event);
       if (!action) return;
+      const cut = useCutHistory.getState().session;
+      if (cut) { event.preventDefault(); cut.navigate(action); return; }
       const coordinator = historyRestoreCoordinatorRef.current;
       if (!coordinator) return;
       const historyStatus = useHistoryNavigationStore.getState().status;

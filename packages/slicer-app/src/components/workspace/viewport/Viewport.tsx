@@ -4,6 +4,8 @@ import { LayerHeightEditor } from './gizmo/layerHeight/LayerHeightEditor';
 import { editRanges } from '../objectList/heightRangeActions';
 import { selectedHeightRanges } from '../objectList/useObjectListStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
+import { CutPanel } from './gizmo/cut/CutPanel';
+import { CutViewport } from './gizmo/cut/CutViewport';
 import { MeshBooleanPanel } from './gizmo/meshBoolean/MeshBooleanControls';
 import { useSetupWizardStore } from '@/stores/useSetupWizardStore';
 // packages/slicer-app/src/components/viewport/Viewport.tsx
@@ -257,6 +259,21 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         }
         return;
       }
+      if (sceneInteraction.gizmo === 'cut') {
+        if (key === 'escape') {
+          if (!sceneInteraction.cut.busy) { sceneInteraction.cut.close(false); sceneInteraction.closeGizmo(); }
+          event.preventDefault(); return;
+        }
+        if (key === 'arrowup' || key === 'arrowdown') {
+          if (!viewportRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
+          sceneInteraction.cut.move(key === 'arrowup' ? 1 : -1);
+          event.preventDefault(); return;
+        }
+        if (key === 'delete' || key === 'backspace') return;
+      }
+      if (key === 'c' && !event.shiftKey && !slicing) {
+        event.preventDefault(); sceneInteraction.toggleGizmo('cut'); return;
+      }
       if (event.key === 'Escape' && sceneInteraction.gizmo === 'mesh-boolean') {
         event.preventDefault(); sceneInteraction.closeGizmo(); return;
       }
@@ -474,7 +491,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         // Shift+drag is box selection: claim the press before OrbitControls
         // or DragControls can start their own gesture. A gizmo grab keeps
         // strict priority, and overlay DOM is never hijacked.
-        if (sceneInteractionRef.current?.gizmo !== 'mesh-boolean' && sceneInteractionRef.current?.gizmo !== 'measure' && canStartBoxSelect(native, grabbedGizmo)) {
+        if (sceneInteractionRef.current?.gizmo !== 'cut' && sceneInteractionRef.current?.gizmo !== 'mesh-boolean' && sceneInteractionRef.current?.gizmo !== 'measure' && canStartBoxSelect(native, grabbedGizmo)) {
           startBoxSelectGesture(native);
           native.stopImmediatePropagation();
           native.preventDefault();
@@ -514,7 +531,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             onPointerMissed={(event) => {
               if (event.button !== 0) return;
               if (useArrangementStore.getState().active) return;
-              if (sceneInteractionRef.current?.gizmo === 'mesh-boolean' || sceneInteractionRef.current?.gizmo === 'layer-height') return;
+              if (sceneInteractionRef.current?.gizmo === 'cut' || sceneInteractionRef.current?.gizmo === 'mesh-boolean' || sceneInteractionRef.current?.gizmo === 'layer-height') return;
               if (sceneInteractionRef.current?.gizmo === 'measure') return;
               if (!previewTab && !paintingActive) {
                 const rect = viewportRef.current.getBoundingClientRect();
@@ -555,6 +572,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
               plateSession={plateSession}
               onGestureActive={setCameraGestureActive}
             />
+            {prepareTab && sceneInteraction && <CutViewport scene={sceneInteraction} />}
             {measureActive && <MeasureViewport sceneInteraction={sceneInteraction} onEdit={openMeasureScale} />}
             <CameraFraming
               bounds={bedBounds}
@@ -603,6 +621,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
           <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} arrangementOpen={arrangementOpen} onArrangementOpenChange={setArrangementOpen} />
           <div className="pointer-events-auto flex max-h-full w-64 min-w-0 flex-col gap-3 overflow-y-auto rounded-md bg-card p-3 empty:hidden" data-testid="gizmo-options">
             {arrangementOpen && <ArrangementPanel sceneInteraction={sceneInteraction} onClose={closeArrangement} />}
+            {sceneInteraction && <CutPanel scene={sceneInteraction} />}
             <MeshBooleanPanel sceneInteraction={sceneInteraction} />
             <MovePanel sceneInteraction={sceneInteraction} />
             <RotatePanel sceneInteraction={sceneInteraction} />

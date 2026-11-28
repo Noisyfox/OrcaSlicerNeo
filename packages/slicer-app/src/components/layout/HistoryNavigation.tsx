@@ -1,3 +1,4 @@
+import { useCutHistory } from '../workspace/viewport/gizmo/cut/CutSession';
 import { Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
@@ -21,6 +22,7 @@ export function HistoryNavigation({ activeTab, coordinator }: {
   const restoring = useHistoryRestoreStore((s) => s.phase !== 'idle');
   const error = useHistoryRestoreStore((s) => s.error);
   const history = useHistoryNavigationStore((s) => s.status);
+  const cut = useCutHistory();
   const painting = usePaintingState();
   const paintingPending = painting != null && painting.phase !== 'closed' && painting.phase !== 'idle';
   const unavailable = paintingPending || isSerialSliceBusy(platform.runtime, status) || !isPrepareTab(activeTab);
@@ -28,12 +30,14 @@ export function HistoryNavigation({ activeTab, coordinator }: {
   return (
     <div className="flex shrink-0 items-center [-webkit-app-region:no-drag]" data-testid="history-navigation">
       {(['undo', 'redo'] as const).map((direction) => {
-        const disabled = unavailable || historyNavigationDisabled(history, direction, restoring, !!coordinator);
-        const entries = projectHistoryEntries(history, direction);
-        const label = historyNextOperationLabel(history, direction);
+        const disabled = unavailable || (cut.session ? !cut[direction] : historyNavigationDisabled(history, direction, restoring, !!coordinator));
+        const entries = cut.session ? [] : projectHistoryEntries(history, direction);
+        const label = cut.session ? (direction === 'undo' ? 'Undo Cut edit' : 'Redo Cut edit') : historyNextOperationLabel(history, direction);
         const Icon = direction === 'undo' ? Undo2 : Redo2;
         const navigate = (entryId?: string) => {
-          if (disabled || !coordinator) return;
+          if (disabled) return;
+          if (cut.session) { cut.session.navigate(direction); return; }
+          if (!coordinator) return;
           void coordinator.restore(entryId ? { jump: entryId, direction } : direction);
         };
         return (

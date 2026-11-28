@@ -59,6 +59,46 @@ describe('SceneInteractionController', () => {
     controller = new SceneInteractionController(() => volumes);
   });
 
+  it('uses one full reference instance for Cut and groups plane edits into draft history', () => {
+    controller.selectComposite(0);
+    expect(controller.toggleGizmo('cut')).toBe(false);
+    controller.selectComposite(0, 0, 0);
+    expect(controller.toggleGizmo('cut')).toBe(false);
+    controller.selectComposite(0, undefined, 1);
+    expect(controller.toggleGizmo('cut')).toBe(true);
+    const cut = controller.cut;
+    expect(cut.target?.instanceId).toBe(301);
+    expect(cut.draft?.center).toEqual([20, 5, 0]);
+    cut.update({ rotation: [0,0,-1, 0,1,0, 1,0,0] });
+    const vertical = cut.draft!;
+    cut.begin(); cut.move(1); cut.move(4); cut.finish();
+    expect(cut.draft?.center).toEqual([25, 5, 0]);
+    cut.navigate('undo'); expect(cut.draft).toEqual(vertical);
+    cut.navigate('redo'); expect(cut.draft?.center).toEqual([25, 5, 0]);
+    cut.update({ center: [25, 5, 14] });
+    expect(cut.draft?.rotation).toEqual(vertical.rotation);
+    cut.flip(); expect(cut.draft?.rotation[6]).toBeCloseTo(-1);
+    cut.update({ upper: 'discard' });
+    const pose = cut.draft!;
+    controller.toggleGizmo('move'); controller.toggleGizmo('cut');
+    expect(cut.draft).toMatchObject({ center: pose.center, rotation: pose.rotation, upper: 'place' });
+    cut.navigate('undo'); expect(cut.draft?.center).toEqual(pose.center);
+    cut.close(false); controller.closeGizmo(); controller.toggleGizmo('cut');
+    expect(cut.draft?.center).toEqual([20, 5, 0]);
+    controller.closeGizmo();
+  });
+
+  it('discards a remembered Cut pose when target transforms change and keeps cancelled drags out of history', () => {
+    controller.selectComposite(0, undefined, 0);
+    controller.toggleGizmo('cut');
+    const cut = controller.cut, initial = cut.draft;
+    cut.begin(); cut.move(7); cut.finish(true); expect(cut.draft).toEqual(initial);
+    cut.move(10); controller.closeGizmo();
+    volumes[0].instanceTransform = { ...volumes[0].instanceTransform, offset: [5, 0, 0] };
+    controller.toggleGizmo('cut');
+    expect(cut.draft?.center).toEqual(cut.target?.initial.center);
+    controller.closeGizmo();
+  });
   /** Identity world→screen projector: instance 0 spans [-1,1]², instance 1 [19,21]×[4,6]. */
   function registerFlatProjector(): void {
     controller.registerBoxSelectProjector((world) => ({ x: world.x, y: world.y }));

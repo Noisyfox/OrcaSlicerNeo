@@ -4,7 +4,7 @@
 **Status:** Measure and the existing viewport interactions are delivered.
 Variable Layer Height has an accepted design and awaits implementation.
 Release-wide qualification is separate.
-Planar Cut geometry and staged native execution are implemented. The Prepare workflow is pending.
+The Prepare Cut gizmo supports planar positioning and native project edits. Live section feedback and release qualification are in progress.
 **Scope:** Shared Electron/Web model selection, transforms, camera and rendering.
 
 ## Coordinates and rendering
@@ -716,7 +716,9 @@ and frame-rate distributions were outside the measurement.
 `8f2cfb8c79`. The first release delivers basic planar Cut. Subsequent stages
 add connected-piece assignment, manual connectors and dovetails. Steps 1–3 below
 connect the native operation to the live project and have real-WASM coverage
-on wasm64 serial and pthread builds. The shared Prepare session follows in step 4.
+on wasm64 serial and pthread builds. Step 4 adds the shared Prepare session, plane
+handles, numeric height and draft history. Its browser journey exercises the C
+shortcut, normal translation, Shift-drag, temporary navigation and cancellation.
 
 ### Native behavior
 

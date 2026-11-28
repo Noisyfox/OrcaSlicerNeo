@@ -1,3 +1,6 @@
+import { CutSession, cutTarget } from './gizmo/cut/CutSession';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { useObjectListStore } from '../objectList/useObjectListStore';
 import { useLayerHeight } from './gizmo/layerHeight/state';
 import { MeshBooleanSession, meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
 import { InstanceHider, visibleToolVolumes, type InstanceHiderLease } from './InstanceHider';
@@ -28,7 +31,7 @@ import {
   type BoxRect,
 } from './boxSelectionMath';
 
-export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | 'measure' | 'layer-height' | null;
+export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | 'cut' | 'measure' | 'layer-height' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box' | 'external';
@@ -87,6 +90,12 @@ export interface SceneEntityCommitPort<Entity extends GLVolume = GLVolume> {
 export class SceneInteractionController {
   readonly selection = new Selection();
   readonly instanceHider = new InstanceHider();
+  readonly cut = new CutSession(() => this.emit());
+  get cutTarget() {
+    const target = cutTarget(this.selectedVolumes(), this.getVolumes());
+    return target && !useObjectListStore.getState().structure.find(o => o.id === target.objectId)?.standaloneDowel
+      ? target : null;
+  }
   readonly meshBoolean = new MeshBooleanSession(() => this.getVolumes(), () => this.emit());
   private booleanIsolation: InstanceHiderLease | null = null;
 
@@ -194,11 +203,18 @@ export class SceneInteractionController {
     if (this.selection.empty) return false;
     if (this.hasWipeTowerSelection && mode !== 'move') return false;
     if (mode === 'layer-height' && this.layerHeightObjectId === null) return false;
+    if (this.cut.busy) return false;
+    if (mode === 'cut' && this.openGizmo !== mode) {
+      const target = this.cutTarget;
+      if (!target || this.openGizmo === 'layer-height') return false;
+      this.cut.open(target, useHistoryNavigationStore.getState().status?.revision ?? null);
+    }
     if (mode === 'mesh-boolean' && this.openGizmo !== mode) {
       const target = meshBooleanTarget(this.selectedVolumes(), this.getVolumes());
       if (!target) return false;
       this.meshBoolean.open(target);
     } else this.meshBoolean.close();
+    if (this.openGizmo === 'cut') this.cut.close();
     this.openGizmo = this.openGizmo === mode ? null : mode;
     this.emit();
     return this.openGizmo === mode;
@@ -208,7 +224,8 @@ export class SceneInteractionController {
   closeGizmo(): boolean {
     if (this.openGizmo === 'layer-height' && useLayerHeight.getState().busy) return false;
     if (this.meshBoolean.publishing) return false;
-    if (this.openGizmo === null) return false;
+    if (this.openGizmo === null || this.cut.busy) return false;
+    if (this.openGizmo === 'cut') this.cut.close();
     this.openGizmo = null;
     this.meshBoolean.close();
     this.emit();
@@ -253,7 +270,7 @@ export class SceneInteractionController {
     // The initiating DragControls must stay enabled for the rest of its own
     // gesture. A gizmo remains exclusive; other body wrappers are still
     // blocked synchronously by tryBeginBodyDrag/update ownership checks.
-    return this.openGizmo !== 'mesh-boolean' && this.openGizmo !== 'measure'
+    return this.openGizmo !== 'cut' && this.openGizmo !== 'mesh-boolean' && this.openGizmo !== 'measure'
       && (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
       && (this.pointerOwner === 'none' || this.pointerOwner === 'body')
       // An unselected body must be able to start the same press that selects
@@ -444,7 +461,7 @@ export class SceneInteractionController {
   }
 
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
-    if (this.openGizmo === 'measure') return false;
+    if (this.openGizmo === 'measure' || this.openGizmo === 'cut') return false;
     if (this.meshBoolean.publishing || !this.instanceHider.isVisible(hit)) return false;
     if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (!hit.selectable) return false;
@@ -507,7 +524,7 @@ export class SceneInteractionController {
    * a model mesh.
    */
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
-    if (this.openGizmo === 'measure') return false;
+    if (this.openGizmo === 'measure' || this.openGizmo === 'cut') return false;
     if (!this.instanceHider.isVisible(hit)) return false;
     if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
@@ -560,7 +577,7 @@ export class SceneInteractionController {
    * (body/gizmo/box gesture) is never preempted.
    */
   beginBoxSelect(start: BoxPoint, additive: boolean): boolean {
-    if (this.openGizmo === 'measure') return false;
+    if (this.openGizmo === 'measure' || this.openGizmo === 'cut') return false;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
     this.pointerOwner = 'box';
     this.boxSelect = { start, current: { ...start }, additive };
@@ -671,6 +688,7 @@ export class SceneInteractionController {
     // model IDs are intentionally cleared on a mesh replacement.
     const retainedWipeTower = this.selectedWipeTower();
     this.selection.clear();
+    this.cut.close(false);
     if (retainedWipeTower && this.getVolumes().includes(retainedWipeTower))
       this.selection.replaceIds([retainedWipeTower.id]);
     this.openGizmo = null;
@@ -691,7 +709,7 @@ export class SceneInteractionController {
    * returns true.
    */
   tryBeginBodyDrag(hit?: GLVolume): boolean {
-    if (this.openGizmo === 'measure') return false;
+    if (this.openGizmo === 'measure' || this.openGizmo === 'cut') return false;
     if (hit && !this.instanceHider.isVisible(hit)) return false;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty) return false;
     // DragControls are always armed so the synchronous first move is not lost
@@ -707,7 +725,7 @@ export class SceneInteractionController {
 
   /** Called synchronously by TransformControls on a confirmed grabber press. */
   beginGizmoDrag(): boolean {
-    if (this.openGizmo === 'measure') return false;
+    if (this.openGizmo === 'measure' || this.openGizmo === 'cut') return false;
     if (this.pointerOrigin !== 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty || this.openGizmo === null) return false;
     if (this.hasWipeTowerSelection && this.openGizmo !== 'move') return false;
     if (this.activeCommitBusy) return false;
@@ -1448,7 +1466,9 @@ export class SceneInteractionController {
   // Gizmos never auto-open on selection; a selection that empties (e.g. a
   // model reload pruning stale IDs) auto-closes the armed gizmo.
   private syncGizmoToSelection(): void {
-    if (this.openGizmo === 'mesh-boolean') {
+    if (this.openGizmo === 'cut') {
+      if (!this.cut.busy && this.cutTarget?.signature !== this.cut.target?.signature) this.closeGizmo();
+    } else if (this.openGizmo === 'mesh-boolean') {
       if (!this.meshBoolean.reconcile(this.selectedVolumes())) this.closeGizmo();
     } else if ((this.openGizmo === 'layer-height' && this.layerHeightObjectId === null) || this.selectedVolumes().length === 0 || (this.hasWipeTowerSelection && this.openGizmo !== 'move')) {
       this.openGizmo = null;

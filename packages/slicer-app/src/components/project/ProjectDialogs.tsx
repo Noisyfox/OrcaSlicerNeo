@@ -318,7 +318,7 @@ function PreferencesForm({ preferences, onSave, onClose }: PreferencesDialogProp
                   onCheckedChange={checked => setKeepPainting(checked === true)} aria-describedby="mesh-boolean-keep-painting-description" />
                 <FieldContent>
                   <FieldLabel htmlFor="mesh-boolean-keep-painting">Keep painting</FieldLabel>
-                  <FieldDescription id="mesh-boolean-keep-painting-description">Preserve support, seam, color and fuzzy-skin painting when applying Mesh Boolean.</FieldDescription>
+                  <FieldDescription id="mesh-boolean-keep-painting-description">Preserve support, seam, color and fuzzy-skin painting when applying Mesh Boolean or Cut.</FieldDescription>
                 </FieldContent>
               </Field>
             </section>
