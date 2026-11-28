@@ -40,7 +40,7 @@ import type {
   ExportProjectRequest, ExportProjectResult, RgbaThumbnail, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, ModelObjectStructure, MutationResult, SplitVolumeResult, SplitObjectResult,
-  AssemblyTarget, MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
+  AssemblyTarget, MergeObjectsResult, CutResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
@@ -3301,6 +3301,19 @@ export function createClient(
       const m = await module();
       return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
                       [JSON.stringify(targets), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
+    },
+
+    async applyCut(request): Promise<CutResult> {
+      const raw = callJson(await module(), 'orc_apply_cut', ['string'], [JSON.stringify(request)]);
+      if (isRecord(raw) && raw.ok === true && raw.changed === false) {
+        if (raw.warning === 'open_edges' && !Object.hasOwn(raw, 'plate_session'))
+          return { ok: true, changed: false, warning: 'open_edges' };
+        return { ok: false, error: 'Invalid Cut repair response' };
+      }
+      return normalizeStructuralResult<Exclude<CutResult, { ok: true; changed: false }>>(raw, value =>
+        value.changed === true && modelIds(value.newObjectIds) && value.newObjectIds.length > 0
+        && modelStructure(value.objects) && value.newObjectIds.every(id =>
+          (value.objects as ModelObjectStructure[]).some(object => object.id === id)));
     },
 
     async meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult> {

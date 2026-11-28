@@ -921,6 +921,23 @@ export interface AssemblyTarget {
   instanceIds: number[];
 }
 export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
+export type CutSideAction = 'discard' | 'keep' | 'place' | 'flip';
+export interface CutRequest {
+  objectId: number;
+  instanceId: number;
+  revision: number;
+  center: [number, number, number];
+  /** Column-major world rotation. The third column is the positive normal. */
+  rotation: [number, number, number, number, number, number, number, number, number];
+  upper: CutSideAction;
+  lower: CutSideAction;
+  asParts: boolean;
+  keepPainting: boolean;
+  openEdges: 'ask' | 'repair' | 'apply';
+}
+export type CutResult = ModelMutationResult<{ changed: true; newObjectIds: number[]; objects: ModelObjectStructure[] }>
+  | { ok: true; changed: false; warning: 'open_edges' };
+
 /** Both UI entries operate on one shared object's native, object-local geometry. */
 export type MeshBooleanRequest = {
   entry: 'gizmo';
@@ -1985,6 +2002,7 @@ export interface SlicerClient extends LayerHeightApi, PaintingApi, MeasureApi, S
   splitObjectToObjects(objectId: number, options: SplitObjectOptions): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
   mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult>;
+  applyCut(request: CutRequest): Promise<CutResult>;
   meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;
   /** Separate selected instances into their own objects; returns the new object IDs. */
   separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult>;

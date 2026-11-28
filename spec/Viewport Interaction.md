@@ -714,9 +714,9 @@ and frame-rate distributions were outside the measurement.
 
 **Design accepted, 2026-11-28.** The reference is the Orca core pinned at
 `8f2cfb8c79`. The first release delivers basic planar Cut. Subsequent stages
-add connected-piece assignment, manual connectors and dovetails. Steps 1 and 2 below
-have real-WASM coverage on wasm64 serial and pthread builds. Step 3 connects the
-staged operation to the live project.
+add connected-piece assignment, manual connectors and dovetails. Steps 1–3 below
+connect the native operation to the live project and have real-WASM coverage
+on wasm64 serial and pthread builds. The shared Prepare session follows in step 4.
 
 ### Native behavior
 

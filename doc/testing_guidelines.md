@@ -176,6 +176,14 @@ through a ring. The ring checks cover closure, retained volume and the bore.
 The staged-operation cases exercise a transformed or mirrored reference instance,
 side orientation and bed placement, multipart sources and failed cuts.
 
+The typed Worker protocol suite takes a built product module. It checks Cut
+across two plates, all four paint channels, both open-edge actions, stale
+revisions, Undo/Redo, and project export/reopen.
+
+```sh
+ORCA_CUT_MODULE="$PWD/packages/slicer-wasm/.work/serial/build/orca_slice.js" pnpm --filter @orca/slicer-wasm exec vitest run harness/cut-client.native.test.mjs
+```
+
 ### Measure native suites
 
 With the Emscripten environment active and the chosen variant already
