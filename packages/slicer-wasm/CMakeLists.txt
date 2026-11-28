@@ -406,6 +406,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureGeometry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureService.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/PlanarCut.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_measure.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_painting.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
@@ -693,7 +694,10 @@ add_executable(arrangement_core_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangemen
 add_executable(headless_arrangement_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/height_range_filaments.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.test.cpp")
-add_executable(planar_cut_test EXCLUDE_FROM_ALL "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/PlanarCut.test.cpp")
+add_executable(planar_cut_test EXCLUDE_FROM_ALL
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/PlanarCut.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/PlanarCut.test.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/StagedPlanarCut.test.cpp")
 foreach(_core_test arrangement_core_test headless_arrangement_test planar_cut_test)
   target_compile_options(${_core_test} PRIVATE -fexceptions)
   target_link_libraries(${_core_test} PRIVATE ${_core_test_libraries})

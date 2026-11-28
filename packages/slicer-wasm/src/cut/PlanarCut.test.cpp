@@ -104,6 +104,8 @@ void tilted_ring_case()
 }
 }
 
+void test_staged_planar_cut();
+
 int main()
 {
     try {
@@ -113,7 +115,8 @@ int main()
         cube_case(Attribute::KeepLower);
         cube_case(both | Attribute::KeepAsParts);
         tilted_ring_case();
-        std::puts("Planar Cut: all five geometry cases passed");
+        test_staged_planar_cut();
+        std::puts("Planar Cut: geometry and staged operation cases passed");
         return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "Planar Cut: %s\n", error.what());

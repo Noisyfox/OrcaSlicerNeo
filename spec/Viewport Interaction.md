@@ -4,7 +4,7 @@
 **Status:** Measure and the existing viewport interactions are delivered.
 Variable Layer Height has an accepted design and awaits implementation.
 Release-wide qualification is separate.
-The Cut gizmo design is accepted and awaits implementation.
+Planar Cut geometry and staged native execution are implemented. The Prepare workflow is pending.
 **Scope:** Shared Electron/Web model selection, transforms, camera and rendering.
 
 ## Coordinates and rendering
@@ -714,8 +714,9 @@ and frame-rate distributions were outside the measurement.
 
 **Design accepted, 2026-11-28.** The reference is the Orca core pinned at
 `8f2cfb8c79`. The first release delivers basic planar Cut. Subsequent stages
-add connected-piece assignment, manual connectors and dovetails. Implementation
-and real-WASM qualification are pending.
+add connected-piece assignment, manual connectors and dovetails. Steps 1 and 2 below
+have real-WASM coverage on wasm64 serial and pthread builds. Step 3 connects the
+staged operation to the live project.
 
 ### Native behavior
 

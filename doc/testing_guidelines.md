@@ -173,6 +173,8 @@ node packages/slicer-wasm/.work/serial/build/planar_cut_test.cjs
 Use the threaded build directory for the pthread variant. The executable
 checks both-sided, single-sided and multipart cube cuts and a tilted cut
 through a ring. The ring checks cover closure, retained volume and the bore.
+The staged-operation cases exercise a transformed or mirrored reference instance,
+side orientation and bed placement, multipart sources and failed cuts.
 
 ### Measure native suites
 
