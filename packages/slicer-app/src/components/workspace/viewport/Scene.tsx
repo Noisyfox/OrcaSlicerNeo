@@ -195,6 +195,11 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, s
   bodyDragEnabled: boolean;
 }) {
   const isolation = useSyncExternalStore(controller.instanceHider.subscribe, controller.instanceHider.getSnapshot);
+  const subscribe = useCallback((listener: () => void) => controller.subscribe(listener), [controller]);
+  const hiddenCutInstance = useSyncExternalStore(subscribe, () => {
+    const cut = controller.cut;
+    return !preview && cut.draft?.groove && cut.groovePreview && !cut.groovePreview.error ? cut.target?.instanceId : undefined;
+  });
   // Unmount hidden meshes so their invisible painted pick surfaces also leave
   // the raycast tree. The loader retains every source geometry and list row.
   const visibleVolumes = useMemo(() => visibleToolVolumes(glVolumes, preview ? null : isolation), [glVolumes, preview, isolation]);
@@ -203,7 +208,7 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, s
       {!preview && !hidesWipeTowers(isolation) && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} interactive={interactive}
         selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />}
       {!preview && <HeightRangePlanes volumes={visibleVolumes} />}
-      {visibleVolumes.map((volume) => (
+      {visibleVolumes.filter(volume => volume.buffer.instanceId !== hiddenCutInstance).map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession}
           selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} onModelSelection={leaveHeightRangeSelection} />
       ))}

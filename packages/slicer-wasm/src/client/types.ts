@@ -921,6 +921,52 @@ export interface AssemblyTarget {
   instanceIds: number[];
 }
 export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
+export type CutSideAction = 'discard' | 'keep' | 'place' | 'flip';
+export interface CutGroove {
+  depth: number;
+  width: number;
+  flankAngle: number;
+  angle: number;
+  depthTolerance: number;
+  widthTolerance: number;
+  count: number;
+  gap: number;
+}
+export interface CutConnector {
+  position: [number, number, number];
+  type: 'plug' | 'dowel' | 'snap';
+  style: 'prism' | 'frustum';
+  shape: 'triangle' | 'square' | 'hexagon' | 'circle';
+  depth: number;
+  diameter: number;
+  depthTolerance: number;
+  diameterTolerance: number;
+  angle: number;
+}
+export interface CutRequest {
+  groove?: CutGroove;
+  connectors?: CutConnector[];
+  objectId: number;
+  instanceId: number;
+  revision: number;
+  center: [number, number, number];
+  /** Column-major world rotation. The third column is the positive normal. */
+  rotation: [number, number, number, number, number, number, number, number, number];
+  grouping?: { center: CutRequest['center']; rotation: CutRequest['rotation']; toggled: number[] };
+  upper: CutSideAction;
+  lower: CutSideAction;
+  asParts: boolean;
+  keepPainting: boolean;
+  openEdges: 'ask' | 'repair' | 'apply';
+}
+export type CutSectionRequest = Pick<CutRequest, 'objectId' | 'instanceId' | 'revision' | 'center' | 'rotation' | 'grouping' | 'connectors' | 'groove'>;
+export type CutPiecesResult = { ok: true; positions: Float32Array; pieces: Array<{ id: number; upper: boolean; triangles: number }> }
+  | { ok: false; error: string };
+export type CutSectionResult = { ok: true; invalidConnectors: number[]; xy: Float32Array; loops: Array<{ count: number; hole: boolean }> }
+  | { ok: false; error: string };
+export type CutResult = ModelMutationResult<{ changed: true; newObjectIds: number[]; objects: ModelObjectStructure[] }>
+  | { ok: true; changed: false; warning: 'open_edges' };
+
 /** Both UI entries operate on one shared object's native, object-local geometry. */
 export type MeshBooleanRequest = {
   entry: 'gizmo';
@@ -1010,6 +1056,7 @@ export interface ModelObjectStructure {
   name: string;
   /** Native cut identity; cut objects cannot participate in Assemble. */
   isCut: boolean;
+  standaloneDowel?: true;
   /** Object-level flag; distinct from per-instance `printable`. */
   printable: boolean;
   /** Automatic bed placement is shared by every instance of the object. */
@@ -1985,6 +2032,10 @@ export interface SlicerClient extends LayerHeightApi, PaintingApi, MeasureApi, S
   splitObjectToObjects(objectId: number, options: SplitObjectOptions): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
   mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult>;
+  releaseCutPieces(): Promise<void>;
+  getCutPieces(request: CutSectionRequest): Promise<CutPiecesResult>;
+  getCutSection(request: CutSectionRequest): Promise<CutSectionResult>;
+  applyCut(request: CutRequest): Promise<CutResult>;
   meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;
   /** Separate selected instances into their own objects; returns the new object IDs. */
   separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult>;

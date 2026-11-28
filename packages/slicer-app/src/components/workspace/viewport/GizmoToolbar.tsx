@@ -33,6 +33,7 @@ const GIZMO_BUTTONS: ReadonlyArray<{
   { mode: 'scale', label: 'Scale', icon: Scaling, testId: 'gizmo-btn-scale' },
   { mode: 'mesh-boolean', label: 'Mesh Boolean', icon: Combine, testId: 'gizmo-btn-mesh-boolean' },
   { mode: 'layer-height', label: 'Variable layer height', icon: Layers, testId: 'gizmo-btn-layer-height' },
+  { mode: 'cut', label: 'Cut', icon: Scissors, testId: 'gizmo-btn-cut' },
   { mode: 'measure', label: 'Measure', icon: Ruler, testId: 'gizmo-btn-measure' },
 ];
 
@@ -118,12 +119,13 @@ export function GizmoToolbar({
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
         const disabled = layerBusy || (towerSelected ? !towerMode : sceneInteraction.selection.empty) || (paintActive && paintState?.phase !== 'idle') ||
+          (mode === 'cut' && !armed && (!sceneInteraction.cutTarget || gizmo === 'layer-height' || !!platform.runtime.getRuntimeExecutionState?.().sliceActive)) ||
           (mode === 'layer-height' && sceneInteraction.layerHeightObjectId === null) ||
           ((mode === 'measure' || mode === 'layer-height') && !armed && !!platform.runtime.getRuntimeExecutionState?.().serialSliceActive) ||
           (mode === 'mesh-boolean' && ((!armed && !meshBooleanTarget(sceneInteraction.selectedVolumes(), glVolumeCollection.volumes)) ||
             !!platform.runtime.getRuntimeExecutionState?.().sliceActive));
         return (
-          <TooltipFor key={mode} content={label} disabled={disabled}>
+          <TooltipFor key={mode} content={mode === 'cut' && !sceneInteraction.cutTarget ? 'Select one instance to position the cut plane.' : label} disabled={disabled}>
             <Button
               variant="gizmo"
               size="icon"

@@ -82,7 +82,7 @@ const restrictedWhileSerialSlicing = new Set([
   'prepareMaterialImport', 'getDeviceFilamentOptions', 'getDeviceMaterialCatalogue', 'matchFilamentPresets', 'getPrinterDeviceMatch', 'loadProject', 'importProjectGeometry', 'addShape', 'addVolume', 'clearModel',
   'setInstanceOffset', 'setModelTransform', 'setModelTransforms', 'deleteObjects',
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
-  'splitVolumeToParts', 'previewSplitObject', 'splitObjectToObjects', 'mergeObjectsToMultipart', 'meshBoolean',
+  'getCutPieces', 'getCutSection', 'applyCut', 'splitVolumeToParts', 'previewSplitObject', 'splitObjectToObjects', 'mergeObjectsToMultipart', 'meshBoolean',
   'separateInstances', 'addInstance', 'removeInstance', 'renameObject',
   'renameVolume', 'setVolumeType', 'editHeightRanges', 'editLayerHeight',
   ...layerHeightReads, 'finishLayerHeightStroke', 'setObjectPrintable', 'setObjectsAutoDrop', 'setInstancePrintable',

@@ -20,7 +20,7 @@ export function measurePixelScale(camera: THREE.Camera, height: number, point: M
   return Math.abs(2 * clip.w / (height * camera.projectionMatrix.elements[5]));
 }
 
-function ScreenMarker({ position, color }: { position: MeasureVector; color: string }) {
+export function ScreenMarker({ position, color }: { position: MeasureVector; color: string }) {
   const ref = useRef<THREE.Mesh>(null);
   useFrame(({ camera, size }) => {
     if (!ref.current || size.height <= 0) return;
