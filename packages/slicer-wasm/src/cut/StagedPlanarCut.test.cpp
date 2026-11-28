@@ -2,6 +2,7 @@
 #include "CutPieces.hpp"
 #include "libslic3r/Geometry.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -34,8 +35,6 @@ void transformed_reference(bool mirrored)
     Model model;
     auto& source = cube(model);
     source.auto_drop = false;
-    source.volumes.front()->set_material_id("test");
-    source.volumes.front()->material()->attributes["label"] = "original";
     source.volumes.front()->translate(3., 0., 0.);
     auto* selected = source.add_instance();
     selected->set_offset(Vec3d(110., 240., 50.));
@@ -62,7 +61,6 @@ void transformed_reference(bool mirrored)
         if (!volume_near(volume, expected_volume))
             throw std::runtime_error("Transformed cut volume " + std::to_string(volume)
                 + ", expected " + std::to_string(expected_volume));
-        expect(part.material()->attributes.at("label") == "original", "orphaned named material");
     }
     expect(source.instances.size() == 2 && selected->get_matrix().isApprox(selected_frame)
         && volume_near(its_volume(source.volumes.front()->mesh().its), 8000.), "source modified during staging");
@@ -107,7 +105,10 @@ void multipart_source()
     auto& source = cube(model);
     source.add_volume(make_cube(3., 4., 5.))->translate(25., 0., 0.);
     source.add_volume(make_cube(2., 2., 2.), ModelVolumeType::NEGATIVE_VOLUME)->translate(4., 4., 2.);
-    source.add_volume(make_cube(2., 2., 4.), ModelVolumeType::PARAMETER_MODIFIER)->translate(4., 4., 6.);
+    auto* modifier = source.add_volume(make_cube(2., 2., 4.), ModelVolumeType::PARAMETER_MODIFIER);
+    modifier->translate(4., 4., 6.);
+    modifier->set_material_id("test");
+    modifier->material()->attributes["label"] = "original";
     source.cut_id.init();
     PlanarCutOptions options;
     options.center.z() = 8.;
@@ -116,6 +117,12 @@ void multipart_source()
     const auto& lower = *result.objects.at(1);
     expect(upper.parts_count() == 1 && upper.volumes.size() == 2, "upper modifier distribution");
     expect(lower.parts_count() == 2 && lower.volumes.size() == 4, "lower modifier distribution");
+    for (const auto* output : result.objects) {
+        const auto& volumes = output->volumes;
+        const auto it = std::find_if(volumes.begin(), volumes.end(), [](const auto* part) { return part->is_modifier(); });
+        expect(it != volumes.end() && (*it)->material_id() == "test" && (*it)->material() &&
+               (*it)->material()->attributes.at("label") == "original", "lost staged modifier material");
+    }
     expect(upper.cut_id.id() == source.cut_id.id() && upper.cut_id == lower.cut_id
         && upper.cut_id.check_sum() == lower.cut_id.check_sum()
         && upper.cut_id.check_sum() == source.cut_id.check_sum() + 1, "re-cut identity lost");

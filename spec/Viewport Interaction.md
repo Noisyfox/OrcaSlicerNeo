@@ -736,6 +736,11 @@ interchange check, desktop Orca read Neo's result and re-exported the cut group
 with its detached dowel. The fixture included plate thumbnail images for the
 desktop CLI and used its newer-file compatibility option.
 
+Cut uses the same Orca submodule revision as the rest of Neo. On this
+revision, cutting a solid with a nonempty `ModelVolume::material_id()`
+can fail. Per-part filament selection and facet painting use separate fields.
+The named-material fix is deferred to an Orca submodule upgrade.
+
 Step 9 adds single and multiple dovetails. Editing draws the guide immediately.
 On release the Worker validates every groove, then generates both mating meshes
 with the same native operation used for Apply. The viewport separates the

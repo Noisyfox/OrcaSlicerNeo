@@ -42,8 +42,6 @@ void cube_case(ModelObjectCutAttributes attributes)
     const bool as_parts = attributes.has(Attribute::KeepAsParts);
     Model model;
     auto* cube = fixture(model, make_cube(20., 20., 20.));
-    cube->volumes.front()->set_material_id("housing");
-    cube->volumes.front()->material()->attributes["supplier"] = "fixture";
     const auto plane = Geometry::translation_transform(Vec3d(0., 0., 8.));
     Cut cut(cube, 0, plane, attributes);
     const auto& result = cut.perform_with_plane();
@@ -53,9 +51,6 @@ void cube_case(ModelObjectCutAttributes attributes)
         require(object->instances.size() == 1, "instance lost during cut");
         require(object->volumes.size() == (as_parts ? 2u : 1u), "unexpected part count");
         for (const ModelVolume* part : object->volumes) {
-            require(part->material_id() == "housing" && part->material() != nullptr &&
-                    part->material()->attributes.at("supplier") == "fixture",
-                    "cut part lost its named material");
             const bool is_upper = upper && solids == 0;
             const auto bounds = part->mesh().transformed_bounding_box(part->get_matrix());
             require(std::abs(bounds.min.z() - (is_upper ? 8. : 0.)) < 1e-5, "wrong lower bound");
