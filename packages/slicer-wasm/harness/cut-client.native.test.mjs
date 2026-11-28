@@ -126,6 +126,51 @@ describe.skipIf(!artifact)('Cut on a real Worker protocol and WASM module', () =
     expect((await client.getModelStructure()).objects.filter(o => o.standaloneDowel)).toHaveLength(1);
     expect(readZipEntries((await client.exportProject()).bytes).some(e => e.name === 'Metadata/cut_information.xml')).toBe(true);
   }, 120_000);
+  it.each([1,2])('matches the exact %i-groove preview to applied triangles and clearances', async count => {
+    expect(await client.loadProject(await buildPaintingChannelProject())).toMatchObject({ok:true});
+    const source = (await client.getModelStructure()).objects[0];
+    expect(await client.setObjectsAutoDrop([source.id],false)).toMatchObject({ok:true});
+    const request = await requestFor(source);
+    const local = (await client.getCutSection(request)).xy;
+    for (let axis=0; axis<2; axis++) {
+      const coords = Array.from(local).filter((_,i)=>i%2===axis);
+      request.center[axis] += (Math.min(...coords)+Math.max(...coords))/2;
+    }
+    const groove = { count, gap:3, width:4, depth:2, flankAngle:90, angle:0, depthTolerance:0.2, widthTolerance:0.4 };
+    expect(await client.getCutPieces({...request,groove:{...groove,count:100}})).toMatchObject({ok:false});
+    expect(await client.getCutPieces({...request,groove:{...groove,angle:46}})).toMatchObject({ok:false});
+    const preview = await client.getCutPieces({...request,groove});
+    expect(preview,preview.error).toMatchObject({ok:true, pieces:[{upper:true},{upper:false}]});
+    const result = await apply({...request,upper:'keep',lower:'keep',keepPainting:false,groove});
+    expect(result,result.error).toMatchObject({ok:true,changed:true});
+    const meshes = (await client.getModelMesh()).objects;
+    let offset=0;
+    const planes=[];
+    for (let side=0; side<2; ++side) {
+      const m = meshes.find(m=>m.objectId===result.newObjectIds[side] && m.instanceIdx===1);
+      expect(m.indices.length).toBe(preview.pieces[side].triangles*3);
+      const points=[];
+      for (const id of m.indices) {
+        const point=[0,1,2].map(axis=>m.positions[id*3+axis]+m.volumeTransform.offset[axis]+m.instanceTransform.offset[axis]);
+        for (let axis=0; axis<3; axis++) expect(point[axis]).toBeCloseTo(preview.positions[offset++],4);
+        points.push(point.map((v,axis)=>v-request.center[axis]));
+      }
+      planes.push(points);
+    }
+    const levels = points => [...new Set(points.map(p=>Number(p[2].toFixed(3))))];
+    expect(levels(planes[0])).toContain(-1+groove.depthTolerance);
+    expect(levels(planes[1])).toContain(-1);
+    // At 90 degrees the flanks are vertical. Sample their actual X positions
+    // on the lower socket and upper tongue on each side of each groove.
+    for (let i=0;i<count;i++) {
+      const center=(i-(count-1)/2)*(groove.width+groove.gap);
+      for (const sign of [-1,1]) {
+        const edge=center+sign*groove.width/2;
+        expect(planes[1].some(p=>Math.abs(p[0]-edge)<1e-4)).toBe(true);
+        expect(planes[0].some(p=>Math.abs(p[0]-(edge-sign*groove.widthTolerance/2))<1e-4)).toBe(true);
+      }
+    }
+  },120_000);
   it.each([true, false])('preserves cross-plate instances, history and 3MF with painting %s', async keepPainting => {
     expect(await client.loadProject(await buildPaintingChannelProject())).toMatchObject({ ok: true });
     const source = (await client.getModelStructure()).objects[0];

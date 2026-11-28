@@ -1,6 +1,6 @@
 import { test, expect } from './browser-fixture';
 import { waitForProjectLoad } from '../../desktop/e2e/project-menu';
-import { cutDraftJourney, cutProjectJourney, openCutCube } from '../../desktop/e2e/cut-journey';
+import { cutDraftJourney, cutProjectJourney, cutGrooveJourney, openCutCube } from '../../desktop/e2e/cut-journey';
 test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires built Cut WASM');
 test.setTimeout(300_000);
 test('Cut draft in Prepare', async ({ page }) => {
@@ -72,4 +72,9 @@ test('connector editor confirms a dowel, cancels a second visit and applies the 
   await expect(objects).toHaveCount(3, { timeout: 40_000 });
   await page.getByTestId('history-undo').click();
   await expect(objects).toHaveCount(1);
+});
+
+test('dovetail arrays preview on confirmation and reject an oversized layout before applying', async ({ page }) => {
+  await page.goto('/');
+  await cutGrooveJourney(page);
 });

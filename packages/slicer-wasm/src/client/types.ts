@@ -922,6 +922,16 @@ export interface AssemblyTarget {
 }
 export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
 export type CutSideAction = 'discard' | 'keep' | 'place' | 'flip';
+export interface CutGroove {
+  depth: number;
+  width: number;
+  flankAngle: number;
+  angle: number;
+  depthTolerance: number;
+  widthTolerance: number;
+  count: number;
+  gap: number;
+}
 export interface CutConnector {
   position: [number, number, number];
   type: 'plug' | 'dowel' | 'snap';
@@ -934,6 +944,7 @@ export interface CutConnector {
   angle: number;
 }
 export interface CutRequest {
+  groove?: CutGroove;
   connectors?: CutConnector[];
   objectId: number;
   instanceId: number;
@@ -948,7 +959,7 @@ export interface CutRequest {
   keepPainting: boolean;
   openEdges: 'ask' | 'repair' | 'apply';
 }
-export type CutSectionRequest = Pick<CutRequest, 'objectId' | 'instanceId' | 'revision' | 'center' | 'rotation' | 'grouping' | 'connectors'>;
+export type CutSectionRequest = Pick<CutRequest, 'objectId' | 'instanceId' | 'revision' | 'center' | 'rotation' | 'grouping' | 'connectors' | 'groove'>;
 export type CutPiecesResult = { ok: true; positions: Float32Array; pieces: Array<{ id: number; upper: boolean; triangles: number }> }
   | { ok: false; error: string };
 export type CutSectionResult = { ok: true; invalidConnectors: number[]; xy: Float32Array; loops: Array<{ count: number; hole: boolean }> }

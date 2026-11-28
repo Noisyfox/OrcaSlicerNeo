@@ -712,9 +712,8 @@ and frame-rate distributions were outside the measurement.
 
 ## Cut gizmo
 
-**Design accepted, 2026-11-28.** The reference is the Orca core pinned at
-`8f2cfb8c79`. The first release delivers basic planar Cut. Subsequent stages
-add connected-piece assignment, manual connectors and dovetails. Steps 1–3 below
+**Steps 1–9 implemented and verified, 2026-11-28.** The design reference is
+Orca core revision `8f2cfb8c79`. Steps 1–3 below
 connect the native operation to the live project and have real-WASM coverage
 on wasm64 serial and pthread builds. Step 4 adds the shared Prepare session, plane
 handles, numeric height and draft history. Its browser journey exercises the C
@@ -732,7 +731,48 @@ a section to the same object hides that contour. The renderer picks the nearest
 triangle on release and uses the same piece indices when applying the cut.
 Step 8 adds the manual connector editor. The native layout check accounts for
 section holes, depth, socket clearance and overlaps. Plug, Dowel and Snap use
-the pinned mesh generators, cut attributes and Orca 3MF cut metadata.
+the pinned mesh generators, cut attributes and Orca 3MF cut metadata. For the
+interchange check, desktop Orca read Neo's result and re-exported the cut group
+with its detached dowel. The fixture included plate thumbnail images for the
+desktop CLI and used its newer-file compatibility option.
+
+Step 9 adds single and multiple dovetails. Editing draws the guide immediately.
+On release the Worker validates every groove, then generates both mating meshes
+with the same native operation used for Apply. The viewport separates the
+two preview meshes along the plane normal to expose the mating faces. This
+display displacement is independent of the result orientation and Auto Drop.
+The geometry fixture compares preview and applied vertices and measures the
+flank positions, clear gap and depth/width tolerances. The host journeys exercise
+invalid counts that still fall inside the numeric range but exceed the solid,
+gesture-end admission, project publication and Undo.
+[Worker geometry tests](../packages/slicer-wasm/harness/cut-client.native.test.mjs)
+and [Worker memory fixture](../packages/slicer-wasm/harness/cut-groove-scale.mjs).
+
+To reproduce the large-fixture measurement from the repository root after
+building the WASM artifact and profile resources, run the following command.
+Substitute `serial`, `wasm32/serial` or `wasm32/threaded` for the artifact
+directory to measure the other configurations.
+
+```sh
+node packages/slicer-wasm/harness/cut-groove-scale.mjs packages/slicer-wasm/out/threaded/orca_slice.js 7
+```
+
+The two-groove fixture uses 327,680 triangles and returns 12,274,740 bytes of
+preview geometry. Each row is one run on macOS in a Node Worker. WASM capacity
+is the maximum linear memory size. RSS is the sampled peak for the entire Node
+process, including the Worker. Timings reflect local load during qualification.
+
+| WASM build | WASM capacity (MiB) | Process RSS (MiB) | Preview (s) | Apply (s) |
+| --- | ---: | ---: | ---: | ---: |
+| wasm64 serial | 667.3 | 1,528.0 | 2.79 | 2.59 |
+| wasm64 pthread | 685.5 | 1,698.9 | 4.02 | 4.05 |
+| wasm32 serial | 476.0 | 929.4 | 2.31 | 2.39 |
+| wasm32 pthread | 493.4 | 1,542.7 | 2.30 | 2.30 |
+
+All 12 Cut Worker integration tests passed in each of the four builds. Five
+Chromium journeys and two Electron journeys passed on the wasm64 pthread build.
+WebKit also selected the expected wasm32 artifact and sliced a cube in each
+of the serial and pthread fallback configurations.
 
 ### Native behavior
 

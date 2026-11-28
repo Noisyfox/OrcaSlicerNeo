@@ -1,33 +1,37 @@
 import { Box3, Matrix3, Matrix4, Quaternion, Ray, Vector3 } from 'three';
 import { create } from 'zustand';
-import type { CutConnector, CutRequest } from '@slicer/client';
+import type { CutConnector, CutGroove, CutRequest } from '@slicer/client';
 import type { GLVolume } from '../../GLVolume';
 import { matrixFromTransform } from '../../transformDeltaMath';
 
 export type CutPose = Pick<CutRequest, 'center' | 'rotation'>;
-type Draft = CutPose & Pick<CutRequest, 'upper' | 'lower' | 'asParts' | 'grouping' | 'connectors'>;
+type Draft = CutPose & Pick<CutRequest, 'upper' | 'lower' | 'asParts' | 'grouping' | 'connectors' | 'groove'>;
 export interface CutTarget {
   objectId: number;
   instanceId: number;
   signature: string;
   initial: CutPose;
   radius: number;
+  solidRadius: number;
 }
 
-export function cutTarget(selected: readonly GLVolume[], all: readonly GLVolume[]): CutTarget | null {
+export function cutTarget(selected: readonly GLVolume[], all: readonly GLVolume[], solidIds?: ReadonlySet<number>): CutTarget | null {
   const first = selected[0]?.buffer;
   if (!first || selected.some(v => v.kind !== 'model' || v.buffer.instanceId !== first.instanceId)) return null;
   const parts = all.filter(v => v.kind === 'model' && v.buffer.instanceId === first.instanceId);
   if (parts.length !== selected.length) return null;
-  const bounds = new Box3();
+  const bounds = new Box3(), solids = new Box3();
   const signature = parts.map(part => {
-    bounds.union(part.getWorldBounds());
+    const box = part.getWorldBounds();
+    bounds.union(box);
+    if (!solidIds || solidIds.has(part.buffer.volumeId)) solids.union(box);
     return [part.buffer.volumeId, part.geometry.uuid, ...matrixFromTransform(part.instanceTransform).elements,
       ...matrixFromTransform(part.volumeTransform).elements].join(',');
   }).join(';');
   if (bounds.isEmpty()) return null;
   return { objectId: first.objectId, instanceId: first.instanceId, signature,
     initial: { center: bounds.getCenter(new Vector3()).toArray(), rotation: [1,0,0,0,1,0,0,0,1] },
+    solidRadius: solids.getSize(new Vector3()).length()/2,
     radius: Math.max(2, bounds.getSize(new Vector3()).length() * 0.6) };
 }
 
@@ -60,6 +64,17 @@ export class CutSession {
   draft: Draft | null = null;
   revision: number | null = null;
   busy = false;
+  private grooveReply: { key: string; error?: string } | null = null;
+  get gestureActive() { return this.start !== null; }
+  get grooveKey() {
+    const draft = this.draft;
+    return draft?.groove && this.target && this.revision !== null && !this.gestureActive ?
+      JSON.stringify([this.target.signature, this.revision, draft.center, draft.rotation, draft.groove]) : '';
+  }
+  get groovePreview() { return this.grooveReply?.key === this.grooveKey ? this.grooveReply : null; }
+  setGrooveReply(key: string, error?: string) {
+    if (key === this.grooveKey) { this.grooveReply = { key, error }; this.emit(); }
+  }
   editor: { items: CutConnector[]; selected: number } | null = null;
   private validation: { pose: CutPose; grouping: Draft['grouping']; list: CutConnector[]; invalid: number[] } | null = null;
   get connectors() { return this.editor?.items ?? this.draft?.connectors; }
@@ -74,7 +89,7 @@ export class CutSession {
     this.validation = { pose, grouping: this.draft.grouping, list, invalid }; this.emit();
   }
   editConnectors() {
-    if (!this.draft || this.draft.asParts || this.busy || this.draft.upper === 'discard' || this.draft.lower === 'discard') return;
+    if (!this.draft || this.draft.asParts || this.draft.groove || this.busy || this.draft.upper === 'discard' || this.draft.lower === 'discard') return;
     this.editor = { items: this.draft.connectors ?? [], selected: 0 }; this.emit();
   }
   selectConnector(index: number) {
@@ -107,7 +122,7 @@ export class CutSession {
   pickPiece: ((ray: Ray) => void) | null = null;
   togglePiece(pose: CutPose, id: number) {
     const draft = this.draft;
-    if (!draft || draft.asParts || !sameCutPlane(draft, pose)) return;
+    if (!draft || draft.asParts || draft.groove || !sameCutPlane(draft, pose)) return;
     const group = draft.grouping ?? { center: pose.center, rotation: pose.rotation, toggled: [] };
     const toggled = group.toggled.includes(id) ? group.toggled.filter(value => value !== id) : [...group.toggled, id];
     this.update({ grouping: toggled.length ? { ...group, toggled } : undefined });
@@ -115,23 +130,23 @@ export class CutSession {
   private past: Draft[] = [];
   private future: Draft[] = [];
   private start: Draft | null = null;
-  private remembered: { signature: string; pose: CutPose; connectors?: CutConnector[] } | null = null;
+  private remembered: { signature: string; pose: CutPose; connectors?: CutConnector[]; groove?: CutGroove } | null = null;
   constructor(private readonly emit: () => void) {}
 
   open(target: CutTarget, revision: number | null) {
     this.target = target;
     this.revision = revision;
     const pose = this.remembered?.signature === target.signature ? this.remembered.pose : target.initial;
-    this.editor = null; this.validation = null;
-    this.draft = { ...pose, connectors: this.remembered?.signature === target.signature ? this.remembered.connectors : undefined, upper: 'place', lower: 'keep', asParts: false };
+    this.editor = null; this.validation = null; this.grooveReply = null;
+    this.draft = { ...pose, groove: this.remembered?.signature === target.signature ? this.remembered.groove : undefined, connectors: this.remembered?.signature === target.signature ? this.remembered.connectors : undefined, upper: 'place', lower: 'keep', asParts: false };
     this.past = []; this.future = []; this.start = null;
     this.notify();
   }
   close(remember = true) {
     if (!this.target || !this.draft) return;
     const { center, rotation } = this.start ?? this.draft;
-    this.remembered = remember ? { signature: this.target.signature, pose: { center, rotation }, connectors: (this.start ?? this.draft).connectors } : null;
-    this.editor = null; this.validation = null;
+    this.remembered = remember ? { signature: this.target.signature, pose: { center, rotation }, connectors: (this.start ?? this.draft).connectors, groove: (this.start ?? this.draft).groove } : null;
+    this.editor = null; this.validation = null; this.grooveReply = null;
     this.target = null; this.draft = null; this.start = null;
     this.past = []; this.future = [];
     this.notify();
@@ -141,7 +156,7 @@ export class CutSession {
       redo: !!this.future.length && !this.busy });
     this.emit();
   }
-  begin() { if (this.draft && !this.busy && !this.start) this.start = this.draft; }
+  begin() { if (this.draft && !this.busy && !this.start) { this.start = this.draft; this.grooveReply = null; this.emit(); } }
   update(patch: Partial<Draft>) {
     if (!this.draft || this.busy) return;
     const next = { ...this.draft, ...patch };
@@ -159,6 +174,8 @@ export class CutSession {
     }
     if (JSON.stringify(next) === JSON.stringify(this.draft)) return;
     if (!this.start) { this.past.push(this.draft); this.future = []; }
+    if (next.groove !== this.draft.groove || next.center !== this.draft.center || next.rotation !== this.draft.rotation)
+      this.grooveReply = null;
     this.draft = next;
     this.notify();
   }
@@ -175,6 +192,7 @@ export class CutSession {
     const previous = from.pop();
     if (previous) {
       (direction === 'undo' ? this.future : this.past).push(this.draft);
+      this.grooveReply = null;
       this.draft = previous;
       this.notify();
     }

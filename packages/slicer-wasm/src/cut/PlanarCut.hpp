@@ -1,6 +1,7 @@
 #pragma once
 
 #include "libslic3r/Model.hpp"
+#include "CutGroove.hpp"
 
 namespace Slic3r::Neo::Cutting {
 
@@ -16,6 +17,7 @@ struct PlanarCutOptions {
     };
     std::optional<Grouping> grouping;
     CutConnectors connectors;
+    std::optional<Dovetail> groove;
     SideAction upper = SideAction::PlaceOnCut;
     SideAction lower = SideAction::Keep;
     bool as_parts = false;
@@ -25,6 +27,6 @@ struct PlanarCutOptions {
 // Returns independently owned objects. The reference instance locates the
 // world-space plane. All instances of the source participate in the result.
 Model stage_planar_cut(const ModelObject& source, ObjectID reference, const PlanarCutOptions& options,
-                       const CutPieces* reviewed = nullptr);
+                       const CutPieces* reviewed = nullptr, bool assembled_preview = false);
 
 } // namespace Slic3r::Neo::Cutting

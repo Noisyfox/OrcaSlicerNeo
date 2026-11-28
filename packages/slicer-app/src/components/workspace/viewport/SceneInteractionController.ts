@@ -92,9 +92,11 @@ export class SceneInteractionController {
   readonly instanceHider = new InstanceHider();
   readonly cut = new CutSession(() => this.emit());
   get cutTarget() {
-    const target = cutTarget(this.selectedVolumes(), this.getVolumes());
-    return target && !useObjectListStore.getState().structure.find(o => o.id === target.objectId)?.standaloneDowel
-      ? target : null;
+    const selected = this.selectedVolumes();
+    const object = useObjectListStore.getState().structure.find(o => o.id === selected[0]?.buffer.objectId);
+    if (object?.standaloneDowel) return null;
+    const solids = object && new Set(object.volumes.filter(v => v.type === 'model_part').map(v => v.id));
+    return cutTarget(selected, this.getVolumes(), solids);
   }
   readonly meshBoolean = new MeshBooleanSession(() => this.getVolumes(), () => this.emit());
   private booleanIsolation: InstanceHiderLease | null = null;

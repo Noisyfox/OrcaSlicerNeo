@@ -7,6 +7,7 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import { useSceneInteractionVersion } from '../../SceneInteractionContext';
 import { captureTransformReservationState } from '../../../actions/historyMutation';
+import { CutGroovePanel, initialGroove } from './CutGroovePanel';
 import { CutConnectorPanel } from './CutConnectorPanel';
 import { applyCut } from './cutCommand';
 
@@ -55,17 +56,22 @@ export function CutPanel({ scene }: { scene: SceneInteractionController }) {
     <h2 className="text-module font-semibold">Cut</h2>
     {instances.length > 1 && <p>Applies to {instances.length} instances on {plates} {plates === 1 ? 'plate' : 'plates'}.</p>}
     <fieldset disabled={cut.busy || repair} className="space-y-3">
+      <label className="flex justify-between">Mode <select aria-label="Cut mode" value={draft.groove ? 'dovetail' : 'planar'}
+        disabled={!!draft.grouping || !!draft.connectors?.length || draft.asParts}
+        onChange={e => cut.update({ groove:e.target.value === 'dovetail' ? { ...initialGroove } : undefined })}>
+        <option value="planar">Planar</option><option value="dovetail">Dovetail</option></select></label>
+      {draft.groove && <CutGroovePanel cut={cut}/>}
       <label className="flex items-center justify-between gap-2">Cut position Z (mm)
         <input aria-label="Cut position Z" className="w-20 rounded border px-2 py-1" type="number" step="any"
           value={text} onChange={e => setText(e.target.value)} onBlur={commitHeight}
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
       <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => cut.flip()}>Flip plane</Button>
         <Button size="sm" variant="outline" onClick={() => cut.update(target.initial)}>Reset plane</Button></div>
-      <Button size="sm" variant="outline" disabled={draft.asParts || draft.upper === 'discard' || draft.lower === 'discard'}
+      <Button size="sm" variant="outline" disabled={!!draft.groove || draft.asParts || draft.upper === 'discard' || draft.lower === 'discard'}
         onClick={() => cut.editConnectors()}>Connectors{draft.connectors?.length ? ' ('+draft.connectors.length+')' : ''}</Button>
       {!!cut.invalidConnectors?.length && <p role="alert">Check connector positions and dimensions.</p>}
       {draft.grouping && <p data-testid="cut-piece-count">{draft.grouping.toggled.length} reassigned</p>}
-      <label className="flex gap-2"><input type="checkbox" disabled={!!draft.grouping || !!draft.connectors?.length} checked={draft.asParts}
+      <label className="flex gap-2"><input type="checkbox" disabled={!!draft.groove || !!draft.grouping || !!draft.connectors?.length} checked={draft.asParts}
         onChange={e => cut.update({ asParts: e.target.checked })}/>Cut to parts</label>
       {!draft.asParts && (['upper','lower'] as const).map((side, i) =>
         <label key={side} className="flex items-center justify-between gap-2">Side {i === 0 ? 'A' : 'B'}
@@ -74,7 +80,7 @@ export function CutPanel({ scene }: { scene: SceneInteractionController }) {
             <option value="keep">Keep orientation</option><option value="place">Place on cut</option>
             <option value="flip">Flip</option><option value="discard" disabled={!!draft.connectors?.length}>Discard</option>
           </select></label>)}
-      <div className="flex gap-2"><Button size="sm" disabled={!cut.connectorsReady || cut.revision === null || (draft.upper === 'discard' && draft.lower === 'discard')}
+      <div className="flex gap-2"><Button size="sm" disabled={(!!draft.groove && (!cut.groovePreview || !!cut.groovePreview.error)) || !cut.connectorsReady || cut.revision === null || (draft.upper === 'discard' && draft.lower === 'discard')}
         onClick={() => void perform('ask')}>Perform cut</Button>
         <Button size="sm" variant="outline" onClick={() => { cut.close(false); scene.closeGizmo(); }}>Cancel</Button></div>
     </fieldset>

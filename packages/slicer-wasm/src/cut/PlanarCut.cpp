@@ -54,7 +54,7 @@ void check_sides(const ModelObject& source, const ModelInstance& instance, const
 }
 } // namespace
 
-Model stage_planar_cut(const ModelObject& source, ObjectID reference, const PlanarCutOptions& options, const CutPieces* reviewed)
+Model stage_planar_cut(const ModelObject& source, ObjectID reference, const PlanarCutOptions& options, const CutPieces* reviewed, bool assembled_preview)
 {
     const auto selected = std::find_if(source.instances.begin(), source.instances.end(),
         [reference](const ModelInstance* instance) { return instance->id() == reference; });
@@ -70,7 +70,7 @@ Model stage_planar_cut(const ModelObject& source, ObjectID reference, const Plan
     const bool connected = !options.connectors.empty();
     const int dowels = int(std::count_if(options.connectors.begin(), options.connectors.end(),
         [](const CutConnector& c) { return c.attribs.type == CutConnectorType::Dowel; }));
-    const auto flags = attributes(options) | only_if(!source.is_cut() && !connected, Attribute::InvalidateCutInfo)
+    const auto flags = attributes(options) | only_if(!source.is_cut() && !connected && !options.groove, Attribute::InvalidateCutInfo)
         | only_if(dowels > 0, Attribute::CreateDowels);
     Transform3d plane = Transform3d::Identity();
     plane.linear() = options.rotation;
@@ -118,8 +118,23 @@ Model stage_planar_cut(const ModelObject& source, ObjectID reference, const Plan
         staged->cut_id.increase_check_sum(1+dowels);
         input = staged;
     }
+    float groove_radius = 0.;
+    Transform3d rotation = Transform3d::Identity();
+    rotation.linear() = options.rotation;
+    if (options.groove) {
+        if (connected || reviewed || options.as_parts)
+            throw std::invalid_argument("Dovetails require separate objects and an unassigned plane");
+        Transform3d world = plane; world.translation() = options.center;
+        groove_radius = validate_groove(source, index, world, *options.groove);
+        if (!source.is_cut() && flags.has(Attribute::KeepUpper) && flags.has(Attribute::KeepLower)) {
+            for (const auto& [id, material] : source.get_model()->materials) connector_model.add_material(id,*material);
+            auto* staged = connector_model.add_object(source);
+            staged->cut_id.init(); staged->cut_id.increase_check_sum(1); input = staged;
+        }
+    }
     Cut cut(input, index, plane, flags);
-    const auto& objects = reviewed ? cut.perform_by_contour(&source, assignment, dowels) : cut.perform_with_plane();
+    const auto& objects = options.groove ? cut.perform_with_groove(options.groove->profile, rotation,
+        options.groove->count, options.groove->gap, groove_radius) : reviewed ? cut.perform_by_contour(&source, assignment, dowels) : cut.perform_with_plane();
     const bool both = flags.has(Attribute::KeepUpper) && flags.has(Attribute::KeepLower);
     const size_t expected = both && !options.as_parts ? 2 + dowels : 1;
     if (objects.size() != expected)
@@ -145,7 +160,7 @@ Model stage_planar_cut(const ModelObject& source, ObjectID reference, const Plan
         if (source.is_cut() && both && !connected)
             output->cut_id.increase_check_sum(1);
         output->auto_drop = source.auto_drop;
-        output->ensure_on_bed();
+        if (!assembled_preview) output->ensure_on_bed();
     }
     return result;
 }

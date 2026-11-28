@@ -82,9 +82,26 @@ CutConnectors read_connectors(const json& request)
     return result;
 }
 
+Dovetail read_groove(const json& row)
+{
+    Dovetail g;
+    const auto count = integer(row.at("count"));
+    if (count < 1 || count > 100) throw std::invalid_argument("Dovetail count must be between 1 and 100");
+    g.count = int(count);
+    g.gap = row.at("gap").get<float>();
+    g.profile.depth = row.at("depth").get<float>();
+    g.profile.width = row.at("width").get<float>();
+    g.profile.flaps_angle = float(row.at("flankAngle").get<double>()*PI/180.);
+    g.profile.angle = float(row.at("angle").get<double>()*PI/180.);
+    g.profile.depth_tolerance = row.at("depthTolerance").get<float>();
+    g.profile.width_tolerance = row.at("widthTolerance").get<float>();
+    return g;
+}
+
 PlanarCutOptions read_options(const json& request)
 {
     auto options = read_pose(request);
+    if (request.contains("groove")) options.groove = read_groove(request.at("groove"));
     options.connectors = read_connectors(request);
     options.upper = side_action(request.at("upper").get<std::string>());
     options.lower = side_action(request.at("lower").get<std::string>());
@@ -102,7 +119,8 @@ PlanarCutOptions read_options(const json& request)
 }
 
 struct PieceReview {
-    size_t revision, object_id, instance_id;
+    uint64_t revision;
+    size_t object_id, instance_id;
     Transform3d plane;
     CutPieces pieces;
 };
@@ -311,20 +329,32 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_cut_pieces(const char* data)
         Transform3d plane = Transform3d::Identity();
         plane.linear() = pose.rotation;
         plane.translation() = pose.center;
-        const auto& pieces = reviewed_pieces(*source, instance->id().id, plane);
-        const auto* object = pieces.model.objects.front();
         json descriptors = json::array();
         std::vector<float> positions;
-        for (size_t i = 0; i < pieces.parts.size(); ++i) {
-            if (pieces.parts[i].is_modifier) continue;
-            const auto* volume = object->volumes[i];
-            const Transform3d world = object->instances[index]->get_matrix() * volume->get_matrix();
+        auto append = [&](const ModelObject& object, size_t volume_id, bool upper) {
+            const auto* volume = object.volumes[volume_id];
+            const Transform3d world = object.instances[index]->get_matrix() * volume->get_matrix();
             const auto& mesh = volume->mesh().its;
-            descriptors.push_back({{"id", i}, {"upper", pieces.parts[i].selected}, {"triangles", mesh.indices.size()}});
+            descriptors.push_back({{"id", volume_id}, {"upper", upper}, {"triangles", mesh.indices.size()}});
             for (const auto& face : mesh.indices) for (const int vertex : face) {
                 const Vec3f p = (world * mesh.vertices[vertex].cast<double>()).cast<float>();
                 positions.insert(positions.end(), p.data(), p.data()+3);
             }
+        };
+        if (request.contains("groove")) {
+            auto options = pose;
+            options.upper = options.lower = SideAction::Keep;
+            options.groove = read_groove(request.at("groove"));
+            const Model preview = stage_planar_cut(*source, instance->id(), options, nullptr, true);
+            for (size_t side = 0; side < preview.objects.size(); ++side) {
+                const auto& object = *preview.objects[side];
+                for (size_t i = 0; i < object.volumes.size(); ++i)
+                    if (object.volumes[i]->is_model_part()) append(object, i, side == 0);
+            }
+        } else {
+            const auto& pieces = reviewed_pieces(*source, instance->id().id, plane);
+            for (size_t i = 0; i < pieces.parts.size(); ++i)
+                if (!pieces.parts[i].is_modifier) append(*pieces.model.objects.front(), i, pieces.parts[i].selected);
         }
         MallocBuffer buffer;
         if (!positions.empty()) buffer.append(positions.data(), positions.size()*sizeof(float));

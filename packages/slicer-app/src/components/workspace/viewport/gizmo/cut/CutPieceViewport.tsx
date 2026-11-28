@@ -3,20 +3,21 @@ import { BufferGeometry, BufferAttribute, DoubleSide, Mesh, MeshBasicMaterial, R
 import { acceleratedRaycast } from 'three-mesh-bvh';
 import { usePlatform } from '@orca/platform-contract';
 import type { CutPiecesResult } from '@slicer/client';
-import { attachBoundsTree, disposeBVHGeometry } from '../../GLVolume';
+import { attachBoundsTree, disposeBVHGeometry, type BVHBufferGeometry } from '../../GLVolume';
 import { normalOf, type CutSession } from './CutSession';
 
-function buildPieceMeshes(result: Extract<CutPiecesResult, { ok: true }>) {
+export function buildPieceMeshes(result: Extract<CutPiecesResult, { ok: true }>, pickable = true) {
   let offset = 0;
   return result.pieces.map(piece => {
     const end = offset + 9 * piece.triangles;
     const coordinates = result.positions.subarray(offset, end);
     offset = end;
-    const geometry = attachBoundsTree(new BufferGeometry().setAttribute('position', new BufferAttribute(coordinates, 3)));
+    const geometry = new BufferGeometry().setAttribute('position', new BufferAttribute(coordinates, 3));
+    if (pickable) attachBoundsTree(geometry);
     const material = new MeshBasicMaterial({ side: DoubleSide, transparent: true, opacity: 0.85, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const mesh = new Mesh(geometry, material);
-    mesh.raycast = acceleratedRaycast;
+    mesh.raycast = pickable ? acceleratedRaycast : () => {};
     mesh.userData.piece = piece;
     mesh.renderOrder = 2;
     return mesh;
@@ -61,7 +62,7 @@ export function CutPieceViewport({ cut }: { cut: CutSession }) {
     return () => {
       active = false; cut.pickPiece = null; loader.current = null;
       if (pending) void runtime.releaseCutPieces().catch(() => {});
-      for (const mesh of owned) { disposeBVHGeometry(mesh.geometry); mesh.material.dispose(); }
+      for (const mesh of owned) { disposeBVHGeometry(mesh.geometry as BVHBufferGeometry); mesh.material.dispose(); }
     };
   }, [source, runtime, revision, cut]);
   useEffect(() => { if (assigned) void loader.current?.(); }, [assigned, source, revision]);

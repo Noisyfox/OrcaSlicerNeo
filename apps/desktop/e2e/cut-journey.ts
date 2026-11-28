@@ -32,7 +32,7 @@ export async function cutDraftJourney(page: Page) {
   await page.getByTestId('history-redo').click(); await expect(height).toHaveValue('9');
   await panel.getByRole('combobox', { name: 'Side A' }).selectOption('discard');
   await panel.getByRole('checkbox', { name: 'Cut to parts' }).check();
-  await expect(panel.getByRole('combobox')).toHaveCount(0);
+  await expect(panel.getByRole('combobox', { name: /^Side / })).toHaveCount(0);
   await page.getByTestId('gizmo-btn-move').click(); await page.getByTestId('gizmo-btn-cut').click();
   await expect(height).toHaveValue('9');
   await expect(panel.getByRole('checkbox')).not.toBeChecked();
@@ -91,4 +91,18 @@ export async function cutProjectJourney(page: Page, roundtrip: () => Promise<voi
   }
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 180_000 });
+}
+
+export async function cutGrooveJourney(page: Page) {
+  const { panel, objects } = await openCutCube(page);
+  await panel.getByRole('combobox',{name:'Cut mode'}).selectOption('dovetail');
+  const status=panel.getByTestId('cut-groove-status'), count=panel.getByRole('spinbutton',{name:'Groove count'});
+  await expect(status).toHaveText('Mating surfaces ready',{timeout:60_000});
+  await count.fill('100'); await expect(status).toHaveText('Editing groove'); await count.press('Enter');
+  await expect(status).toContainText('outside',{timeout:30_000});
+  await expect(panel.getByRole('button',{name:'Perform cut'})).toBeDisabled();
+  await count.fill('2'); await count.press('Enter');
+  await expect(status).toHaveText('Mating surfaces ready',{timeout:60_000});
+  await panel.getByRole('button',{name:'Perform cut'}).click();
+  await expect(objects).toHaveCount(2,{timeout:60_000});
 }

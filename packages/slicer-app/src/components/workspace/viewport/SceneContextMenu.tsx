@@ -180,7 +180,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
     const cut = sceneInteraction?.cut;
     const state = sceneStateRef.current;
     if (!gesture.dragged && sceneInteraction?.gizmo === 'cut' && cut?.target && cut.pickPiece &&
-        !cut.editor && !cut.draft?.asParts && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && state) {
+        !cut.editor && !cut.draft?.groove && !cut.draft?.asParts && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && state) {
       const rect = state.gl.domElement.getBoundingClientRect();
       const volume = pickTopmostModelVolume(state, { x: event.clientX-rect.left, y: event.clientY-rect.top });
       if (volume?.buffer.instanceId === cut.target.instanceId) {

@@ -5,6 +5,7 @@ import type { SceneInteractionController } from '../../SceneInteractionControlle
 import { useSceneInteractionVersion } from '../../SceneInteractionContext';
 import { drawnPlane, normalOf, quaternionOf, rotationOf, type CutPose } from './CutSession';
 
+import { CutGrooveViewport } from './CutGrooveViewport';
 import { CutConnectorViewport } from './CutConnectorViewport';
 import { CutPieceViewport } from './CutPieceViewport';
 import { CutPreview } from './CutPreview';
@@ -140,9 +141,9 @@ export function CutViewport({ scene }: { scene: SceneInteractionController }) {
   if (!active || !draft || !target) return null;
   const r = target.radius;
   return <>
-    <CutPieceViewport cut={cut}/>
+    {!draft.groove && <CutPieceViewport cut={cut}/>}
     <CutConnectorViewport cut={cut}/>
-    <CutPreview cut={cut} target={target} pose={draft} revision={cut.revision} volumes={volumes}/>
+    {draft.groove ? <CutGrooveViewport cut={cut}/> : <CutPreview cut={cut} target={target} pose={draft} revision={cut.revision} volumes={volumes}/>}
     {hover && <ScreenMarker position={hover.toArray()} color="#72e8ff"/>}
     <group ref={group} position={draft.center} quaternion={quaternionOf(draft)}>
     <mesh userData={{ cutHandle: 'translate' }} renderOrder={2}><planeGeometry args={[r*2,r*2]}/>
