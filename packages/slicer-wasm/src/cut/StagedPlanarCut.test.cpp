@@ -1,4 +1,5 @@
 #include "PlanarCut.hpp"
+#include "CutPieces.hpp"
 #include "libslic3r/Geometry.hpp"
 
 #include <cmath>
@@ -178,6 +179,41 @@ void rejected_requests()
         && frame.isApprox(instance->get_matrix()) && source.volumes.front()->id() == volume_id
         && volume_near(its_volume(source.volumes.front()->mesh().its), 8000.), "failed cut modified the source");
 }
+void grouped_multipart()
+{
+    Model model;
+    auto* source = model.add_object();
+    source->name = "Housing";
+    auto* a = source->add_volume(make_cube(20.,20.,20.));
+    auto* b = source->add_volume(make_cube(20.,20.,20.));
+    a->config.set_key_value("extruder", new ConfigOptionInt(1));
+    b->config.set_key_value("extruder", new ConfigOptionInt(2));
+    b->set_offset(b->get_offset()+Vec3d(40.,0.,0.));
+    auto* modifier = source->add_volume(make_cube(5.,5.,5.));
+    modifier->set_type(ModelVolumeType::PARAMETER_MODIFIER);
+    source->add_instance();
+    auto plane = Transform3d::Identity(); plane.translation().z() = 10.;
+    auto pieces = prepare_cut_pieces(*source, 0, plane);
+    auto moved = std::find_if(pieces.parts.begin(), pieces.parts.end(), [](auto part) { return !part.is_modifier && part.selected; });
+    expect(moved != pieces.parts.end(), "upper piece missing");
+    PlanarCutOptions options;
+    options.center.z() = 10.; options.upper = options.lower = SideAction::Keep;
+    options.grouping.emplace().plane = plane;
+    options.grouping->toggled = {size_t(moved - pieces.parts.begin())};
+    auto results = stage_planar_cut(*source, source->instances.front()->id(), options);
+    expect(results.objects.size() == 2, "reassigned cut must return two objects");
+    int modifies = 0;
+    for (size_t i = 0; i < 2; ++i) {
+        auto* object = results.objects[i];
+        expect(object->parts_count() == 1, "native contour cut must merge solids");
+        for (auto* v : object->volumes) {
+            if (!v->is_model_part()) { ++modifies; continue; }
+            expect(volume_near(its_volume(v->mesh().its), i == 0 ? 4000. : 12000.), "wrong regrouped volume");
+            expect(v->name == object->name, "merged volume must inherit object name");
+        }
+    }
+    expect(modifies > 0, "modifier was lost during regrouping");
+}
 } // namespace
 
 void test_staged_planar_cut()
@@ -188,5 +224,6 @@ void test_staged_planar_cut()
     orientation_and_bed(true);
     rejected_requests();
     multipart_source();
+    grouped_multipart();
     failed_staging();
 }

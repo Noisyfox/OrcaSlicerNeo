@@ -58,6 +58,23 @@ describe.skipIf(!artifact)('Cut on a real Worker protocol and WASM module', () =
     expect(await client.getCutSection({ ...request, center: [100,100,1000] })).toMatchObject({ ok: true, loops: [] });
     expect(await client.getCutSection({ ...request, revision: request.revision+1 })).toMatchObject({ ok: false });
   }, 120_000);
+  it('returns pickable connected pieces and rejects a grouping from another plane', async () => {
+    expect(await client.loadProject(await buildPaintingChannelProject())).toMatchObject({ ok: true });
+    const source = (await client.getModelStructure()).objects[0], request = await requestFor(source);
+    const preview = await client.getCutPieces(request);
+    expect(preview, preview.error).toMatchObject({ ok: true });
+    expect(preview.pieces.map(p => p.upper).sort()).toEqual([false,true]);
+    expect(preview.positions.length).toBe(preview.pieces.reduce((n,p) => n + p.triangles*9, 0));
+    const grouping = { center: request.center, rotation: request.rotation, toggled: preview.pieces.map(p => p.id) };
+    const joined = { ...grouping, toggled: grouping.toggled.slice(0,1) };
+    expect(await client.getCutSection({ ...request, grouping: joined })).toMatchObject({ ok: true, loops: [] });
+    expect((await client.getCutSection({ ...request, grouping })).loops).toHaveLength(1);
+    await client.releaseCutPieces();
+    expect(await apply({ ...request, center: [100,100,11], grouping })).toMatchObject({ ok: false });
+    const result = await apply({ ...request, grouping });
+    expect(result, result.error).toMatchObject({ ok: true, changed: true });
+    expect(result.objects).toHaveLength(2);
+  }, 120_000);
   it.each([true, false])('preserves cross-plate instances, history and 3MF with painting %s', async keepPainting => {
     expect(await client.loadProject(await buildPaintingChannelProject())).toMatchObject({ ok: true });
     const source = (await client.getModelStructure()).objects[0];

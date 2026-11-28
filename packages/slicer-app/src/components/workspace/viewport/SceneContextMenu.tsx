@@ -67,6 +67,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
     startY: number;
     dragged: boolean;
     released: boolean;
+    cutHandled?: boolean;
     contextMenu: MouseEvent | null;
   } | null>(null);
 
@@ -158,7 +159,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
 
   const handleContextMenuCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const gesture = rightGestureRef.current;
-    if (gesture && (!gesture.released || gesture.dragged)) {
+    if (gesture && (!gesture.released || gesture.dragged || gesture.cutHandled)) {
       // Some hosts send contextmenu on press, others after release. Keep the
       // gesture alive and suppress both the native menu and Base UI opening.
       event.preventDefault();
@@ -176,6 +177,19 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
     const dy = event.clientY - gesture.startY;
     gesture.dragged ||= dx * dx + dy * dy > RIGHT_DRAG_THRESHOLD_PX * RIGHT_DRAG_THRESHOLD_PX;
     gesture.released = true;
+    const cut = sceneInteraction?.cut;
+    const state = sceneStateRef.current;
+    if (!gesture.dragged && sceneInteraction?.gizmo === 'cut' && cut?.target && cut.pickPiece &&
+        !cut.draft?.asParts && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && state) {
+      const rect = state.gl.domElement.getBoundingClientRect();
+      const volume = pickTopmostModelVolume(state, { x: event.clientX-rect.left, y: event.clientY-rect.top });
+      if (volume?.buffer.instanceId === cut.target.instanceId) {
+        gesture.cutHandled = true;
+        gesture.contextMenu = null;
+        cut.pickPiece(state.raycaster.ray.clone());
+        return;
+      }
+    }
     const pending = gesture.contextMenu;
     gesture.contextMenu = null;
     if (!pending || gesture.dragged) return;
@@ -193,7 +207,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
         altKey: pending.altKey, metaKey: pending.metaKey,
       }));
     });
-  }, []);
+  }, [sceneInteraction, sceneStateRef]);
 
   const handlePointerCancelCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const gesture = rightGestureRef.current;

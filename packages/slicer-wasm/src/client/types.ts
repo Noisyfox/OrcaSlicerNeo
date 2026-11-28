@@ -929,13 +929,16 @@ export interface CutRequest {
   center: [number, number, number];
   /** Column-major world rotation. The third column is the positive normal. */
   rotation: [number, number, number, number, number, number, number, number, number];
+  grouping?: { center: CutRequest['center']; rotation: CutRequest['rotation']; toggled: number[] };
   upper: CutSideAction;
   lower: CutSideAction;
   asParts: boolean;
   keepPainting: boolean;
   openEdges: 'ask' | 'repair' | 'apply';
 }
-export type CutSectionRequest = Pick<CutRequest, 'objectId' | 'instanceId' | 'revision' | 'center' | 'rotation'>;
+export type CutSectionRequest = Pick<CutRequest, 'objectId' | 'instanceId' | 'revision' | 'center' | 'rotation' | 'grouping'>;
+export type CutPiecesResult = { ok: true; positions: Float32Array; pieces: Array<{ id: number; upper: boolean; triangles: number }> }
+  | { ok: false; error: string };
 export type CutSectionResult = { ok: true; xy: Float32Array; loops: Array<{ count: number; hole: boolean }> }
   | { ok: false; error: string };
 export type CutResult = ModelMutationResult<{ changed: true; newObjectIds: number[]; objects: ModelObjectStructure[] }>
@@ -2006,6 +2009,8 @@ export interface SlicerClient extends LayerHeightApi, PaintingApi, MeasureApi, S
   splitObjectToObjects(objectId: number, options: SplitObjectOptions): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
   mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult>;
+  releaseCutPieces(): Promise<void>;
+  getCutPieces(request: CutSectionRequest): Promise<CutPiecesResult>;
   getCutSection(request: CutSectionRequest): Promise<CutSectionResult>;
   applyCut(request: CutRequest): Promise<CutResult>;
   meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;

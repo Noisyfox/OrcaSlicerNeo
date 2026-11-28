@@ -1,6 +1,6 @@
 import { test, expect } from './browser-fixture';
 import { waitForProjectLoad } from '../../desktop/e2e/project-menu';
-import { cutDraftJourney, cutProjectJourney } from '../../desktop/e2e/cut-journey';
+import { cutDraftJourney, cutProjectJourney, openCutCube } from '../../desktop/e2e/cut-journey';
 test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires built Cut WASM');
 test.setTimeout(300_000);
 test('Cut draft in Prepare', async ({ page }) => {
@@ -24,4 +24,28 @@ test('applied Cut survives project history, Web 3MF download, reopen and slicing
     await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.projectLoadEvidence().receipt))
       .toMatchObject({ sourceDisplayName: 'web-cut.3mf', nativeResult: { ok: true, objects: 2 } });
   });
+});
+
+test('right release reassigns the nearest cut piece; a right drag pans', async ({ page }) => {
+  await page.goto('/');
+  const { viewport, panel } = await openCutCube(page);
+  const probePoint = await page.evaluate(() => {
+    const probe = (window as any).__orcaE2e, { center, max } = probe.selectionBoundsWorld();
+    probe.setCameraView([center[0],center[1],300], center);
+    return probe.projectWorldToScreen([center[0],center[1],max[2]]);
+  });
+  const rect = (await viewport.locator('canvas[data-engine^="three.js"]').boundingBox())!;
+  const x = rect.x+probePoint.x, y = rect.y+probePoint.y;
+  await page.mouse.move(x,y); await page.mouse.down({ button: 'right' });
+  await expect(panel.getByTestId('cut-piece-count')).toHaveCount(0);
+  await page.mouse.up({ button: 'right' });
+  await expect(panel.getByTestId('cut-piece-count')).toHaveText('1 reassigned', { timeout: 30_000 });
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await page.mouse.move(x,y); await page.mouse.down({ button: 'right' });
+  await page.mouse.move(x+24,y+14,{ steps: 4 }); await page.mouse.up({ button: 'right' });
+  await expect(panel.getByTestId('cut-piece-count')).toHaveText('1 reassigned');
+  await viewport.focus(); await page.keyboard.press('ArrowUp');
+  await expect(panel.getByTestId('cut-piece-count')).toHaveCount(0);
+  await page.getByTestId('history-undo').click();
+  await expect(panel.getByTestId('cut-piece-count')).toHaveText('1 reassigned');
 });

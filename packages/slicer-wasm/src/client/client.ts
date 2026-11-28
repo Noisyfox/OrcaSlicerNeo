@@ -40,7 +40,7 @@ import type {
   ExportProjectRequest, ExportProjectResult, RgbaThumbnail, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, ModelObjectStructure, MutationResult, SplitVolumeResult, SplitObjectResult,
-  AssemblyTarget, MergeObjectsResult, CutResult, CutSectionResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
+  AssemblyTarget, MergeObjectsResult, CutResult, CutSectionResult, CutPiecesResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
@@ -3301,6 +3301,30 @@ export function createClient(
       const m = await module();
       return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
                       [JSON.stringify(targets), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
+    },
+
+    async releaseCutPieces() {
+      (await module()).ccall('orc_release_cut_pieces', 'void', [], []);
+    },
+
+    async getCutPieces(request): Promise<CutPiecesResult> {
+      const m = await module();
+      const raw = callJson(m, 'orc_get_cut_pieces', ['string'], [JSON.stringify(request)]);
+      if (!isRecord(raw) || raw.ok !== true) return { ok: false,
+        error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid Cut pieces' };
+      const ptr = normalizeCount(raw.ptr), floats = normalizeCount(raw.floats);
+      try {
+        if (ptr === null || floats === null || ptr % 4 || (floats > 0 && !ptr) ||
+            ptr + floats * 4 > m.HEAPU8.byteLength || !Array.isArray(raw.pieces)) throw new Error('Invalid Cut piece buffer');
+        const pieces = raw.pieces.map(piece => {
+          if (!isRecord(piece) || typeof piece.upper !== 'boolean') throw new Error('Invalid Cut piece');
+          const id = normalizeCount(piece.id), triangles = normalizeCount(piece.triangles);
+          if (id === null || triangles === null) throw new Error('Invalid Cut piece geometry');
+          return { id, triangles, upper: piece.upper };
+        });
+        if (pieces.reduce((n,p) => n+p.triangles*9,0) !== floats) throw new Error('Invalid Cut piece length');
+        return { ok: true, pieces, positions: new Float32Array(m.HEAPU8.buffer, ptr, floats).slice() };
+      } finally { if (ptr) m._free(ptr); }
     },
 
     async getCutSection(request): Promise<CutSectionResult> {

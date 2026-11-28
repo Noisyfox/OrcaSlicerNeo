@@ -5,6 +5,7 @@ import type { SceneInteractionController } from '../../SceneInteractionControlle
 import { useSceneInteractionVersion } from '../../SceneInteractionContext';
 import { drawnPlane, normalOf, quaternionOf, rotationOf, type CutPose } from './CutSession';
 
+import { CutPieceViewport } from './CutPieceViewport';
 import { CutPreview } from './CutPreview';
 import { CutVertices } from './CutVertices';
 import { ScreenMarker } from '../measure/MeasureViewport';
@@ -137,6 +138,7 @@ export function CutViewport({ scene }: { scene: SceneInteractionController }) {
   if (!active || !draft || !target) return null;
   const r = target.radius;
   return <>
+    <CutPieceViewport cut={cut}/>
     <CutPreview target={target} pose={draft} revision={cut.revision} volumes={volumes}/>
     {hover && <ScreenMarker position={hover.toArray()} color="#72e8ff"/>}
     <group ref={group} position={draft.center} quaternion={quaternionOf(draft)}>

@@ -726,6 +726,10 @@ renderer coalesces pending poses and drops replies after a pose or session chang
 Step 6 exercises the planar workflow in real Web and Electron hosts. Each
 positions and applies a cut, undoes and redoes the replacement, arranges the
 two results, saves a 3MF, reopens it, checks both positions and slices it.
+Step 7 stages connected pieces on the first right click. The Worker keeps the
+reviewed parts and their cap-to-section associations. Assigning both sides of
+a section to the same object hides that contour. The renderer picks the nearest
+triangle on release and uses the same piece indices when applying the cut.
 
 ### Native behavior
 

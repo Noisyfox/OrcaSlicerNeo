@@ -28,7 +28,7 @@ Consolidation does not constitute a new release qualification.
 | Preview | Sole native libvgcode SegmentTemplate GPU backend, layer/move controls, read-only schemes, analysis and source-text navigation. [Preview v2](G-code%20Preview%20v2.md), [GPU renderer](G-code%20Preview%20GPU%20Streaming%20Renderer.md). |
 | Arrangement | Native Arrange all/current plate, constraints, atomic history, progress and cancellation. [Model Arrangement](Model%20Arrangement.md). |
 | Height Range Modifier | Object List editing, batch settings, endpoint planes, range filament accounting in Prepare and arrangement, history and Orca 3MF interchange. [Behavior and acceptance](ObjectList-and-Parts.md#91-height-range-modifiers). |
-| Planar Cut | Prepare plane controls, vertex snap, exact sections and cross-instance cutting. Web and Electron acceptance covers project history, 3MF reopen and slicing. [Cut specification](Viewport%20Interaction.md#cut-gizmo). |
+| Planar Cut | Prepare plane controls, vertex snap, exact sections, connected-piece assignment and cross-instance cutting. Web and Electron acceptance covers project history, 3MF reopen and slicing. [Cut specification](Viewport%20Interaction.md#cut-gizmo). |
 | Mesh Boolean | Shared Prepare Gizmo and object-menu combining, native computation in all four WASM variants, painting preservation, history/scene publication and instance-preserving object coordinates. Global modal execution rejects conflicting commands. Bounded host and scale acceptance, original MCUT fallbacks and deferred input checks are recorded in [Object List and Parts](ObjectList-and-Parts.md#10-mesh-boolean-design). |
 | Profiles | Setup Wizard, activation, JSON-only vendor loading, selective startup delivery and full catalogue on open. [Setup Wizard](Setup%20Wizard%20and%20Profile%20Activation.md). |
 | Rendering and colours | Printer bed geometry/artwork, painted facets and shared colour editor. [Bed Display](Printer%20Bed%20Display.md), [Painted Facets](Painted%20Facet%20Model%20Rendering.md), [Color Picker](Reusable%20Color%20Picker.md). |
@@ -46,7 +46,7 @@ Consolidation does not constitute a new release qualification.
   by the accepted user-preset scope.
 - External G-code import, result-mutating preview actions, additional metric
   schemes and richer analysis remain beyond delivered read-only preview.
-- Orientation tools, hollowing, connected-piece assignment, connectors, dovetails, calibration
+- Orientation tools, hollowing, connectors, dovetails, calibration
   wizards and additional printer drivers remain queued.
 - Large-project performance work continues; bounded fixture results do not
   establish a universal latency or memory guarantee.

@@ -1,4 +1,5 @@
 #include "PlanarCut.hpp"
+#include "CutPieces.hpp"
 #include "libslic3r/CutUtils.hpp"
 
 #include <algorithm>
@@ -52,7 +53,7 @@ void check_sides(const ModelObject& source, const ModelInstance& instance, const
 }
 } // namespace
 
-Model stage_planar_cut(const ModelObject& source, ObjectID reference, const PlanarCutOptions& options)
+Model stage_planar_cut(const ModelObject& source, ObjectID reference, const PlanarCutOptions& options, const CutPieces* reviewed)
 {
     const auto selected = std::find_if(source.instances.begin(), source.instances.end(),
         [reference](const ModelInstance* instance) { return instance->id() == reference; });
@@ -71,8 +72,29 @@ Model stage_planar_cut(const ModelObject& source, ObjectID reference, const Plan
     plane.translation() = options.center - (*selected)->get_offset();
     check_sides(source, **selected, plane);
 
-    Cut cut(&source, int(selected - source.instances.begin()), plane, flags);
-    const auto& objects = cut.perform_with_plane();
+    const int index = int(selected - source.instances.begin());
+    std::optional<CutPieces> regenerated;
+    std::vector<Cut::Part> assignment;
+    if (options.grouping) {
+        if (options.as_parts) throw std::invalid_argument("Connected-piece assignment requires separate results");
+        const auto& original = options.grouping->plane;
+        const Vec3d normal = options.rotation.col(2);
+        const double alignment = normal.dot(original.linear().col(2));
+        if (std::abs(std::abs(alignment)-1.) > 1e-8 ||
+            std::abs(normal.dot(options.center-original.translation())) > EPSILON)
+            throw std::invalid_argument("Cut piece assignments belong to another plane");
+        if (!reviewed) reviewed = &regenerated.emplace(prepare_cut_pieces(source, index, original));
+        assignment = reviewed->parts;
+        for (auto& part : assignment) if (alignment < 0.) part.selected = !part.selected;
+        std::set<size_t> unique;
+        for (const size_t id : options.grouping->toggled) {
+            if (id >= assignment.size() || assignment[id].is_modifier || !unique.insert(id).second)
+                throw std::invalid_argument("Invalid connected Cut piece");
+            assignment[id].selected = !assignment[id].selected;
+        }
+    }
+    Cut cut(reviewed ? reviewed->model.objects.front() : &source, index, plane, flags);
+    const auto& objects = reviewed ? cut.perform_by_contour(&source, assignment, 0) : cut.perform_with_plane();
     const bool both = flags.has(Attribute::KeepUpper) && flags.has(Attribute::KeepLower);
     const size_t expected = both && !options.as_parts ? 2 : 1;
     if (objects.size() != expected)

@@ -59,7 +59,8 @@ export function CutPanel({ scene }: { scene: SceneInteractionController }) {
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
       <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => cut.flip()}>Flip plane</Button>
         <Button size="sm" variant="outline" onClick={() => cut.update(target.initial)}>Reset plane</Button></div>
-      <label className="flex gap-2"><input type="checkbox" checked={draft.asParts}
+      {draft.grouping && <p data-testid="cut-piece-count">{draft.grouping.toggled.length} reassigned</p>}
+      <label className="flex gap-2"><input type="checkbox" disabled={!!draft.grouping} checked={draft.asParts}
         onChange={e => cut.update({ asParts: e.target.checked })}/>Cut to parts</label>
       {!draft.asParts && (['upper','lower'] as const).map((side, i) =>
         <label key={side} className="flex items-center justify-between gap-2">Side {i === 0 ? 'A' : 'B'}

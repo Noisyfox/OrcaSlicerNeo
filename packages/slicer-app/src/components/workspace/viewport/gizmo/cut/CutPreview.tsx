@@ -24,7 +24,7 @@ function sectionLines(section: CutSectionResult) {
 }
 
 export function CutPreview({ target, pose, revision, volumes }: {
-  target: CutTarget; pose: CutPose; revision: number | null; volumes: GLVolume[];
+  target: CutTarget; pose: CutPose & Pick<CutSectionRequest, 'grouping'>; revision: number | null; volumes: GLVolume[];
 }) {
   const { runtime } = usePlatform();
   const [reply, setReply] = useState<{ key: string; result: CutSectionResult } | null>(null);
@@ -33,8 +33,8 @@ export function CutPreview({ target, pose, revision, volumes }: {
   const liveRevision = useHistoryNavigationStore(s => s.status?.revision);
   const stale = liveRevision !== undefined && revision !== liveRevision;
   const request: CutSectionRequest | null = useMemo(() => revision === null || stale ? null : ({
-    revision, center: pose.center, rotation: pose.rotation, objectId: target.objectId, instanceId: target.instanceId,
-  }), [revision, stale, pose.center, pose.rotation, target]);
+    revision, grouping: pose.grouping, center: pose.center, rotation: pose.rotation, objectId: target.objectId, instanceId: target.instanceId,
+  }), [revision, stale, pose.grouping, pose.center, pose.rotation, target]);
   const key = target.signature + JSON.stringify(request);
   useLayoutEffect(() => {
     if (request) queue.request(request, key);

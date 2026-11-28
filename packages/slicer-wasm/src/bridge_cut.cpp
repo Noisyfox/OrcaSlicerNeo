@@ -4,6 +4,7 @@
 #include "bridge_profiles.hpp"
 #include "cut/PlanarCut.hpp"
 #include "cut/CutSection.hpp"
+#include "cut/CutPieces.hpp"
 #include "bridge_buffers.hpp"
 #include <algorithm>
 #include <emscripten/emscripten.h>
@@ -56,7 +57,35 @@ PlanarCutOptions read_options(const json& request)
     options.lower = side_action(request.at("lower").get<std::string>());
     options.as_parts = request.at("asParts").get<bool>();
     options.keep_paint = request.at("keepPainting").get<bool>();
+    if (request.contains("grouping")) {
+        const auto& group = request.at("grouping");
+        const auto pose = read_pose(group);
+        auto& grouping = options.grouping.emplace();
+        grouping.plane.linear() = pose.rotation;
+        grouping.plane.translation() = pose.center;
+        for (const auto& id : group.at("toggled")) grouping.toggled.push_back(integer(id));
+    }
     return options;
+}
+
+struct PieceReview {
+    size_t revision, object_id, instance_id;
+    Transform3d plane;
+    CutPieces pieces;
+};
+std::optional<PieceReview> review;
+
+const CutPieces& reviewed_pieces(const ModelObject& source, size_t instance_id, const Transform3d& plane)
+{
+    if (!review || review->revision != state().history_revision || review->object_id != source.id().id ||
+        review->instance_id != instance_id || !review->plane.matrix().isApprox(plane.matrix(), 1e-12)) {
+        const auto found = std::find_if(source.instances.begin(), source.instances.end(),
+            [instance_id](const auto* instance) { return instance->id().id == instance_id; });
+        if (found == source.instances.end()) throw std::invalid_argument("Invalid Cut piece reference");
+        auto prepared = prepare_cut_pieces(source, int(found-source.instances.begin()), plane);
+        review.emplace(PieceReview{state().history_revision, source.id().id, instance_id, plane, std::move(prepared)});
+    }
+    return review->pieces;
 }
 
 const char* publish(ModelObject& source, Model& prepared)
@@ -143,7 +172,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_apply_cut(const char* data)
         if (action != "ask" && action != "repair" && action != "apply")
             throw std::invalid_argument("Invalid Cut repair choice");
         const auto options = read_options(request);
-        Model staged = stage_planar_cut(*source, ObjectID(integer(request.at("instanceId"))), options);
+        const auto instance_id = integer(request.at("instanceId"));
+        const auto* pieces = options.grouping ? &reviewed_pieces(*source, instance_id, options.grouping->plane) : nullptr;
+        Model staged = stage_planar_cut(*source, ObjectID(instance_id), options, pieces);
         for (auto* object : staged.objects) {
             for (auto* volume : object->volumes) {
                 if (!its_num_open_edges(volume->mesh().its)) continue;
@@ -178,17 +209,45 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_cut_section(const char* data
         Transform3d plane = Transform3d::Identity();
         plane.linear() = pose.rotation;
         plane.translation() = pose.center;
-        const auto polygons = cut_section(*source, *instance, plane);
+        ExPolygons computed;
+        const ExPolygons* contours;
+        const CutPieces* grouped = nullptr;
+        std::set<size_t> toggled;
+        Transform3d to_display = Transform3d::Identity();
+        if (request.contains("grouping")) {
+            const auto& g = request.at("grouping");
+            const auto base = read_pose(g);
+            Transform3d original = Transform3d::Identity();
+            original.linear() = base.rotation;
+            original.translation() = base.center;
+            grouped = &reviewed_pieces(*source, instance->id().id, original);
+            contours = &grouped->sections;
+            for (const auto& id : g.at("toggled")) toggled.insert(integer(id));
+            to_display = plane.inverse() * original;
+        } else {
+            computed = cut_section(*source, *instance, plane);
+            contours = &computed;
+        }
         std::vector<float> xy;
         json loops = json::array();
         auto append_loop = [&](const Polygon& loop, bool hole) {
             loops.push_back({{"count", loop.size()}, {"hole", hole}});
             for (const auto& p : loop.points) {
-                xy.push_back(unscale<float>(p.x()));
-                xy.push_back(unscale<float>(p.y()));
+                const Vec3d point = to_display * Vec3d(unscale<double>(p.x()), unscale<double>(p.y()), 0.);
+                xy.push_back(float(point.x()));
+                xy.push_back(float(point.y()));
             }
         };
-        for (const auto& polygon : polygons) {
+        for (size_t i = 0; i < contours->size(); ++i) {
+            if (grouped && !grouped->section_pieces[i].empty()) {
+                bool a = false, b = false;
+                for (size_t id : grouped->section_pieces[i]) {
+                    const bool upper = grouped->parts[id].selected != bool(toggled.count(id));
+                    a |= upper; b |= !upper;
+                }
+                if (!a || !b) continue;
+            }
+            const auto& polygon = contours->at(i);
             append_loop(polygon.contour, false);
             for (const auto& hole : polygon.holes) append_loop(hole, true);
         }
@@ -200,3 +259,45 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_cut_section(const char* data
         return result;
     } catch (const std::exception& e) { return Profiles::error_json(e.what()); }
 }
+
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_cut_pieces(const char* data)
+{
+    try {
+        const auto request = json::parse(data ? data : "");
+        if (state().active_history_transaction || integer(request.at("revision")) != state().history_revision)
+            throw std::invalid_argument("Cut piece target is stale");
+        const auto* source = find_object_by_id(integer(request.at("objectId")));
+        const auto* instance = find_instance_by_id(integer(request.at("instanceId")));
+        if (!source || !instance || instance->get_object() != source)
+            throw std::invalid_argument("Invalid Cut piece reference");
+        const int index = int(std::find(source->instances.begin(), source->instances.end(), instance) - source->instances.begin());
+        const auto pose = read_pose(request);
+        Transform3d plane = Transform3d::Identity();
+        plane.linear() = pose.rotation;
+        plane.translation() = pose.center;
+        const auto& pieces = reviewed_pieces(*source, instance->id().id, plane);
+        const auto* object = pieces.model.objects.front();
+        json descriptors = json::array();
+        std::vector<float> positions;
+        for (size_t i = 0; i < pieces.parts.size(); ++i) {
+            if (pieces.parts[i].is_modifier) continue;
+            const auto* volume = object->volumes[i];
+            const Transform3d world = object->instances[index]->get_matrix() * volume->get_matrix();
+            const auto& mesh = volume->mesh().its;
+            descriptors.push_back({{"id", i}, {"upper", pieces.parts[i].selected}, {"triangles", mesh.indices.size()}});
+            for (const auto& face : mesh.indices) for (const int vertex : face) {
+                const Vec3f p = (world * mesh.vertices[vertex].cast<double>()).cast<float>();
+                positions.insert(positions.end(), p.data(), p.data()+3);
+            }
+        }
+        MallocBuffer buffer;
+        if (!positions.empty()) buffer.append(positions.data(), positions.size()*sizeof(float));
+        const auto* result = Profiles::duplicate_json(json{{"ok", true}, {"pieces", descriptors},
+            {"ptr", reinterpret_cast<uintptr_t>(buffer.data)}, {"floats", positions.size()}}.dump());
+        if (result) buffer.release();
+        return result;
+    } catch (const std::exception& error) { return Profiles::error_json(error.what()); }
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void orc_release_cut_pieces() { review.reset(); }

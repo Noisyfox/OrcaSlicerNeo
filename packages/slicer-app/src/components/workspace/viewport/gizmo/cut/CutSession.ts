@@ -1,11 +1,11 @@
-import { Box3, Matrix3, Matrix4, Quaternion, Vector3 } from 'three';
+import { Box3, Matrix3, Matrix4, Quaternion, Ray, Vector3 } from 'three';
 import { create } from 'zustand';
 import type { CutRequest } from '@slicer/client';
 import type { GLVolume } from '../../GLVolume';
 import { matrixFromTransform } from '../../transformDeltaMath';
 
 export type CutPose = Pick<CutRequest, 'center' | 'rotation'>;
-type Draft = CutPose & Pick<CutRequest, 'upper' | 'lower' | 'asParts'>;
+type Draft = CutPose & Pick<CutRequest, 'upper' | 'lower' | 'asParts' | 'grouping'>;
 export interface CutTarget {
   objectId: number;
   instanceId: number;
@@ -32,6 +32,11 @@ export function cutTarget(selected: readonly GLVolume[], all: readonly GLVolume[
 }
 
 export const normalOf = (pose: CutPose) => new Vector3().fromArray(pose.rotation, 6);
+export function sameCutPlane(a: CutPose, b: CutPose) {
+  const normal = normalOf(a);
+  return Math.abs(Math.abs(normal.dot(normalOf(b))) - 1) < 1e-8 &&
+    Math.abs(normal.dot(new Vector3(...a.center).sub(new Vector3(...b.center)))) < 1e-6;
+}
 export const quaternionOf = (pose: CutPose) => new Quaternion().setFromRotationMatrix(
   new Matrix4().setFromMatrix3(new Matrix3().fromArray(pose.rotation)));
 export const rotationOf = (q: Quaternion): CutPose['rotation'] =>
@@ -55,6 +60,14 @@ export class CutSession {
   draft: Draft | null = null;
   revision: number | null = null;
   busy = false;
+  pickPiece: ((ray: Ray) => void) | null = null;
+  togglePiece(pose: CutPose, id: number) {
+    const draft = this.draft;
+    if (!draft || draft.asParts || !sameCutPlane(draft, pose)) return;
+    const group = draft.grouping ?? { center: pose.center, rotation: pose.rotation, toggled: [] };
+    const toggled = group.toggled.includes(id) ? group.toggled.filter(value => value !== id) : [...group.toggled, id];
+    this.update({ grouping: toggled.length ? { ...group, toggled } : undefined });
+  }
   private past: Draft[] = [];
   private future: Draft[] = [];
   private start: Draft | null = null;
@@ -86,6 +99,7 @@ export class CutSession {
   update(patch: Partial<Draft>) {
     if (!this.draft || this.busy) return;
     const next = { ...this.draft, ...patch };
+    if (next.grouping && (next.asParts || !sameCutPlane(next, next.grouping))) delete next.grouping;
     if (next.asParts && (next.upper === 'discard' || next.lower === 'discard')) {
       if (next.upper === 'discard') next.upper = 'keep';
       if (next.lower === 'discard') next.lower = 'keep';
