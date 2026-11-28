@@ -67,3 +67,28 @@ export async function cutDraftJourney(page: Page) {
   await page.getByTestId('gizmo-btn-cut').click();
   await expect(height).toHaveValue(String(initial));
 }
+
+export async function cutProjectJourney(page: Page, roundtrip: () => Promise<void>) {
+  const { objects, panel } = await openCutCube(page);
+  const initial = (await history(page)).undoEntries.length;
+  const height = panel.getByRole('spinbutton', { name: 'Cut position Z' });
+  await height.fill('8'); await height.press('Enter');
+  await panel.getByRole('button', { name: 'Perform cut' }).click();
+  await expect(panel).toBeHidden({ timeout: 60_000 });
+  await expect(objects).toHaveCount(2);
+  await expect.poll(async () => (await history(page)).undoEntries.length).toBe(initial+1);
+  await page.getByTestId('history-undo').click(); await expect(objects).toHaveCount(1);
+  await page.getByTestId('history-redo').click(); await expect(objects).toHaveCount(2);
+  // Place both cut faces on the bed with enough clearance for independent toolpaths.
+  await page.getByTestId('arrange-menu').click(); await page.getByTestId('arrange-all').click();
+  await expect.poll(async () => (await history(page)).undoEntries.length, { timeout: 60_000 }).toBe(initial+2);
+  const before = await centers(page);
+  await roundtrip();
+  await expect.poll(async () => (await centers(page)).length, { timeout: 60_000 }).toBe(2);
+  const after = await centers(page);
+  for (let i = 0; i < before.length; i++) {
+    after[i].forEach((value, axis) => expect(value).toBeCloseTo(before[i][axis], 4));
+  }
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 180_000 });
+}

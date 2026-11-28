@@ -723,6 +723,9 @@ Step 5 adds screen-space vertex snapping, immediate side colors and native
 section contours. The geometry fixture sweeps a vertical plane through a torus
 in both directions and checks the hole on a tilted, mirrored torus. The
 renderer coalesces pending poses and drops replies after a pose or session change.
+Step 6 exercises the planar workflow in real Web and Electron hosts. Each
+positions and applies a cut, undoes and redoes the replacement, arranges the
+two results, saves a 3MF, reopens it, checks both positions and slices it.
 
 ### Native behavior
 
