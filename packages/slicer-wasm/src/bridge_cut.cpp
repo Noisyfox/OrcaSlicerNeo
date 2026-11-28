@@ -3,6 +3,8 @@
 #include "bridge_prime_tower.hpp"
 #include "bridge_profiles.hpp"
 #include "cut/PlanarCut.hpp"
+#include "cut/CutSection.hpp"
+#include "bridge_buffers.hpp"
 #include <algorithm>
 #include <emscripten/emscripten.h>
 #include <stdexcept>
@@ -31,7 +33,7 @@ size_t integer(const json& value)
     return value.get<size_t>();
 }
 
-PlanarCutOptions read_options(const json& request)
+PlanarCutOptions read_pose(const json& request)
 {
     const auto& center = request.at("center");
     const auto& rotation = request.at("rotation");
@@ -42,6 +44,14 @@ PlanarCutOptions read_options(const json& request)
         options.center[i] = center[i].get<double>();
     for (int i = 0; i < 9; ++i)
         options.rotation(i % 3, i / 3) = rotation[i].get<double>();
+    if (!options.center.allFinite() || !options.rotation.allFinite() ||
+        !options.rotation.isUnitary(1e-8) || options.rotation.determinant() < 0.)
+        throw std::invalid_argument("Invalid Cut plane");
+    return options;
+}
+PlanarCutOptions read_options(const json& request)
+{
+    auto options = read_pose(request);
     options.upper = side_action(request.at("upper").get<std::string>());
     options.lower = side_action(request.at("lower").get<std::string>());
     options.as_parts = request.at("asParts").get<bool>();
@@ -152,4 +162,41 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_apply_cut(const char* data)
     } catch (const std::exception& error) {
         return Profiles::error_json(error.what());
     }
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_cut_section(const char* data)
+{
+    try {
+        const auto request = json::parse(data ? data : "");
+        if (state().active_history_transaction || integer(request.at("revision")) != state().history_revision)
+            throw std::invalid_argument("Cut section target is stale");
+        const auto* source = find_object_by_id(integer(request.at("objectId")));
+        const auto* instance = find_instance_by_id(integer(request.at("instanceId")));
+        if (!source || !instance || instance->get_object() != source)
+            throw std::invalid_argument("Cut section instance no longer belongs to the object");
+        const auto pose = read_pose(request);
+        Transform3d plane = Transform3d::Identity();
+        plane.linear() = pose.rotation;
+        plane.translation() = pose.center;
+        const auto polygons = cut_section(*source, *instance, plane);
+        std::vector<float> xy;
+        json loops = json::array();
+        auto append_loop = [&](const Polygon& loop, bool hole) {
+            loops.push_back({{"count", loop.size()}, {"hole", hole}});
+            for (const auto& p : loop.points) {
+                xy.push_back(unscale<float>(p.x()));
+                xy.push_back(unscale<float>(p.y()));
+            }
+        };
+        for (const auto& polygon : polygons) {
+            append_loop(polygon.contour, false);
+            for (const auto& hole : polygon.holes) append_loop(hole, true);
+        }
+        MallocBuffer buffer;
+        if (!xy.empty()) buffer.append(xy.data(), xy.size() * sizeof(float));
+        const auto* result = Profiles::duplicate_json(json{{"ok", true}, {"loops", loops},
+            {"ptr", reinterpret_cast<uintptr_t>(buffer.data)}, {"floats", xy.size()}}.dump());
+        if (result) buffer.release();
+        return result;
+    } catch (const std::exception& e) { return Profiles::error_json(e.what()); }
 }

@@ -935,6 +935,9 @@ export interface CutRequest {
   keepPainting: boolean;
   openEdges: 'ask' | 'repair' | 'apply';
 }
+export type CutSectionRequest = Pick<CutRequest, 'objectId' | 'instanceId' | 'revision' | 'center' | 'rotation'>;
+export type CutSectionResult = { ok: true; xy: Float32Array; loops: Array<{ count: number; hole: boolean }> }
+  | { ok: false; error: string };
 export type CutResult = ModelMutationResult<{ changed: true; newObjectIds: number[]; objects: ModelObjectStructure[] }>
   | { ok: true; changed: false; warning: 'open_edges' };
 
@@ -2003,6 +2006,7 @@ export interface SlicerClient extends LayerHeightApi, PaintingApi, MeasureApi, S
   splitObjectToObjects(objectId: number, options: SplitObjectOptions): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
   mergeObjectsToMultipart(targets: AssemblyTarget[], name: string): Promise<MergeObjectsResult>;
+  getCutSection(request: CutSectionRequest): Promise<CutSectionResult>;
   applyCut(request: CutRequest): Promise<CutResult>;
   meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;
   /** Separate selected instances into their own objects; returns the new object IDs. */

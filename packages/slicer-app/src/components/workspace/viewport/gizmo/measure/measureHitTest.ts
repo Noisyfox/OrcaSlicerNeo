@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { MeasureDisplay, MeasureFeature, MeasureStatus, MeasureVector } from '@slicer/client';
 
+export const measurePointPickRadius = 9;
+
 type Point = { x: number; y: number };
 type Viewport = { left: number; top: number; width: number; height: number };
 
@@ -23,13 +25,13 @@ export function hitsMeasureGripper(point: Point, camera: THREE.Camera, rect: Vie
   camera.updateMatrixWorld();
   for (const marker of display?.markers ?? []) {
     const screen = project(marker.position, camera, rect);
-    if (screen && Math.hypot(point.x - screen.x, point.y - screen.y) <= 9) return true;
+    if (screen && Math.hypot(point.x - screen.x, point.y - screen.y) <= measurePointPickRadius) return true;
   }
   const features: MeasureFeature[] = [];
   for (const item of display ? [display.first, display.second] : [status?.first, status?.second]) {
     if (item?.value.type === 'point') {
       const screen = project(item.value.point, camera, rect);
-      if (screen && Math.hypot(point.x - screen.x, point.y - screen.y) <= 9) return true;
+      if (screen && Math.hypot(point.x - screen.x, point.y - screen.y) <= measurePointPickRadius) return true;
     }
     if (item?.kind === 'feature') features.push(item.source);
   }

@@ -1,3 +1,4 @@
+#include "CutSection.hpp"
 #include "libslic3r/CutUtils.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -77,6 +78,20 @@ void tilted_ring_case()
     auto* ring = fixture(model, make_torus(10., 3., PI / 24.));
     const double half_volume = its_volume(ring->volumes.front()->mesh().its) / 2.;
     const Transform3d plane = Geometry::rotation_transform(Vec3d(0.11, 0.08, 0.));
+    const auto section = Neo::Cutting::cut_section(*ring, *ring->instances.front(), plane);
+    require(section.size() == 1 && section.front().holes.size() == 1, "tilted torus section must contain a hole");
+    // A vertical plane crosses the two walls and then leaves the central
+    // opening. Reversing the sweep must recover the same two disjoint loops.
+    Transform3d sweep = Geometry::rotation_transform(Vec3d(0., PI / 2., 0.));
+    for (const auto [x, expected] : {std::pair{0., 2u}, {9., 1u}, {14., 0u}, {9., 1u}, {0., 2u}}) {
+        sweep.translation().x() = x;
+        require(Neo::Cutting::cut_section(*ring, *ring->instances.front(), sweep).size() == expected,
+                "moving section disagrees with torus wall count");
+    }
+    ring->instances.front()->set_mirror(Vec3d(-1., 1., 1.));
+    const auto mirrored = Neo::Cutting::cut_section(*ring, *ring->instances.front(), plane);
+    require(mirrored.size() == 1 && mirrored.front().holes.size() == 1, "mirrored torus section lost its hole");
+    ring->instances.front()->set_mirror(Vec3d::Ones());
     Cut cut(ring, 0, plane, Attribute::KeepUpper | Attribute::KeepLower);
     const auto& result = cut.perform_with_plane();
     require(result.size() == 2, "tilted ring did not produce two objects");

@@ -48,6 +48,16 @@ describe.skipIf(!artifact)('Cut on a real Worker protocol and WASM module', () =
       center: [100, 100, 10], rotation: [1,0,0,0,1,0,0,0,1], upper: 'place', lower: 'keep',
       keepPainting: true, openEdges: 'ask', asParts: false };
   }
+  it('returns closed section loops in plane coordinates and rejects an obsolete model revision', async () => {
+    expect(await client.loadProject(await buildPaintingChannelProject())).toMatchObject({ ok: true });
+    const request = await requestFor((await client.getModelStructure()).objects[0]);
+    const section = await client.getCutSection(request);
+    expect(section, section.error).toMatchObject({ ok: true, loops: [{ hole: false }] });
+    expect(section.xy.length).toBe(section.loops[0].count * 2);
+    expect(section.xy.every(Number.isFinite)).toBe(true);
+    expect(await client.getCutSection({ ...request, center: [100,100,1000] })).toMatchObject({ ok: true, loops: [] });
+    expect(await client.getCutSection({ ...request, revision: request.revision+1 })).toMatchObject({ ok: false });
+  }, 120_000);
   it.each([true, false])('preserves cross-plate instances, history and 3MF with painting %s', async keepPainting => {
     expect(await client.loadProject(await buildPaintingChannelProject())).toMatchObject({ ok: true });
     const source = (await client.getModelStructure()).objects[0];

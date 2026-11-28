@@ -407,6 +407,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureSession.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/measure/MeasureService.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/PlanarCut.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/CutSection.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_cut.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_measure.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_painting.cpp"
@@ -696,6 +697,7 @@ add_executable(headless_arrangement_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrang
   "${CMAKE_CURRENT_SOURCE_DIR}/src/height_range_filaments.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.test.cpp")
 add_executable(planar_cut_test EXCLUDE_FROM_ALL
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/CutSection.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/PlanarCut.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/PlanarCut.test.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/StagedPlanarCut.test.cpp")

@@ -43,6 +43,15 @@ export async function cutDraftJourney(page: Page) {
   await page.evaluate(c => (window as any).__orcaE2e.setCameraView([c[0], c[1], 300], [c[0], c[1], 0]), center);
   const point = await page.evaluate(c => (window as any).__orcaE2e.projectWorldToScreen(c), center);
   const rect = await viewport.locator('canvas[data-engine^="three.js"]').boundingBox();
+  const corner = await page.evaluate(() => {
+    const probe = (window as any).__orcaE2e;
+    const { max } = probe.selectionBoundsWorld();
+    return { ...probe.projectWorldToScreen(max), z: max[2] };
+  });
+  await page.mouse.click(rect!.x + corner.x, rect!.y + corner.y);
+  await expect(height).toHaveValue(String(Number(corner.z.toFixed(4))));
+  await page.getByTestId('history-undo').click();
+  await expect(height).toHaveValue(String(initial));
   await page.keyboard.down('Shift');
   await page.mouse.move(rect!.x + point.x - 32, rect!.y + point.y);
   await page.mouse.down(); await page.mouse.move(rect!.x + point.x + 32, rect!.y + point.y, { steps: 8 });

@@ -40,7 +40,7 @@ import type {
   ExportProjectRequest, ExportProjectResult, RgbaThumbnail, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, ModelObjectStructure, MutationResult, SplitVolumeResult, SplitObjectResult,
-  AssemblyTarget, MergeObjectsResult, CutResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
+  AssemblyTarget, MergeObjectsResult, CutResult, CutSectionResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
@@ -3301,6 +3301,25 @@ export function createClient(
       const m = await module();
       return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
                       [JSON.stringify(targets), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
+    },
+
+    async getCutSection(request): Promise<CutSectionResult> {
+      const m = await module();
+      const raw = callJson(m, 'orc_get_cut_section', ['string'], [JSON.stringify(request)]);
+      if (!isRecord(raw) || raw.ok !== true) return { ok: false,
+        error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid Cut section' };
+      const ptr = normalizeCount(raw.ptr), floats = normalizeCount(raw.floats);
+      try {
+        if (ptr === null || floats === null || ptr % 4 || (floats > 0 && !ptr) ||
+            ptr + floats * 4 > m.HEAPU8.byteLength || !Array.isArray(raw.loops)) throw new Error('Invalid Cut section buffer');
+        const loops = raw.loops.map(loop => {
+          if (!isRecord(loop) || typeof loop.hole !== 'boolean' || typeof loop.count !== 'number' ||
+              !Number.isSafeInteger(loop.count) || loop.count < 3) throw new Error('Invalid Cut section loop');
+          return { count: loop.count, hole: loop.hole };
+        });
+        if (loops.reduce((n, loop) => n + loop.count * 2, 0) !== floats) throw new Error('Invalid Cut section length');
+        return { ok: true, loops, xy: new Float32Array(m.HEAPU8.buffer, ptr, floats).slice() };
+      } finally { if (ptr) m._free(ptr); }
     },
 
     async applyCut(request): Promise<CutResult> {

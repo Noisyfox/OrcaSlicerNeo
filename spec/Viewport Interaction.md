@@ -719,6 +719,10 @@ connect the native operation to the live project and have real-WASM coverage
 on wasm64 serial and pthread builds. Step 4 adds the shared Prepare session, plane
 handles, numeric height and draft history. Its browser journey exercises the C
 shortcut, normal translation, Shift-drag, temporary navigation and cancellation.
+Step 5 adds screen-space vertex snapping, immediate side colors and native
+section contours. The geometry fixture sweeps a vertical plane through a torus
+in both directions and checks the hole on a tilted, mirrored torus. The
+renderer coalesces pending poses and drops replies after a pose or session change.
 
 ### Native behavior
 
