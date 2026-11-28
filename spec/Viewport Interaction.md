@@ -1,9 +1,10 @@
 # Viewport Interaction
 
-**Updated:** 2026-11-27
+**Updated:** 2026-11-28
 **Status:** Measure and the existing viewport interactions are delivered.
 Variable Layer Height has an accepted design and awaits implementation.
 Release-wide qualification is separate.
+The Cut gizmo design is accepted and awaits implementation.
 **Scope:** Shared Electron/Web model selection, transforms, camera and rendering.
 
 ## Coordinates and rendering
@@ -708,6 +709,255 @@ and frame-rate distributions were outside the measurement.
 | Chromium | threaded wasm64 | 53.2 ms |
 | WebKit | threaded wasm32 | 11.9 ms |
 | WebKit | serial wasm32 | 11.0 ms |
+
+## Cut gizmo
+
+**Design accepted, 2026-11-28.** The reference is the Orca core pinned at
+`8f2cfb8c79`. The first release delivers basic planar Cut. Subsequent stages
+add connected-piece assignment, manual connectors and dovetails. Implementation
+and real-WASM qualification are pending.
+
+### Native behavior
+
+Orca opens Cut from the Prepare toolbar or with C on one complete instance.
+It excludes wipe towers, a standalone dowel and active layer editing. The
+tool starts with a planar cut. Users can translate, rotate or flip the plane,
+enter a cut height, reset it, or draw a cut line with Shift-drag. Each side
+has a keep flag and a choice of original orientation, place on cut, or flip.
+The initial settings keep both sides and place the upper side on its cut face.
+Cut to parts keeps both sides within one object in their relative orientation.
+[Native gizmo](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoCut.cpp)
+and [initial settings](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoCut.hpp).
+
+The selected instance defines the plane. The operation replaces its owning
+object. The core clones the object's instances when producing the results,
+and the plater selects the new objects. A cut through one instance can thus
+change geometry on several plates. Orca also supports assigning disconnected
+pieces to either output, adding manual Plug, Dowel and Snap connectors, and
+cutting one or more dovetail grooves. Connectors require both output objects.
+Cut to parts is unavailable with connectors, active part selection or dovetails.
+[Cut core](../packages/slicer-wasm/cpp/src/libslic3r/CutUtils.cpp) and
+[plater result handling](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp).
+
+### Confirmed first release and selection
+
+The first public release covers basic planar Cut in Prepare, including plane
+handles, numeric height, Shift-drag cut line, side retention and orientation,
+Cut to parts, Undo/Redo, project save/reopen and slicing. Connected-piece
+assignment, connectors and dovetails are subsequent deliveries toward full
+Orca Cut support.
+
+Opening Cut requires exactly one complete instance to define the reference
+frame. Apply the same eligibility to the toolbar and C shortcut. Selecting
+the object row works when the object has one instance. For an object with
+multiple instances the object row selects them all, so Cut stays disabled
+and its tooltip says “Select one instance to position the cut plane.” Selecting
+one complete instance in the viewport or its instance row enables the tool.
+A partial selection within a multipart object is ineligible.
+[Native selection predicate](../packages/slicer-wasm/cpp/src/slic3r/GUI/Selection.cpp)
+and [Neo selection semantics](ObjectList-and-Parts.md#61-selection-modes-follow-orcaslicer).
+
+Applying Cut replaces the shared object across all its instances. When it
+has several instances, the panel shows the affected instance and plate counts
+before confirmation. For example, cutting the second of two instances on
+different plates uses that instance's orientation to define the plane, and
+both plates receive the corresponding results. Verify both plate updates
+and their restoration on Undo.
+
+### Confirmed plane positioning and live preview
+
+Store the draft plane as a world-space center `C` and rotation `R` in slicer
+coordinates, following Orca. The plane's local X and Y span the cut face.
+Its positive normal is `n = R · (0, 0, 1)`, and its world-space equation is
+`n · P = n · C`. Derive preview and execution from the same pose. The Worker
+subtracts the selected instance offset from the center before constructing
+the native cut matrix. The core applies the instance linear transform and
+volume transform once, brings the mesh into the cut frame and cuts at local
+Z = 0. Verify agreement for tilted, mirrored and transformed multipart
+objects. [Native plane state](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoCut.hpp)
+and [core mesh transform](../packages/slicer-wasm/cpp/src/libslic3r/CutUtils.cpp).
+
+The sole numeric position field edits the world Z coordinate of the plane
+center, preserving X, Y and rotation. For a vertical plane this moves the
+handle center within the plane. Dragging the plane or normal handle translates
+the cut along its normal. With viewport focus, Up and Down move it by +1 mm
+and −1 mm along that same normal, including for vertical cuts.
+[Native keyboard handling](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmosManager.cpp).
+
+The first release includes vertex snapping. Highlight a boundary-edge
+endpoint under the pointer using Measure's screen-space marker and pick
+radius. A plain left click on the endpoint translates the center by
+`dot(V − C, n) * n`, where `V` is the vertex. The rotation stays fixed.
+A drag starting there keeps its ordinary gesture, and Shift-drag remains
+available for drawing a cut line.
+
+During planar Cut translation or rotation, update the plane, handles and side colors
+immediately. Request exact contours, including holes, throughout the gesture.
+Coalesce pending requests to the latest pose. Display a contour only when
+its target, model revision and plane revision match the displayed pose.
+While the current contour is pending, hide the previous contour and keep
+the other feedback visible. Verify by slowly dragging across a hole, then
+rapidly reversing direction with a preview request outstanding.
+[Native section geometry](../packages/slicer-wasm/cpp/src/slic3r/GUI/MeshUtils.cpp).
+
+### Confirmed cut results
+
+By default, keep both sides as separate objects. Place side A (the positive
+side of the plane) on its cut face and keep side B in its original orientation.
+Users can change either side's orientation independently. Cut to parts keeps
+both sides in one object with their relative pose intact. Inherit the source
+object's Auto Drop setting. Apply the chosen rotation first. With Auto Drop
+enabled, use the native bed-placement rule on each result object. With Auto
+Drop disabled, preserve the resulting height even when the user explicitly
+chooses Place on cut. Verify with a floating source and a vertical cut.
+[Native output transforms](../packages/slicer-wasm/cpp/src/libslic3r/CutUtils.cpp)
+and [bed placement](../packages/slicer-wasm/cpp/src/libslic3r/Model.cpp).
+
+Use the same persisted keep-painting preference as Mesh Boolean. It defaults
+to off and is edited in application Preferences. With it enabled, use native
+remapping for filament, support, seam and fuzzy-skin painting, including the
+native treatment of newly created faces. With it disabled, clear surface
+painting on the cut result. Part-level filament and configuration settings
+retain their own native inheritance rules.
+[Shared painting preference](ObjectList-and-Parts.md#results-configuration-and-painting).
+
+Before replacing the source, check result volumes for open edges. If any
+have open edges, prompt once for the whole cut with two actions. **Repair and
+apply** attempts native mesh repair on the affected volumes before applying
+the cut. **Apply directly** accepts the cut geometry as produced. After either
+action, the user can undo the applied cut to restore the original model.
+[Native Cut workflow](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoCut.cpp)
+and [WASM mesh-repair fixture](../packages/slicer-wasm/src/mesh-boolean/NumericalBackend.test.cpp).
+
+### Confirmed history and navigation
+
+While Cut is open, Undo and Redo step through completed draft edits. Each
+drag, confirmed numeric edit, drawn line or vertex snap counts as one action.
+Undo stops at session entry. Explicit Cancel discards the draft and its
+history. Applying the cut creates one project Undo entry. One Undo restores
+the source model and one Redo restores the applied results.
+
+Temporarily switching to another tool retains the plane center and rotation
+in memory. Reopening Cut on the same instance with unchanged geometry and
+transform restores that pose, recomputes its contour and starts a new draft
+history at the restored pose. Discard stale preview replies when leaving the
+tool. Explicit Cancel clears the remembered pose for that draft.
+
+Slice and Preview operate directly on the current project model. With a
+pending Cut draft, the toolpath therefore shows the model before the cut.
+Entering Preview follows the usual cached-result and in-flight slice rules.
+Retain the plane just as for a temporary tool switch. On returning to Prepare,
+the user can reopen Cut on the unchanged instance and continue editing.
+[Preview entry and slice lifecycle](Workspace%20Prepare%20and%20Preview%20Modes.md#5-preview-entry-and-slice-lifecycle).
+
+### Confirmed connected-piece assignment
+
+After the basic planar release, a plain right click on a visible cut piece
+switches its assignment between A and B. Resolve the click on release. Once
+right-button movement exceeds the viewport's 4 CSS pixel pan threshold,
+the gesture pans the camera and leaves the grouping intact. A click handled
+by Cut consumes the context menu. Pick the nearest hit piece from the current
+preview. [Viewport gesture rules](#context-menus-and-output-modes) and
+[native picking](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoCut.cpp).
+
+When the geometric cut plane changes, discard manual assignments and
+classify the new pieces by side. Apply the same rule to dragging, rotation,
+keyboard movement, numeric entry and vertex snapping. An in-plane shift of
+the center preserves the grouping. Flipping the plane preserves each group
+and exchanges the A/B labels. Undoing a plane edit restores both the prior
+plane and its manual grouping.
+
+Use Orca's contour-cut output structure. Within each result object, merge
+ordinary solid pieces into one volume named for that object. Exclude cut
+connectors and modifiers from this merge. Source solids with different
+part-level filament assignments or parameter overrides lose their separate
+per-part settings on this path. Surface painting follows the global preference.
+Verify this distinction with a multipart, multi-filament fixture.
+[Native contour-cut merge](../packages/slicer-wasm/cpp/src/libslic3r/CutUtils.cpp).
+
+### Confirmed manual connector editing
+
+When the cut plane moves, project each connector center orthogonally onto
+the new plane, following Orca. Parallel translation preserves spacing.
+Tilting the plane can change spacing. Revalidate the resulting layout,
+identify connectors outside the usable section or in conflict, and disable
+Perform cut until the layout is valid.
+[Native connector projection and validation](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoCut.cpp).
+
+Within the Cut draft, distinguish the last confirmed connector layout from
+the changes made during the current visit to the connector editor. Confirm
+accepts that visit's layout into the draft. Cancel in the connector editor
+restores the entry layout, including positions, types, dimensions and
+tolerances, and returns to the main Cut panel. Remove all connectors is the
+explicit way to clear a layout. Only Perform cut applies the model operation.
+
+Leaving the connector editor for another tool or Preview also discards that
+visit's unconfirmed edits. Retain the confirmed layout alongside the plane
+for the same unchanged target. On reopening Cut, show the last confirmed
+layout. For example, after confirming two dowels and adding a third on a
+second visit, both Cancel and switching to Measure retain the original two;
+confirming the second visit retains all three. Preview continues to slice the
+current project model. Cancelling the entire Cut session discards its draft.
+
+### Confirmed dovetail behavior
+
+The first dovetail release supports single grooves and arrays. Start with
+one groove and accept counts from 1 through 100. All grooves share depth,
+width, flank and groove angles, and depth and width tolerances. Enable the
+clear gap between grooves when the count exceeds one. Display the derived
+spacing as the clear gap plus the computed groove width.
+[Native dovetail controls](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoCut.cpp).
+
+While the user drags the plane or edits a groove parameter, update the groove
+guide immediately. On release or numeric confirmation, validate the layout
+and request an exact Worker preview of the mating solids for the whole array.
+Use the same plane and groove parameters for the preview and the applied cut.
+Verify a single groove, multiple grooves with a nonzero gap, and an invalid
+layout after changing the angle or count. Check the gap and both tolerances
+on the resulting meshes. [Native groove computation](../packages/slicer-wasm/cpp/src/libslic3r/CutUtils.cpp).
+
+### Execution boundaries
+
+- Open a Prepare tool session against stable object and instance IDs. Keep
+  its plane and output choices in a draft. Give Cut gestures explicit pointer
+  ownership alongside camera navigation.
+- Execute the synchronous native operation through the typed WASM client and
+  shared runtime on the host's Worker. Settle pending transforms, validate the
+  target and draft, and stage the results before replacing the source. Copy
+  results into project ownership while the native Cut object still owns them.
+  Publish the model structure, result selection, plate membership and affected
+  slice revisions in one project operation. A failed or cancelled operation
+  preserves the original project.
+  [Split publication](../packages/slicer-wasm/src/bridge_model_operations.cpp)
+  and [Mesh Boolean history integration](../packages/slicer-app/src/components/workspace/viewport/gizmo/meshBoolean/meshBooleanCommand.ts).
+
+### Delivery and acceptance
+
+1. Exercise the plane-cut core through a real WASM harness. The source build
+   includes the mesh slicer and GLU tessellator used for cut caps. Check a
+   horizontal cube, a tilted cut through a hole, each single-side choice and
+   Cut to parts. Compare solid count, closed edges, volume and hole geometry.
+   [Cut and cap generation](../packages/slicer-wasm/cpp/src/libslic3r/TriangleMeshSlicer.cpp)
+   and [WASM build](../packages/slicer-wasm/CMakeLists.txt).
+2. Deliver the planar workflow from toolbar entry through publication, Undo,
+   Redo, 3MF reopen and slicing in both Electron and Web. Include an instance
+   on another plate, negative and modifier volumes, painting preservation,
+   nonuniform scale and mirror, an out-of-object plane and cancellation.
+   Compare output transforms, settings and geometry with pinned Orca.
+3. Add on-demand connected-piece selection. Native Orca temporarily cuts the
+   model, splits disconnected solids and associates section contours with the
+   pieces on both sides. Keep the exact geometry and that mapping in the
+   Worker. Pick by preview-scoped piece ID and commit the reviewed grouping
+   through `perform_by_contour()`. Exercise multiple shells, holes and modifiers.
+4. Add manual connectors and then dovetails. Port connector placement,
+   overlap and depth validation, tolerances, detached dowel output and cut
+   group identity synchronization. Exercise re-cutting a group and exchanging
+   `Metadata/cut_information.xml` with Orca. For dovetails, validate depth,
+   width, angles, tolerances, count and gap against the exact preview. Include
+   the pinned connector fixtures and measure peak Worker memory for large
+   inputs across supported WASM widths and threading modes.
+   [Native connector tests](../packages/slicer-wasm/cpp/tests/libslic3r/test_cut_connectors.cpp)
+   and [3MF cut metadata](../packages/slicer-wasm/cpp/src/libslic3r/Format/bbs_3mf.cpp).
 
 ## Context menus and output modes
 
