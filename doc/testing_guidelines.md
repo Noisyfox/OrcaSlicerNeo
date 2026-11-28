@@ -160,6 +160,20 @@ project-load receipt (file name and byte length) and the active artifact
 identity. Do not report a real-project result when either rebuild,
 staging/copy, or receipt verification was skipped.
 
+### Planar Cut geometry
+
+With a configured Emscripten build tree, run the standalone Cut executable
+against the same native libraries as the product. From the repository root:
+
+```sh
+cmake --build packages/slicer-wasm/.work/serial/build --target planar_cut_test
+node packages/slicer-wasm/.work/serial/build/planar_cut_test.cjs
+```
+
+Use the threaded build directory for the pthread variant. The executable
+checks both-sided, single-sided and multipart cube cuts and a tilted cut
+through a ring. The ring checks cover closure, retained volume and the bore.
+
 ### Measure native suites
 
 With the Emscripten environment active and the chosen variant already

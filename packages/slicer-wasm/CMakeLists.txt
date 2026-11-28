@@ -688,21 +688,22 @@ add_custom_command(TARGET orca_slice POST_BUILD
 # A real algorithm/linkage probe, separate from the product ABI. Building the
 # scaffold's default target includes this executable; it can also be selected
 # explicitly for the fast arrange-only loop.
-get_target_property(_arrange_test_libraries orca_slice LINK_LIBRARIES)
+get_target_property(_core_test_libraries orca_slice LINK_LIBRARIES)
 add_executable(arrangement_core_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/ArrangementCore.test.cpp")
 add_executable(headless_arrangement_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/height_range_filaments.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.test.cpp")
-foreach(_arrange_test arrangement_core_test headless_arrangement_test)
-target_compile_options(${_arrange_test} PRIVATE -fexceptions)
-target_link_libraries(${_arrange_test} PRIVATE ${_arrange_test_libraries})
-target_link_options(${_arrange_test} PRIVATE -m64 -O2 -fexceptions
-  -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=1
-  -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
-set_target_properties(${_arrange_test} PROPERTIES SUFFIX ".cjs")
-if(WASM_THREADING)
-  target_link_options(${_arrange_test} PRIVATE -pthread -sPTHREAD_POOL_SIZE=4)
-endif()
+add_executable(planar_cut_test EXCLUDE_FROM_ALL "${CMAKE_CURRENT_SOURCE_DIR}/src/cut/PlanarCut.test.cpp")
+foreach(_core_test arrangement_core_test headless_arrangement_test planar_cut_test)
+  target_compile_options(${_core_test} PRIVATE -fexceptions)
+  target_link_libraries(${_core_test} PRIVATE ${_core_test_libraries})
+  target_link_options(${_core_test} PRIVATE -m64 -O2 -fexceptions
+    -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=1
+    -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
+  set_target_properties(${_core_test} PROPERTIES SUFFIX ".cjs")
+  if(WASM_THREADING)
+    target_link_options(${_core_test} PRIVATE -pthread -sPTHREAD_POOL_SIZE=4)
+  endif()
 endforeach()
 if(NOT PRELOAD_FILES)
   if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
