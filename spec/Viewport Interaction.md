@@ -933,6 +933,23 @@ on the resulting meshes. [Native groove computation](../packages/slicer-wasm/cpp
 
 ### Delivery and acceptance
 
+Implement the following pieces in order. Each row is an independent commit
+after its acceptance checks pass. The planar release is complete at step 6.
+
+| Step | Deliverable | Acceptance before commit |
+| --- | --- | --- |
+| 1 | Real-WASM planar geometry harness using the pinned Cut core | Check a cube, a tilted plane through a hole, each single-side output and Cut to parts. Measure cap closure, hole geometry and retained volume. |
+| 2 | Worker-side planar operation on a staged object | Resolve a stable instance and world pose, verify upper/lower and multipart outputs, rotation and Auto Drop. Keep the source intact for an invalid request or failed computation. |
+| 3 | Typed Cut command and atomic project publication | Exercise the real client and runtime, cross-plate instances, painting, both open-edge actions, stale edits, Undo/Redo and 3MF roundtrip. |
+| 4 | Prepare Cut session, controls and plane manipulation | Test eligibility, affected counts, numeric Z, handles, keyboard, flip, reset, Shift-drag line, cancellation, one-step gestures and temporary navigation. |
+| 5 | Vertex snapping and exact live planar contours | Verify screen-space picking and tilted-plane alignment. Drag across a hole, reverse direction and confirm stale section replies never draw. |
+| 6 | End-to-end planar release | In Web and Electron, open Cut, position the plane, apply, undo, redo, save, reopen and slice. Check transformed multipart objects, paint, affected plates and relevant WASM variants. |
+| 7 | Connected-piece assignment | Verify right-click versus pan, nearest-piece picking, regrouping after plane edits, flip, grouped undo and native solid merging on a multi-material fixture. |
+| 8 | Manual connectors | Verify Plug, Dowel and Snap geometry, projected positions, invalid layouts, edit cancellation, detached pins, cut identity and Orca 3MF interchange. |
+| 9 | Dovetail release | Verify gesture-end preview and applied mesh agreement for single and multiple grooves, gaps and tolerances. Reject invalid layouts and measure Worker memory on large fixtures. |
+
+The geometry and host fixtures for these checks cover the following cases.
+
 1. Exercise the plane-cut core through a real WASM harness. The source build
    includes the mesh slicer and GLU tessellator used for cut caps. Check a
    horizontal cube, a tilted cut through a hole, each single-side choice and
